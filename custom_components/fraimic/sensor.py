@@ -101,11 +101,20 @@ class FraimicBatterySensor(FraimicBaseSensor):
 
     @property
     def native_value(self) -> float | None:
-        """Return the battery percentage."""
+        """Return the battery percentage.
+
+        Newer "eframe" firmware reports a flat ``battery_pct`` key instead
+        of the nested ``battery.percent`` structure used by older frames.
+        """
         if not self.coordinator.data:
             return None
+        data = self.coordinator.data
         try:
-            return float(self.coordinator.data["battery"]["percent"])
+            return float(data["battery"]["percent"])
+        except (KeyError, TypeError, ValueError):
+            pass
+        try:
+            return float(data["battery_pct"])
         except (KeyError, TypeError, ValueError):
             return None
 
@@ -204,10 +213,16 @@ class FraimicIpAddressSensor(FraimicBaseSensor):
 
     @property
     def native_value(self) -> str | None:
-        """Return the frame's current IP address."""
+        """Return the frame's current IP address.
+
+        Newer "eframe" firmware reports a flat ``ip_address`` key instead
+        of the nested ``wifi.ip`` structure used by older frames.
+        """
         if not self.coordinator.data:
             return None
+        data = self.coordinator.data
         try:
-            return self.coordinator.data["wifi"]["ip"]
+            return data["wifi"]["ip"]
         except (KeyError, TypeError):
-            return None
+            pass
+        return data.get("ip_address")
