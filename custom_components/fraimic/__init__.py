@@ -25,6 +25,8 @@ from .const import (
 )
 from .coordinator import FraimicCoordinator
 
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 # panel_custom is a built-in HA component; import lazily to avoid load-order issues.
 _PANEL_URL  = "/fraimic/fraimic-panel.js"
 _PANEL_PATH = "fraimic"          # URL path: /fraimic
