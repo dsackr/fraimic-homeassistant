@@ -24,6 +24,7 @@ from .const import (
     PLATFORMS,
 )
 from .coordinator import FraimicCoordinator
+from .http_api import FraimicSendImageView
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -49,7 +50,34 @@ _SEND_IMAGE_SCHEMA = vol.Schema(
 
 
 # ---------------------------------------------------------------------------
-# Integration setup / teardown
+# Domain-level setup (runs once when the domain is first loaded)
+# ---------------------------------------------------------------------------
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Register the card JS static path, HTTP view, and frontend injection."""
+    card_path = hass.config.path("custom_components/fraimic/fraimic-card.js")
+
+    # Serve the Lovelace card JS at a stable URL.
+    hass.http.register_static_path(
+        "/fraimic/fraimic-card.js",
+        card_path,
+        cache_headers=False,
+    )
+
+    # Register the image-upload HTTP endpoint.
+    hass.http.register_view(FraimicSendImageView())
+
+    # Inject the card into the HA frontend so it's always available.
+    from homeassistant.components.frontend import add_extra_js_url  # noqa: PLC0415
+
+    add_extra_js_url(hass, "/fraimic/fraimic-card.js")
+
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Integration setup / teardown (per config entry)
 # ---------------------------------------------------------------------------
 
 
@@ -128,7 +156,6 @@ def _get_coordinator_by_device_id(
 async def _resolve_media_path(hass: HomeAssistant, media_content_id: str) -> str:
     """Resolve a media content_id or path string to an absolute filesystem path."""
     if media_content_id.startswith("media-source://"):
-        # Resolve via the HA media_source component.
         try:
             from homeassistant.components.media_source import (  # noqa: PLC0415
                 async_resolve_media,
@@ -137,7 +164,6 @@ async def _resolve_media_path(hass: HomeAssistant, media_content_id: str) -> str
             media_item = await async_resolve_media(hass, media_content_id, None)
             url: str = media_item.url
 
-            # The resolved URL looks like /media/local/path/to/file.jpg
             prefix = "/media/local/"
             if url.startswith(prefix):
                 local_dir = hass.config.media_dirs.get(
@@ -145,20 +171,16 @@ async def _resolve_media_path(hass: HomeAssistant, media_content_id: str) -> str
                 )
                 return os.path.join(local_dir, url[len(prefix):])
 
-            raise HomeAssistantError(
-                f"Cannot access non-local media URL: {url}"
-            )
+            raise HomeAssistantError(f"Cannot access non-local media URL: {url}")
         except ImportError as err:
             raise HomeAssistantError(
                 "media_source component is not available"
             ) from err
 
-    # Legacy /media/<path> format
     if media_content_id.startswith("/media/"):
         local_dir = hass.config.media_dirs.get("local", hass.config.path("media"))
         return os.path.join(local_dir, media_content_id[len("/media/"):])
 
-    # Treat as an absolute filesystem path.
     return media_content_id
 
 
