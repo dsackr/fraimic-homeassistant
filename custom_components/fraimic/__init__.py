@@ -12,6 +12,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.helpers import device_registry as dr
 
 from .const import (
@@ -66,15 +67,19 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     base_dir = hass.config.path("custom_components/fraimic")
 
     # Serve the Lovelace card JS and the sidebar panel JS at stable URLs.
-    hass.http.register_static_path(
-        "/fraimic/fraimic-card.js",
-        f"{base_dir}/fraimic-card.js",
-        cache_headers=False,
-    )
-    hass.http.register_static_path(
-        "/fraimic/fraimic-panel.js",
-        f"{base_dir}/fraimic-panel.js",
-        cache_headers=False,
+    await hass.http.async_register_static_paths(
+        [
+            StaticPathConfig(
+                "/fraimic/fraimic-card.js",
+                f"{base_dir}/fraimic-card.js",
+                False,
+            ),
+            StaticPathConfig(
+                "/fraimic/fraimic-panel.js",
+                f"{base_dir}/fraimic-panel.js",
+                False,
+            ),
+        ]
     )
 
     # Register the image-upload HTTP endpoint.
