@@ -26,6 +26,12 @@ from .const import (
 from .coordinator import FraimicCoordinator
 from .http_api import FraimicSendImageView
 
+# panel_custom is a built-in HA component; import lazily to avoid load-order issues.
+_PANEL_URL  = "/fraimic/fraimic-panel.js"
+_PANEL_PATH = "fraimic"          # URL path: /fraimic
+_PANEL_SIDEBAR_TITLE = "Frames"
+_PANEL_SIDEBAR_ICON  = "mdi:image-frame"
+
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
 
@@ -55,23 +61,43 @@ _SEND_IMAGE_SCHEMA = vol.Schema(
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Register the card JS static path, HTTP view, and frontend injection."""
-    card_path = hass.config.path("custom_components/fraimic/fraimic-card.js")
+    """Register static paths, HTTP view, sidebar panel, and Lovelace card JS."""
+    base_dir = hass.config.path("custom_components/fraimic")
 
-    # Serve the Lovelace card JS at a stable URL.
+    # Serve the Lovelace card JS and the sidebar panel JS at stable URLs.
     hass.http.register_static_path(
         "/fraimic/fraimic-card.js",
-        card_path,
+        f"{base_dir}/fraimic-card.js",
+        cache_headers=False,
+    )
+    hass.http.register_static_path(
+        "/fraimic/fraimic-panel.js",
+        f"{base_dir}/fraimic-panel.js",
         cache_headers=False,
     )
 
     # Register the image-upload HTTP endpoint.
     hass.http.register_view(FraimicSendImageView())
 
-    # Inject the card into the HA frontend so it's always available.
+    # Inject the Lovelace card JS so it's available on any dashboard.
     from homeassistant.components.frontend import add_extra_js_url  # noqa: PLC0415
 
     add_extra_js_url(hass, "/fraimic/fraimic-card.js")
+
+    # Register the "Frames" sidebar panel.
+    from homeassistant.components.panel_custom import async_register_panel  # noqa: PLC0415
+
+    await async_register_panel(
+        hass,
+        webcomponent_name="fraimic-panel",
+        frontend_url_path=_PANEL_PATH,
+        sidebar_title=_PANEL_SIDEBAR_TITLE,
+        sidebar_icon=_PANEL_SIDEBAR_ICON,
+        module_url=_PANEL_URL,
+        embed_iframe=False,
+        require_admin=False,
+        config={},
+    )
 
     return True
 
