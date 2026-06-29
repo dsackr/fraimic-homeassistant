@@ -204,13 +204,24 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
         """Ask for a friendly name, then create the entry."""
         errors: dict[str, str] = {}
 
+        # Use dimensions reported by the frame when available; fall back to picker.
+        api_width: int | None = self._selected_info.get("width")
+        api_height: int | None = self._selected_info.get("height")
+        has_api_dims = isinstance(api_width, int) and isinstance(api_height, int)
+
         if user_input is not None:
             name = user_input[CONF_NAME].strip()
-            resolution = user_input.get(CONF_RESOLUTION, _DEFAULT_RESOLUTION)
-            width, height = FRAME_RESOLUTIONS[resolution]
+
+            if has_api_dims:
+                width, height = api_width, api_height
+            else:
+                resolution = user_input.get(CONF_RESOLUTION, _DEFAULT_RESOLUTION)
+                width, height = FRAME_RESOLUTIONS[resolution]
 
             unique_ip = (
-                self._selected_info.get("wifi", {}).get("ip") or self._selected_host
+                self._selected_info.get("wifi", {}).get("ip")
+                or self._selected_info.get("ip_address")
+                or self._selected_host
             )
             await self.async_set_unique_id(unique_ip)
             self._abort_if_unique_id_configured()
@@ -225,14 +236,18 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
                 },
             )
 
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_NAME): str,
-                vol.Optional(CONF_RESOLUTION, default=_DEFAULT_RESOLUTION): vol.In(
-                    list(FRAME_RESOLUTIONS.keys())
-                ),
-            }
-        )
+        if has_api_dims:
+            # Dimensions come from the API — only ask for a name.
+            schema = vol.Schema({vol.Required(CONF_NAME): str})
+        else:
+            schema = vol.Schema(
+                {
+                    vol.Required(CONF_NAME): str,
+                    vol.Optional(CONF_RESOLUTION, default=_DEFAULT_RESOLUTION): vol.In(
+                        list(FRAME_RESOLUTIONS.keys())
+                    ),
+                }
+            )
 
         return self.async_show_form(
             step_id="name_device",
