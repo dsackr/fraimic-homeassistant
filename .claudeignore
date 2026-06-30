@@ -1,0 +1,13 @@
+# Compiled Python — not useful for understanding or editing the codebase
+__pycache__/
+*.pyc
+*.pyo
+
+# Git internals
+.git/
+
+# CI/CD workflows — not relevant to integration logic
+.github/
+
+# macOS metadata
+.DS_Store
