@@ -1,7 +1,7 @@
 {
   "domain": "fraimic",
   "name": "Fraimic",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "documentation": "https://github.com/dsackr/fraimic-homeassistant",
   "issue_tracker": "https://github.com/dsackr/fraimic-homeassistant/issues",
   "codeowners": [
@@ -15,6 +15,15 @@
   "dependencies": [
     "frontend",
     "http",
-    "panel_custom"
+    "panel_custom",
+    "dhcp"
+  ],
+  "dhcp": [
+    {
+      "macaddress": "1CDBD4*"
+    },
+    {
+      "macaddress": "3CDC75*"
+    }
   ]
 }

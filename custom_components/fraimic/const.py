@@ -21,6 +21,8 @@ CONF_HOST = "host"
 CONF_NAME = "name"
 CONF_WIDTH = "width"
 CONF_HEIGHT = "height"
+CONF_DEVICE_KEY = "device_key"  # persistent Fraimic device identifier
+CONF_MAC = "mac_address"         # WiFi MAC (normalised, no colons)
 CONF_MODE = "mode"
 
 # Frame display modes

@@ -170,6 +170,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: "ConfigEntry") -> bool:
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
+    # Keep the coordinator in sync if DHCP discovery updates the host
+    # in entry.data without triggering a full reload.
+    entry.async_on_unload(
+        entry.add_update_listener(coordinator.async_config_entry_updated)
+    )
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Register services once (only for the first entry; subsequent entries

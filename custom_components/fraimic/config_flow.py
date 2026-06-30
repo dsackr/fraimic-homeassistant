@@ -2,27 +2,33 @@
 
 from __future__ import annotations
 
-import asyncio
-import ipaddress
 import logging
+import socket
 from typing import TYPE_CHECKING, Any
 
-import aiohttp
 import voluptuous as vol
 
+from homeassistant.components.dhcp import DhcpServiceInfo
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 
 from .const import (
+    CONF_DEVICE_KEY,
     CONF_HEIGHT,
     CONF_HOST,
+    CONF_MAC,
     CONF_NAME,
     CONF_WIDTH,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     FRAME_RESOLUTIONS,
-    API_INFO,
+)
+from .helpers import (
+    device_key_from_info,
+    mac_from_info,
+    probe_frame,
+    scan_subnet,
 )
 
 if TYPE_CHECKING:
@@ -33,55 +39,6 @@ _LOGGER = logging.getLogger(__name__)
 CONF_RESOLUTION = "resolution"
 CONF_SCAN_INTERVAL = "scan_interval"
 _DEFAULT_RESOLUTION = "13.3"
-_PROBE_TIMEOUT = aiohttp.ClientTimeout(total=5)
-_SCAN_TIMEOUT = aiohttp.ClientTimeout(total=0.5)
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-async def _probe_frame(
-    session: aiohttp.ClientSession,
-    host: str,
-    timeout: aiohttp.ClientTimeout,
-) -> dict[str, Any] | None:
-    """Try GET /api/info on *host*. Return parsed JSON or None on any failure."""
-    url = f"http://{host}{API_INFO}"
-    try:
-        async with session.get(url, timeout=timeout) as resp:
-            if resp.status == 200:
-                data = await resp.json(content_type=None)
-                return data
-    except Exception:  # noqa: BLE001
-        pass
-    return None
-
-
-async def _scan_subnet(host_ip: str) -> list[dict[str, Any]]:
-    """
-    Probe all 254 host addresses in the /24 subnet of *host_ip* concurrently.
-
-    Returns a list of dicts with keys ``ip`` (the probed address) and ``info``
-    (the parsed /api/info JSON) for every address that responded.
-    """
-    try:
-        network = ipaddress.IPv4Network(f"{host_ip}/24", strict=False)
-    except ValueError:
-        return []
-
-    hosts = [str(h) for h in network.hosts()]
-
-    async with aiohttp.ClientSession() as session:
-        tasks = [_probe_frame(session, h, _SCAN_TIMEOUT) for h in hosts]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    found: list[dict[str, Any]] = []
-    for addr, result in zip(hosts, results):
-        if isinstance(result, dict):
-            found.append({"ip": addr, "info": result})
-    return found
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +58,62 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
         self._selected_info: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
+    # DHCP discovery — called automatically when HA sees a DHCP lease
+    # for a device whose MAC OUI matches our manifest filter.
+    # ------------------------------------------------------------------
+
+    async def async_step_dhcp(
+        self, discovery_info: DhcpServiceInfo
+    ) -> FlowResult:
+        """Handle DHCP discovery: update existing entry's IP or offer new setup."""
+        ip = discovery_info.ip
+
+        import aiohttp  # local import avoids top-level cost when flow unused
+        async with aiohttp.ClientSession() as session:
+            info = await probe_frame(session, ip)
+
+        if info is None:
+            return self.async_abort(reason="not_fraimic_device")
+
+        key = device_key_from_info(info)
+        if not key:
+            return self.async_abort(reason="not_fraimic_device")
+
+        mac = mac_from_info(info)
+
+        # Check every existing entry — match on device_key (new entries) or
+        # MAC (entries set up before this version that lack device_key).
+        for entry in self._async_current_entries():
+            entry_key = entry.data.get(CONF_DEVICE_KEY)
+            entry_mac = entry.data.get(CONF_MAC, "")
+            if entry_key == key or (mac and entry_mac == mac):
+                # Same physical frame — update host if it moved.
+                if entry.data.get(CONF_HOST) != ip:
+                    _LOGGER.info(
+                        "Fraimic frame %s moved: %s → %s",
+                        key,
+                        entry.data.get(CONF_HOST),
+                        ip,
+                    )
+                    self.hass.config_entries.async_update_entry(
+                        entry,
+                        data={
+                            **entry.data,
+                            CONF_HOST: ip,
+                            CONF_DEVICE_KEY: key,
+                            CONF_MAC: mac,
+                        },
+                    )
+                return self.async_abort(reason="already_configured")
+
+        # Genuinely new frame — start the normal setup flow.
+        await self.async_set_unique_id(key)
+        self._abort_if_unique_id_configured()
+        self._selected_host = ip
+        self._selected_info = info
+        return await self.async_step_name_device()
+
+    # ------------------------------------------------------------------
     # Step 1 — user (manual IP or leave blank to scan)
     # ------------------------------------------------------------------
 
@@ -114,16 +127,25 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
             host = user_input.get(CONF_HOST, "").strip()
 
             if not host:
-                # User submitted the manual form with no IP — re-scan.
                 local_ip = self._get_local_ip()
-                self._discovered = await _scan_subnet(local_ip)
+                self._discovered = await scan_subnet(local_ip)
+                # Filter out already-configured frames.
+                configured_keys = {
+                    e.data.get(CONF_DEVICE_KEY)
+                    for e in self._async_current_entries()
+                    if e.data.get(CONF_DEVICE_KEY)
+                }
+                self._discovered = [
+                    d for d in self._discovered
+                    if device_key_from_info(d["info"]) not in configured_keys
+                ]
                 if self._discovered:
                     return await self.async_step_pick_device()
                 errors["base"] = "no_devices_found"
             else:
-                # Manual IP path — probe then go to name_device.
+                import aiohttp
                 async with aiohttp.ClientSession() as session:
-                    info = await _probe_frame(session, host, _PROBE_TIMEOUT)
+                    info = await probe_frame(session, host)
 
                 if info is None:
                     errors[CONF_HOST] = "cannot_connect"
@@ -133,25 +155,25 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
                     return await self.async_step_name_device()
 
         else:
-            # First visit — auto-scan before showing anything.
+            # First visit — auto-scan.
             local_ip = self._get_local_ip()
-            self._discovered = await _scan_subnet(local_ip)
+            self._discovered = await scan_subnet(local_ip)
+            configured_keys = {
+                e.data.get(CONF_DEVICE_KEY)
+                for e in self._async_current_entries()
+                if e.data.get(CONF_DEVICE_KEY)
+            }
+            self._discovered = [
+                d for d in self._discovered
+                if device_key_from_info(d["info"]) not in configured_keys
+            ]
             if self._discovered:
                 return await self.async_step_pick_device()
-            # Nothing found; fall through and show the manual form.
             errors["base"] = "no_devices_found"
 
-        # Manual entry fallback (shown when scan finds nothing or user re-scans).
-        schema = vol.Schema(
-            {
-                vol.Optional(CONF_HOST, default=""): str,
-            }
-        )
-
+        schema = vol.Schema({vol.Optional(CONF_HOST, default=""): str})
         return self.async_show_form(
-            step_id="user",
-            data_schema=schema,
-            errors=errors,
+            step_id="user", data_schema=schema, errors=errors
         )
 
     # ------------------------------------------------------------------
@@ -184,18 +206,13 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
             for d in self._discovered
         }
 
-        schema = vol.Schema(
-            {vol.Required("device"): vol.In(device_options)}
-        )
-
+        schema = vol.Schema({vol.Required("device"): vol.In(device_options)})
         return self.async_show_form(
-            step_id="pick_device",
-            data_schema=schema,
-            errors=errors,
+            step_id="pick_device", data_schema=schema, errors=errors
         )
 
     # ------------------------------------------------------------------
-    # Step 3 (scan path) — enter a friendly name then create the entry
+    # Step 3 — name the device then create the entry
     # ------------------------------------------------------------------
 
     async def async_step_name_device(
@@ -204,7 +221,6 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
         """Ask for a friendly name, then create the entry."""
         errors: dict[str, str] = {}
 
-        # Use dimensions reported by the frame when available; fall back to picker.
         api_width: int | None = self._selected_info.get("width")
         api_height: int | None = self._selected_info.get("height")
         has_api_dims = isinstance(api_width, int) and isinstance(api_height, int)
@@ -218,13 +234,21 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
                 resolution = user_input.get(CONF_RESOLUTION, _DEFAULT_RESOLUTION)
                 width, height = FRAME_RESOLUTIONS[resolution]
 
-            unique_ip = (
+            key = device_key_from_info(self._selected_info)
+            mac = mac_from_info(self._selected_info)
+
+            # Use device_key as the stable unique_id. Falls back to IP only
+            # if the firmware is ancient enough not to return one.
+            unique = key or (
                 self._selected_info.get("wifi", {}).get("ip")
-                or self._selected_info.get("ip_address")
                 or self._selected_host
             )
-            await self.async_set_unique_id(unique_ip)
-            self._abort_if_unique_id_configured()
+            await self.async_set_unique_id(unique)
+            # If the same device was set up before at a different IP, update
+            # the host in the existing entry instead of creating a duplicate.
+            self._abort_if_unique_id_configured(
+                updates={CONF_HOST: self._selected_host}
+            )
 
             return self.async_create_entry(
                 title=name,
@@ -233,11 +257,12 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_NAME: name,
                     CONF_WIDTH: width,
                     CONF_HEIGHT: height,
+                    CONF_DEVICE_KEY: key or "",
+                    CONF_MAC: mac,
                 },
             )
 
         if has_api_dims:
-            # Dimensions come from the API — only ask for a name.
             schema = vol.Schema({vol.Required(CONF_NAME): str})
         else:
             schema = vol.Schema(
@@ -273,8 +298,6 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
     def _get_local_ip(self) -> str:
         """Return the IPv4 address of the HA machine, falling back to 192.168.1.1."""
         try:
-            import socket
-
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                 s.connect(("8.8.8.8", 80))
                 return s.getsockname()[0]
