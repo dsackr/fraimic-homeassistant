@@ -88,7 +88,7 @@ class FraimicLibraryUploadView(HomeAssistantView):
 
 
 class FraimicLibraryImageView(HomeAssistantView):
-    """Stream a stored original — used for thumbnails in the panel UI."""
+    """Stream a stored original (GET, for thumbnails) or remove it (DELETE)."""
 
     url = "/api/fraimic/library/image/{image_id}"
     name = "api:fraimic:library:image"
@@ -102,6 +102,16 @@ class FraimicLibraryImageView(HomeAssistantView):
         except Exception as err:  # noqa: BLE001
             return self.json_message(f"Image not found: {err}", status_code=404)
         return web.Response(body=raw_bytes, content_type=content_type)
+
+    async def delete(self, request: web.Request, image_id: str) -> web.Response:
+        hass = request.app["hass"]
+        manager = _get_manager(hass)
+        try:
+            await manager.async_delete(image_id)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Failed to delete library image %s: %s", image_id, err)
+            return self.json_message(f"Delete failed: {err}", status_code=500)
+        return self.json({"success": True})
 
 
 class FraimicLibrarySendView(HomeAssistantView):

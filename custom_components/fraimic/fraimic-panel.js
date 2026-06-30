@@ -7,7 +7,7 @@
 (function () {
   'use strict';
 
-  const PANEL_VERSION = '0.2.0';
+  const PANEL_VERSION = '0.2.1';
 
   // -------------------------------------------------------------------------
   // Styles
@@ -644,6 +644,7 @@
             ${frameOptions || '<option>No frames available</option>'}
           </select>
           <button class="btn-primary" id="lib-send-${sid}" ${this._frames.length ? '' : 'disabled'}>⬆ Send</button>
+          <button class="btn-ghost" id="lib-delete-${sid}" title="Remove from library">🗑</button>
         </div>
         <div class="feedback" id="lib-card-fb-${sid}"></div>
       `;
@@ -653,6 +654,10 @@
       el.querySelector(`#lib-send-${sid}`).addEventListener('click', () => {
         const entityId = el.querySelector(`#frame-select-${sid}`).value;
         if (entityId) this._sendFromLibrary(image.image_id, entityId, el, sid);
+      });
+
+      el.querySelector(`#lib-delete-${sid}`).addEventListener('click', () => {
+        this._deleteFromLibrary(image.image_id);
       });
 
       return el;
@@ -668,6 +673,32 @@
         container.innerHTML = `<img src="${url}" alt="">`;
       } catch (err) {
         console.warn('[fraimic-panel] thumbnail load failed:', err);
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Library: delete
+    // -----------------------------------------------------------------------
+
+    async _deleteFromLibrary(imageId) {
+      const fb = this.shadowRoot.getElementById('lib-fb');
+      try {
+        const resp = await fetch(`/api/fraimic/library/image/${imageId}`, {
+          method: 'DELETE', headers: this._authHeaders(),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (resp.ok && result.success) {
+          await this._loadLibrary();
+          this._renderLibrary();
+        } else {
+          fb.className = 'feedback err';
+          fb.textContent = `Delete failed: ${result.message || resp.statusText || resp.status}`;
+          fb.style.display = 'block';
+        }
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Network error: ${err.message}`;
+        fb.style.display = 'block';
       }
     }
 

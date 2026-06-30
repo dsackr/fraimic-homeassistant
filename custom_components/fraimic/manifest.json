@@ -1,7 +1,7 @@
 {
   "domain": "fraimic",
   "name": "Fraimic",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "documentation": "https://github.com/dsackr/fraimic-homeassistant",
   "issue_tracker": "https://github.com/dsackr/fraimic-homeassistant/issues",
   "codeowners": [
