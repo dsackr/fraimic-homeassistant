@@ -96,6 +96,11 @@ class LibraryImage:
     uploaded_at: float
     content_type: str = "application/octet-stream"
     resolutions: list[list[int]] = field(default_factory=list)  # [[w, h], ...]
+    # Per-resolution manual crop rectangles, keyed by "WIDTHxHEIGHT".
+    # Each value is [x0, y0, x1, y1], normalized 0.0-1.0 against the
+    # original image. Absent key == no manual crop saved for that
+    # resolution yet (falls back to the automatic letterbox render).
+    crops: dict[str, list[float]] = field(default_factory=dict)
 
     def has_resolution(self, width: int, height: int) -> bool:
         return [width, height] in self.resolutions
@@ -107,6 +112,7 @@ class LibraryImage:
             "uploaded_at": self.uploaded_at,
             "content_type": self.content_type,
             "resolutions": self.resolutions,
+            "crops": self.crops,
         }
 
     @classmethod
@@ -117,6 +123,7 @@ class LibraryImage:
             uploaded_at=data["uploaded_at"],
             content_type=data.get("content_type", "application/octet-stream"),
             resolutions=data.get("resolutions", []),
+            crops=data.get("crops", {}),
         )
 
 
@@ -153,6 +160,14 @@ class LibraryBackend:
     async def async_save_bin(
         self, image_id: str, width: int, height: int, data: bytes
     ) -> None:
+        raise NotImplementedError
+
+    async def async_update_image_fields(self, image_id: str, **fields: Any) -> None:
+        """Patch arbitrary manifest fields (e.g. crops) for one image."""
+        raise NotImplementedError
+
+    async def async_delete_bin(self, image_id: str, width: int, height: int) -> None:
+        """Remove a cached .bin for one resolution so it regenerates on next send."""
         raise NotImplementedError
 
     async def async_upload_original(
@@ -299,6 +314,19 @@ class LocalLibraryBackend(LibraryBackend):
         ]
         self._write_manifest(manifest)
 
+    def _update_image_fields_sync(self, image_id: str, fields: dict[str, Any]) -> None:
+        manifest = self._read_manifest()
+        for d in manifest.get("images", []):
+            if d["image_id"] == image_id:
+                d.update(fields)
+                break
+        self._write_manifest(manifest)
+
+    def _delete_bin_sync(self, image_id: str, width: int, height: int) -> None:
+        path = self._bin_path(image_id, width, height)
+        if os.path.isfile(path):
+            os.remove(path)
+
     # -- async public API --
 
     async def async_list_images(self) -> list[LibraryImage]:
@@ -319,6 +347,16 @@ class LocalLibraryBackend(LibraryBackend):
     ) -> None:
         await self.hass.async_add_executor_job(
             self._save_bin_sync, image_id, width, height, data
+        )
+
+    async def async_update_image_fields(self, image_id: str, **fields: Any) -> None:
+        await self.hass.async_add_executor_job(
+            self._update_image_fields_sync, image_id, fields
+        )
+
+    async def async_delete_bin(self, image_id: str, width: int, height: int) -> None:
+        await self.hass.async_add_executor_job(
+            self._delete_bin_sync, image_id, width, height
         )
 
     async def async_upload_original(
@@ -543,6 +581,27 @@ class DropboxLibraryBackend(LibraryBackend):
                     resolutions.append([width, height])
                 break
         await self._write_manifest(manifest)
+
+    async def async_update_image_fields(self, image_id: str, **fields: Any) -> None:
+        manifest = await self._read_manifest() or {"images": []}
+        for d in manifest.get("images", []):
+            if d["image_id"] == image_id:
+                d.update(fields)
+                break
+        await self._write_manifest(manifest)
+
+    async def async_delete_bin(self, image_id: str, width: int, height: int) -> None:
+        session = async_get_clientsession(self.hass)
+        resp = await session.post(
+            f"{_DROPBOX_API}/files/delete_v2",
+            headers=self._headers({"Content-Type": "application/json"}),
+            json={"path": self._bin_path(image_id, width, height)},
+        )
+        if resp.status >= 400 and resp.status not in (404, 409):
+            text = await resp.text()
+            raise LibraryBackendError(
+                f"Dropbox bin delete failed ({resp.status}): {text[:200]}"
+            )
 
     async def async_delete_image(self, image_id: str) -> None:
         session = async_get_clientsession(self.hass)
@@ -795,6 +854,21 @@ class GoogleDriveLibraryBackend(LibraryBackend):
             entry["resolutions"].append([width, height])
         await self._write_manifest(manifest)
 
+    async def async_update_image_fields(self, image_id: str, **fields: Any) -> None:
+        manifest = await self._read_manifest()
+        entry = self._find_entry(manifest, image_id)
+        entry.update(fields)
+        await self._write_manifest(manifest)
+
+    async def async_delete_bin(self, image_id: str, width: int, height: int) -> None:
+        manifest = await self._read_manifest()
+        entry = self._find_entry(manifest, image_id)
+        res_key = f"{width}x{height}"
+        bin_file_id = entry.get("bin_file_ids", {}).pop(res_key, None)
+        if bin_file_id:
+            await self._delete_file(bin_file_id)
+            await self._write_manifest(manifest)
+
     async def async_delete_image(self, image_id: str) -> None:
         manifest = await self._read_manifest()
         entry = next(
@@ -944,25 +1018,72 @@ class LibraryManager:
 
         return record.to_dict()
 
+    async def _find_image(self, image_id: str) -> LibraryImage | None:
+        images = await self._backend.async_list_images()
+        return next((img for img in images if img.image_id == image_id), None)
+
     async def async_get_bin_for_send(
         self, image_id: str, width: int, height: int
     ) -> bytes:
         """Return a cached .bin, generating + caching it on the fly if this
         resolution hasn't been seen for this image before (e.g. a frame
-        added after the image was uploaded)."""
+        added after the image was uploaded, or a crop was just changed and
+        invalidated the old cache). Uses the image's saved manual crop for
+        this resolution if one exists; otherwise falls back to the
+        automatic letterbox render."""
         cached = await self._backend.async_get_bin(image_id, width, height)
         if cached is not None:
             return cached
 
         raw_bytes, _content_type = await self._backend.async_get_original(image_id)
+        record = await self._find_image(image_id)
+        crop_box = (record.crops if record else {}).get(f"{width}x{height}")
 
-        from .image_converter import convert_image_bytes  # noqa: PLC0415
+        if crop_box:
+            from .image_converter import convert_image_bytes_cropped  # noqa: PLC0415
 
-        bin_bytes = await self.hass.async_add_executor_job(
-            convert_image_bytes, raw_bytes, width, height
-        )
+            bin_bytes = await self.hass.async_add_executor_job(
+                convert_image_bytes_cropped, raw_bytes, width, height, tuple(crop_box)
+            )
+        else:
+            from .image_converter import convert_image_bytes  # noqa: PLC0415
+
+            bin_bytes = await self.hass.async_add_executor_job(
+                convert_image_bytes, raw_bytes, width, height
+            )
         await self._backend.async_save_bin(image_id, width, height, bin_bytes)
         return bin_bytes
+
+    async def async_set_crop(
+        self, image_id: str, width: int, height: int, crop_box: list[float]
+    ) -> dict[str, Any]:
+        """Persist a manual crop rectangle for one image at one resolution,
+        and drop any cached .bin for that resolution so the next send picks
+        up the new crop instead of a stale render."""
+        record = await self._find_image(image_id)
+        if record is None:
+            raise LibraryBackendError(f"Image '{image_id}' not found")
+        crops = dict(record.crops)
+        crops[f"{width}x{height}"] = [float(v) for v in crop_box]
+        await self._backend.async_update_image_fields(image_id, crops=crops)
+        await self._backend.async_delete_bin(image_id, width, height)
+        record.crops = crops
+        return record.to_dict()
+
+    async def async_clear_crop(
+        self, image_id: str, width: int, height: int
+    ) -> dict[str, Any]:
+        """Revert to the original (un-cropped, auto-letterboxed) rendering
+        for one image at one resolution."""
+        record = await self._find_image(image_id)
+        if record is None:
+            raise LibraryBackendError(f"Image '{image_id}' not found")
+        crops = dict(record.crops)
+        crops.pop(f"{width}x{height}", None)
+        await self._backend.async_update_image_fields(image_id, crops=crops)
+        await self._backend.async_delete_bin(image_id, width, height)
+        record.crops = crops
+        return record.to_dict()
 
     async def async_delete(self, image_id: str) -> None:
         await self._backend.async_delete_image(image_id)

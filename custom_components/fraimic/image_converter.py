@@ -126,6 +126,73 @@ def _resize_with_letterbox(
     return canvas
 
 
+def _crop_to_box(
+    image: "Image.Image",
+    crop_box: "Tuple[float, float, float, float]",
+) -> "Image.Image":
+    """
+    Crop *image* to the normalized rectangle *crop_box* = (x0, y0, x1, y1),
+    where each value is a fraction (0.0-1.0) of the source image's full
+    width/height. Used by the manual-crop path (as opposed to the automatic
+    letterbox path above) -- the caller is responsible for choosing a box
+    whose aspect ratio already matches the eventual target width/height, so
+    no padding or distortion is introduced by the subsequent resize.
+
+    Coordinates are clamped to [0, 1] and reordered/widened as needed so the
+    result is always a valid, non-empty box within the image bounds.
+    """
+    orig_w, orig_h = image.size
+    x0, y0, x1, y1 = crop_box
+
+    x0, x1 = sorted((min(max(x0, 0.0), 1.0), min(max(x1, 0.0), 1.0)))
+    y0, y1 = sorted((min(max(y0, 0.0), 1.0), min(max(y1, 0.0), 1.0)))
+
+    left = int(round(x0 * orig_w))
+    top = int(round(y0 * orig_h))
+    right = int(round(x1 * orig_w))
+    bottom = int(round(y1 * orig_h))
+
+    # Guarantee at least a 1px box even if rounding collapsed it to nothing.
+    right = max(right, left + 1)
+    bottom = max(bottom, top + 1)
+    right = min(right, orig_w)
+    bottom = min(bottom, orig_h)
+    left = min(left, right - 1)
+    top = min(top, bottom - 1)
+
+    return image.crop((left, top, right, bottom))
+
+
+def default_cover_crop_box(
+    orig_width: int, orig_height: int, target_width: int, target_height: int
+) -> "Tuple[float, float, float, float]":
+    """
+    Compute a centred crop rectangle (normalized 0-1 coordinates against the
+    original image) whose aspect ratio exactly matches
+    *target_width* : *target_height*, sized as large as possible without
+    exceeding the original image -- i.e. the same centred "cover" framing
+    _resize_with_letterbox would produce if it cropped instead of padding.
+
+    This is the starting point the crop editor shows for an image that
+    doesn't have a saved crop yet for the chosen size/orientation.
+    """
+    target_ratio = target_width / target_height
+    orig_ratio = orig_width / orig_height
+
+    if orig_ratio > target_ratio:
+        # Original is relatively wider than the target -- crop the sides.
+        crop_w = orig_height * target_ratio
+        crop_h = float(orig_height)
+    else:
+        # Original is relatively taller than the target -- crop top/bottom.
+        crop_w = float(orig_width)
+        crop_h = orig_width / target_ratio
+
+    x0 = (orig_width - crop_w) / 2 / orig_width
+    y0 = (orig_height - crop_h) / 2 / orig_height
+    return (x0, y0, 1 - x0, 1 - y0)
+
+
 def _auto_rotate(
     image: "Image.Image",
     target_width: int,
@@ -317,5 +384,62 @@ def _process(image: "Image.Image", width: int, height: int) -> bytes:
     """Shared implementation used by both public entry points."""
     image = _auto_rotate(image, width, height)
     image = _resize_with_letterbox(image, width, height)
+    image = _quantize_to_spectra6(image)
+    return _pack_to_spectra6_bin(image)
+
+
+def convert_image_cropped(
+    image_path: str,
+    width: int,
+    height: int,
+    crop_box: "Tuple[float, float, float, float]",
+) -> bytes:
+    """
+    Convert an image file to Spectra 6 binary using a manually-chosen crop
+    rectangle instead of the automatic letterbox path.
+
+    :param image_path: Path to the source image file.
+    :param width: Target display width in pixels.
+    :param height: Target display height in pixels.
+    :param crop_box: (x0, y0, x1, y1), normalized 0.0-1.0 against the
+        source image's full dimensions (post EXIF-orientation). The caller
+        (the crop editor UI) is responsible for keeping this box's aspect
+        ratio matched to width:height.
+    :returns: Raw bytes in Spectra 6 ``.bin`` format.
+    """
+    image = _open_as_rgb(image_path)
+    return _process_cropped(image, width, height, crop_box)
+
+
+def convert_image_bytes_cropped(
+    image_data: bytes,
+    width: int,
+    height: int,
+    crop_box: "Tuple[float, float, float, float]",
+) -> bytes:
+    """
+    Convert raw image bytes to Spectra 6 binary using a manually-chosen crop
+    rectangle instead of the automatic letterbox path. See
+    :func:`convert_image_cropped` for parameter details.
+    """
+    image = _open_as_rgb(image_data)
+    return _process_cropped(image, width, height, crop_box)
+
+
+def _process_cropped(
+    image: "Image.Image",
+    width: int,
+    height: int,
+    crop_box: "Tuple[float, float, float, float]",
+) -> bytes:
+    """Shared implementation for the manual-crop public entry points.
+
+    No auto-rotate step here -- unlike the letterbox path, the crop box's
+    position and aspect ratio already fully encode the user's chosen
+    orientation, so rotating the source image first would only make the
+    saved (normalized) crop coordinates harder to reason about.
+    """
+    image = _crop_to_box(image, crop_box)
+    image = image.resize((width, height), Image.LANCZOS)
     image = _quantize_to_spectra6(image)
     return _pack_to_spectra6_bin(image)

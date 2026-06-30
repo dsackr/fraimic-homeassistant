@@ -5,6 +5,9 @@ Endpoints:
     POST /api/fraimic/library/upload                      upload a new original (multipart "image")
     GET  /api/fraimic/library/image/{id}                  stream an original (for thumbnails)
     POST /api/fraimic/library/send                        send a library image to a frame
+    POST /api/fraimic/library/crop                         save a manual crop rect for one image+resolution
+    DELETE /api/fraimic/library/crop                       clear a saved crop, revert to auto-letterbox
+    GET  /api/fraimic/frames                              list frames with their configured width/height
     GET  /api/fraimic/library/settings                    current backend name
     POST /api/fraimic/library/settings                    change backend (validates first;
                                                             used directly by Local + Dropbox)
@@ -176,6 +179,124 @@ class FraimicLibrarySendView(HomeAssistantView):
             return self.json_message(f"Failed to send to frame: {err}", status_code=502)
 
         return self.json({"success": True, "bytes_sent": len(bin_bytes)})
+
+
+class FraimicLibraryCropView(HomeAssistantView):
+    """Save (POST) or clear (DELETE) a manual crop rectangle for one
+    library image at one resolution.
+
+    Saving (or clearing) invalidates that resolution's cached .bin so the
+    next send re-converts with the new crop (or reverts to the automatic
+    letterbox render).
+    """
+
+    url = "/api/fraimic/library/crop"
+    name = "api:fraimic:library:crop"
+    requires_auth = True
+
+    @staticmethod
+    def _parse_common(body: dict) -> "tuple[str, int, int] | None":
+        image_id = (body or {}).get("image_id")
+        width = (body or {}).get("width")
+        height = (body or {}).get("height")
+        if not image_id or not isinstance(width, int) or not isinstance(height, int):
+            return None
+        return image_id, width, height
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass = request.app["hass"]
+        manager = _get_manager(hass)
+
+        try:
+            body = await request.json()
+        except Exception as err:  # noqa: BLE001
+            return self.json_message(f"Invalid JSON body: {err}", status_code=400)
+
+        parsed = self._parse_common(body)
+        if parsed is None:
+            return self.json_message(
+                "image_id, width, and height are required", status_code=400
+            )
+        image_id, width, height = parsed
+
+        crop_box = (body or {}).get("crop_box")
+        if (
+            not isinstance(crop_box, list)
+            or len(crop_box) != 4
+            or not all(isinstance(v, (int, float)) for v in crop_box)
+        ):
+            return self.json_message(
+                "crop_box must be [x0, y0, x1, y1]", status_code=400
+            )
+
+        from .library import LibraryBackendError  # noqa: PLC0415
+
+        try:
+            record = await manager.async_set_crop(image_id, width, height, crop_box)
+        except LibraryBackendError as err:
+            return self.json_message(str(err), status_code=404)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Failed to save crop for %s: %s", image_id, err)
+            return self.json_message(f"Failed to save crop: {err}", status_code=500)
+
+        return self.json({"success": True, "image": record})
+
+    async def delete(self, request: web.Request) -> web.Response:
+        hass = request.app["hass"]
+        manager = _get_manager(hass)
+
+        try:
+            body = await request.json()
+        except Exception as err:  # noqa: BLE001
+            return self.json_message(f"Invalid JSON body: {err}", status_code=400)
+
+        parsed = self._parse_common(body)
+        if parsed is None:
+            return self.json_message(
+                "image_id, width, and height are required", status_code=400
+            )
+        image_id, width, height = parsed
+
+        from .library import LibraryBackendError  # noqa: PLC0415
+
+        try:
+            record = await manager.async_clear_crop(image_id, width, height)
+        except LibraryBackendError as err:
+            return self.json_message(str(err), status_code=404)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Failed to clear crop for %s: %s", image_id, err)
+            return self.json_message(f"Failed to clear crop: {err}", status_code=500)
+
+        return self.json({"success": True, "image": record})
+
+
+class FraimicFramesView(HomeAssistantView):
+    """List every configured Fraimic frame's entry_id plus its fixed
+    width/height. entry.data isn't exposed via the generic
+    config_entries/get WS command the panel otherwise uses for discovery,
+    so the crop editor calls this directly to know which frames match a
+    given Frame size + Orientation selection."""
+
+    url = "/api/fraimic/frames"
+    name = "api:fraimic:frames"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass = request.app["hass"]
+        frames = []
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            width = entry.data.get(CONF_WIDTH)
+            height = entry.data.get(CONF_HEIGHT)
+            if isinstance(width, int) and isinstance(height, int):
+                frames.append(
+                    {
+                        "entry_id": entry.entry_id,
+                        "title": entry.title,
+                        "width": width,
+                        "height": height,
+                    }
+                )
+        return self.json({"frames": frames})
 
 
 class FraimicLibrarySettingsView(HomeAssistantView):

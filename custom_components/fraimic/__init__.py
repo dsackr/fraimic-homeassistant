@@ -108,6 +108,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})["_library"] = library_manager
 
     from .library_http import (  # noqa: PLC0415
+        FraimicFramesView,
+        FraimicLibraryCropView,
         FraimicLibraryGoogleOAuthCallbackView,
         FraimicLibraryGoogleOAuthStartView,
         FraimicLibraryGoogleRedirectUriView,
@@ -122,6 +124,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.http.register_view(FraimicLibraryUploadView())
     hass.http.register_view(FraimicLibraryImageView())
     hass.http.register_view(FraimicLibrarySendView())
+    hass.http.register_view(FraimicLibraryCropView())
+    hass.http.register_view(FraimicFramesView())
     hass.http.register_view(FraimicLibrarySettingsView())
     hass.http.register_view(FraimicLibraryGoogleRedirectUriView())
     hass.http.register_view(FraimicLibraryGoogleOAuthStartView())

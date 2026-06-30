@@ -32,7 +32,7 @@ _LOGGER = logging.getLogger(__name__)
 
 CONF_RESOLUTION = "resolution"
 CONF_SCAN_INTERVAL = "scan_interval"
-_DEFAULT_RESOLUTION = "14x18"
+_DEFAULT_RESOLUTION = "13.3"
 _PROBE_TIMEOUT = aiohttp.ClientTimeout(total=5)
 _SCAN_TIMEOUT = aiohttp.ClientTimeout(total=0.5)
 
