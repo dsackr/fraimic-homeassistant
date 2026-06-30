@@ -76,6 +76,7 @@ class FraimicBaseSensor(CoordinatorEntity, SensorEntity):
             manufacturer="Fraimic",
             model="E-Ink Canvas",
             sw_version=fw,
+            configuration_url=f"/fraimic?entry={self._entry.entry_id}",
         )
 
 

@@ -7,7 +7,7 @@
 (function () {
   'use strict';
 
-  const PANEL_VERSION = '0.3.0';
+  const PANEL_VERSION = '0.3.1';
 
   // -------------------------------------------------------------------------
   // Styles
@@ -43,6 +43,11 @@
       border-radius: 12px;
       padding: 16px;
       box-shadow: var(--ha-card-box-shadow, 0 2px 6px rgba(0,0,0,.1));
+    }
+    .card.deep-link-highlight {
+      outline: 3px solid var(--primary-color, #03a9f4);
+      outline-offset: 2px;
+      transition: outline-color 0.3s ease;
     }
 
     /* ---- card header ---- */
@@ -276,9 +281,35 @@
       this._wireLibraryToolbar();
       await this._discoverFrames();
       this._renderFrames();
+      this._handleDeepLink();
       await this._loadBackendSettings();
       await this._loadLibrary();
       this._renderLibrary();
+    }
+
+    // Coming from a device page's "Visit" link (/fraimic?entry=<entry_id>):
+    // jump straight to that frame's card and pop its upload dialog open.
+    _handleDeepLink() {
+      let entryId;
+      try {
+        entryId = new URLSearchParams(window.location.search).get('entry');
+      } catch (err) {
+        return;
+      }
+      if (!entryId) return;
+
+      const frame = this._frames.find(f => f.entryId === entryId);
+      if (!frame) return;
+      const card = this._cards[frame.entityId];
+      if (!card) return;
+
+      card.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card.el.classList.add('deep-link-highlight');
+      setTimeout(() => card.el.classList.remove('deep-link-highlight'), 3000);
+
+      const sid = this._sid(frame.entityId);
+      const fileInput = this.shadowRoot.getElementById(`file-${sid}`);
+      if (fileInput) fileInput.click();
     }
 
     _buildShell() {
@@ -342,6 +373,7 @@
             title:    entry.title,
             entityId: batteryEntity ? batteryEntity.entity_id : null,
             deviceId: device ? device.id : null,
+            entryId:  entry.entry_id,
           };
         }).filter(f => f.entityId); // only frames we can identify
       } catch (err) {
