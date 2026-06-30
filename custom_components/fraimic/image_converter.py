@@ -23,7 +23,26 @@ Conversion pipeline
 2. Auto-rotate to match target orientation (landscape vs portrait) if needed
 3. Resize to fit target dimensions while preserving aspect ratio; letterbox with white fill
 4. Quantize to the 6 Spectra 6 real-world colors using Floyd-Steinberg dithering
-5. Pack pixels into the nibble format described above
+5. Remap pixels to compensate for the frame's dual-half-panel hardware addressing
+   (see _remap_for_dual_panel_hardware for details)
+6. Pack pixels into the nibble format described above
+
+Hardware quirk: dual half-panel addressing
+-------------------------------------------
+The physical display is built from two side-by-side half-width e-ink panels
+(each width // 2 wide). The firmware does not address the incoming byte
+buffer as a single `width` x `height` raster -- it reinterprets the exact
+same bytes as a (width // 2) x (height * 2) raster (using the same
+bottom-to-top / right-to-left scan convention used to pack them), then
+splits that taller, narrower raster in half: the first `height` rows go to
+the RIGHT physical panel (flipped vertically), and the remaining `height`
+rows go to the LEFT physical panel (flipped vertically).
+
+Without compensating for this, a normally-packed image displays as two
+scrambled, vertically-flipped, left/right-swapped halves. We compensate by
+pre-scrambling pixels (_remap_for_dual_panel_hardware) before packing, so
+that after the firmware applies its own (fixed) reinterpretation, the
+visible result matches the original image.
 """
 
 from __future__ import annotations
@@ -171,6 +190,58 @@ def _nibble_for_pixel(quantized_image: "Image.Image", x: int, y: int) -> int:
     return SPECTRA6_NIBBLE_VALUES[index]
 
 
+def _remap_for_dual_panel_hardware(image: "Image.Image") -> "Image.Image":
+    """
+    Pre-scramble pixels to compensate for the frame's dual half-panel
+    hardware addressing (see module docstring for the full explanation).
+
+    The firmware reinterprets the packed byte buffer as a
+    (width // 2) x (height * 2) raster using the same scan convention used
+    to pack it, then shows the first `height` rows of that raster (flipped
+    vertically) on the RIGHT physical panel and the remaining `height` rows
+    (flipped vertically) on the LEFT physical panel.
+
+    This function computes, for every source pixel, where it will actually
+    end up once the firmware applies that transform, and places the desired
+    final pixel there instead -- so the *displayed* result matches the
+    input image once it passes through the firmware's transform.
+
+    :param image: RGB image already quantized to the Spectra 6 palette.
+    :returns: A new RGB image of the same size, with pixels rearranged so
+        that packing and sending it produces a correct on-frame display.
+    """
+    width, height = image.size
+    half_width = width // 2
+    src_pixels = image.load()
+
+    remapped = Image.new("RGB", (width, height))
+    dst_pixels = remapped.load()
+
+    for y in range(height):
+        for x in range(width):
+            if x < half_width:
+                strip_x, strip_y = x, 2 * y
+            else:
+                strip_x, strip_y = x - half_width, 2 * y + 1
+
+            if strip_y < height:
+                # Lands in the firmware's first half-raster -> RIGHT panel.
+                panel_is_right = True
+                y_within_half = strip_y
+            else:
+                # Lands in the firmware's second half-raster -> LEFT panel.
+                panel_is_right = False
+                y_within_half = strip_y - height
+
+            # The firmware flips each half vertically before displaying it.
+            final_y = (height - 1) - y_within_half
+            final_x = strip_x + half_width if panel_is_right else strip_x
+
+            dst_pixels[x, y] = src_pixels[final_x, final_y]
+
+    return remapped
+
+
 def _pack_to_spectra6_bin(quantized_image: "Image.Image") -> bytes:
     """
     Pack a quantized RGB image into the raw Spectra 6 binary format.
@@ -292,4 +363,5 @@ def _process(image: "Image.Image", width: int, height: int) -> bytes:
     image = _auto_rotate(image, width, height)
     image = _resize_with_letterbox(image, width, height)
     image = _quantize_to_spectra6(image)
+    image = _remap_for_dual_panel_hardware(image)
     return _pack_to_spectra6_bin(image)
