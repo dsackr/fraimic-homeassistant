@@ -108,6 +108,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})["_library"] = library_manager
 
     from .library_http import (  # noqa: PLC0415
+        FraimicLibraryGoogleOAuthCallbackView,
+        FraimicLibraryGoogleOAuthStartView,
+        FraimicLibraryGoogleRedirectUriView,
         FraimicLibraryImageView,
         FraimicLibraryListView,
         FraimicLibrarySendView,
@@ -120,6 +123,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.http.register_view(FraimicLibraryImageView())
     hass.http.register_view(FraimicLibrarySendView())
     hass.http.register_view(FraimicLibrarySettingsView())
+    hass.http.register_view(FraimicLibraryGoogleRedirectUriView())
+    hass.http.register_view(FraimicLibraryGoogleOAuthStartView())
+    hass.http.register_view(FraimicLibraryGoogleOAuthCallbackView())
 
     # Inject the Lovelace card JS so it's available on any dashboard.
     from homeassistant.components.frontend import add_extra_js_url  # noqa: PLC0415

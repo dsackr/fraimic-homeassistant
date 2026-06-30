@@ -7,7 +7,7 @@
 (function () {
   'use strict';
 
-  const PANEL_VERSION = '0.2.2';
+  const PANEL_VERSION = '0.3.0';
 
   // -------------------------------------------------------------------------
   // Styles
@@ -184,6 +184,38 @@
       color: var(--primary-text-color);
       font-size: 13px;
     }
+    .backend-config {
+      margin: 4px 0 16px;
+    }
+    .backend-form {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .backend-form input[type="text"], .backend-form input[type="password"] {
+      flex: 1;
+      min-width: 180px;
+      padding: 7px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--divider-color, rgba(0,0,0,.15));
+      background: var(--card-background-color, #fff);
+      color: var(--primary-text-color);
+      font-size: 13px;
+    }
+    .muted {
+      font-size: 12px;
+      color: var(--secondary-text-color);
+      margin: 6px 0 0;
+      line-height: 1.5;
+    }
+    .muted code {
+      background: var(--secondary-background-color, #f1f5f9);
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-size: 11px;
+      word-break: break-all;
+    }
     .lib-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -275,6 +307,7 @@
           <input type="file" id="lib-upload-input"
             accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,image/tiff,image/*">
         </div>
+        <div class="backend-config" id="backend-config"></div>
         <div class="feedback" id="lib-fb"></div>
         <div class="lib-grid" id="lib-grid">
           <div class="empty">
@@ -533,7 +566,7 @@
         if (file) this._onLibraryFile(file);
       });
 
-      backendSelect.addEventListener('change', e => this._onBackendChange(e));
+      backendSelect.addEventListener('change', e => this._renderBackendConfig(e.target.value));
     }
 
     // -----------------------------------------------------------------------
@@ -550,37 +583,135 @@
       }
       const sel = this.shadowRoot.getElementById('backend-select');
       if (sel) sel.value = this._backend;
+      this._renderBackendConfig(this._backend);
     }
 
-    async _onBackendChange(e) {
-      const fb          = this.shadowRoot.getElementById('lib-fb');
-      const newBackend  = e.target.value;
-      const prevBackend = this._backend;
+    _renderBackendConfig(selected) {
+      const container = this.shadowRoot.getElementById('backend-config');
+      if (!container) return;
 
-      try {
-        const resp = await fetch('/api/fraimic/library/settings', {
-          method: 'POST',
-          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ backend: newBackend }),
+      if (selected === 'local') {
+        container.innerHTML = (this._backend === 'local')
+          ? `<p class="muted">✓ Using local storage on this Home Assistant.</p>`
+          : `<button class="btn-primary" id="backend-use-local" style="flex:0 0 auto">Use Local Storage</button>`;
+        const btn = container.querySelector('#backend-use-local');
+        if (btn) btn.addEventListener('click', () => this._switchBackend({ backend: 'local' }));
+        return;
+      }
+
+      if (selected === 'dropbox') {
+        if (this._backend === 'dropbox') {
+          container.innerHTML = `<p class="muted">✓ Connected to Dropbox.</p>`;
+          return;
+        }
+        container.innerHTML = `
+          <div class="backend-form">
+            <input type="password" id="dropbox-token" placeholder="Dropbox access token">
+            <button class="btn-primary" id="dropbox-connect" style="flex:0 0 auto">Save &amp; Connect</button>
+          </div>
+          <p class="muted">Dropbox App Console → your app → Permissions tab → "Generated access token". Paste it here.</p>
+        `;
+        container.querySelector('#dropbox-connect').addEventListener('click', () => {
+          const token = container.querySelector('#dropbox-token').value.trim();
+          if (!token) return;
+          this._switchBackend({ backend: 'dropbox', access_token: token });
         });
-        const result = await resp.json().catch(() => ({}));
+        return;
+      }
 
-        if (resp.ok && result.success) {
-          this._backend = newBackend;
-          fb.className = 'feedback ok';
-          fb.textContent = `✓ Storage set to ${newBackend.replace('_', ' ')}`;
+      if (selected === 'google_drive') {
+        if (this._backend === 'google_drive') {
+          container.innerHTML = `<p class="muted">✓ Connected to Google Drive.</p>`;
+          return;
+        }
+        container.innerHTML = `
+          <div class="backend-form">
+            <input type="text" id="gdrive-client-id" placeholder="OAuth Client ID">
+            <input type="password" id="gdrive-client-secret" placeholder="OAuth Client Secret">
+            <button class="btn-primary" id="gdrive-connect" style="flex:0 0 auto">Connect Google Drive</button>
+          </div>
+          <p class="muted" id="gdrive-hint">Loading redirect URI…</p>
+        `;
+        this._loadGoogleRedirectUri();
+        container.querySelector('#gdrive-connect').addEventListener('click', () => this._connectGoogleDrive());
+      }
+    }
+
+    async _loadGoogleRedirectUri() {
+      const hint = this.shadowRoot.getElementById('gdrive-hint');
+      if (!hint) return;
+      try {
+        const resp = await fetch('/api/fraimic/library/oauth/google/redirect_uri', { headers: this._authHeaders() });
+        const result = await resp.json();
+        if (result.redirect_uri) {
+          hint.innerHTML = `In Google Cloud Console, create an OAuth Client ID (type: Web application) `
+            + `and add this as an Authorized redirect URI, then enable the Google Drive API:<br>`
+            + `<code>${this._esc(result.redirect_uri)}</code>`;
         } else {
-          e.target.value = prevBackend;
-          fb.className = 'feedback err';
-          fb.textContent = result.message || resp.statusText || `HTTP ${resp.status}`;
+          hint.textContent = 'Set an External URL under Settings → System → Network in Home Assistant first — Google needs a stable redirect URL.';
         }
       } catch (err) {
-        e.target.value = prevBackend;
+        hint.textContent = `Could not determine redirect URI: ${err.message}`;
+      }
+    }
+
+    async _connectGoogleDrive() {
+      const fb = this.shadowRoot.getElementById('lib-fb');
+      const clientId     = this.shadowRoot.getElementById('gdrive-client-id').value.trim();
+      const clientSecret = this.shadowRoot.getElementById('gdrive-client-secret').value.trim();
+      if (!clientId || !clientSecret) return;
+
+      try {
+        const resp = await fetch('/api/fraimic/library/oauth/google/start', {
+          method: 'POST',
+          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (resp.ok && result.auth_url) {
+          window.open(result.auth_url, '_blank');
+          fb.className = 'feedback ok';
+          fb.textContent = 'Complete the Google sign-in in the new tab, then come back here and refresh.';
+        } else {
+          fb.className = 'feedback err';
+          fb.textContent = result.message || 'Could not start Google authorization.';
+        }
+      } catch (err) {
         fb.className = 'feedback err';
         fb.textContent = `Network error: ${err.message}`;
       }
       fb.style.display = 'block';
-      setTimeout(() => { fb.style.display = 'none'; }, 5000);
+      setTimeout(() => { fb.style.display = 'none'; }, 8000);
+    }
+
+    async _switchBackend(settings) {
+      const fb = this.shadowRoot.getElementById('lib-fb');
+      try {
+        const resp = await fetch('/api/fraimic/library/settings', {
+          method: 'POST',
+          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify(settings),
+        });
+        const result = await resp.json().catch(() => ({}));
+
+        if (resp.ok && result.success) {
+          this._backend = result.backend;
+          fb.className = 'feedback ok';
+          fb.textContent = `✓ Storage set to ${result.backend.replace('_', ' ')}`;
+          const sel = this.shadowRoot.getElementById('backend-select');
+          this._renderBackendConfig(sel ? sel.value : this._backend);
+          await this._loadLibrary();
+          this._renderLibrary();
+        } else {
+          fb.className = 'feedback err';
+          fb.textContent = result.message || resp.statusText || `HTTP ${resp.status}`;
+        }
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Network error: ${err.message}`;
+      }
+      fb.style.display = 'block';
+      setTimeout(() => { fb.style.display = 'none'; }, 6000);
     }
 
     // -----------------------------------------------------------------------
