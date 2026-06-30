@@ -82,6 +82,18 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         ]
     )
 
+    # Cache-busting suffix for the card/panel JS URLs below. Browsers (and
+    # the HA frontend's own ES-module cache) will happily keep serving an
+    # old fraimic-panel.js/fraimic-card.js indefinitely across releases
+    # since the static file response carries no Cache-Control header --
+    # tying the URL to the integration version forces a real fetch of the
+    # new file every time the version changes, instead of relying on users
+    # to know to hard-refresh.
+    from homeassistant.loader import async_get_integration  # noqa: PLC0415
+
+    integration = await async_get_integration(hass, DOMAIN)
+    _cache_bust = integration.version or "dev"
+
     # Register the image-upload HTTP endpoint.
     from .http_api import FraimicSendImageView  # noqa: PLC0415
     hass.http.register_view(FraimicSendImageView())
@@ -112,7 +124,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     # Inject the Lovelace card JS so it's available on any dashboard.
     from homeassistant.components.frontend import add_extra_js_url  # noqa: PLC0415
 
-    add_extra_js_url(hass, "/fraimic/fraimic-card.js")
+    add_extra_js_url(hass, f"/fraimic/fraimic-card.js?v={_cache_bust}")
 
     # Register the "Frames" sidebar panel.
     from homeassistant.components.panel_custom import async_register_panel  # noqa: PLC0415
@@ -123,7 +135,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         frontend_url_path=_PANEL_PATH,
         sidebar_title=_PANEL_SIDEBAR_TITLE,
         sidebar_icon=_PANEL_SIDEBAR_ICON,
-        module_url=_PANEL_URL,
+        module_url=f"{_PANEL_URL}?v={_cache_bust}",
         embed_iframe=False,
         require_admin=False,
         config={},
