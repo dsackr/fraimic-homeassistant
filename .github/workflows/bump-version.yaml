@@ -1,12 +1,19 @@
-name: Bump version and tag
+name: Bump version and release
 
 # Every push to main (direct commit or merged PR) is a release: compute the
-# next semver tag, stamp it into manifest.json, and push that tag. The
-# existing release.yaml workflow reacts to the new tag and publishes the
-# GitHub release -- this workflow only owns the version number.
+# next semver tag, stamp it into manifest.json, push that tag, and publish
+# the GitHub release right here in this job. release.yaml is NOT relied on
+# for this automatic path -- a tag pushed with the workflow's own
+# GITHUB_TOKEN does not cascade-trigger other workflows (GitHub's loop
+# guard), so a separate tag-triggered release job would silently never
+# run. release.yaml stays around only as a fallback for a manually pushed
+# tag (e.g. a hotfix pushed with a real user token).
 #
-# Default bump is patch. Include `#minor` or `#major` in a commit message
-# (anywhere in the range since the last tag) to bump that part instead.
+# Default bump is patch. Put the literal token `[bump-minor]` or
+# `[bump-major]` in a commit message (anywhere since the last tag) to bump
+# that part instead. Deliberately not `#minor`/`#major` -- those are
+# common enough in prose that a commit merely describing this feature can
+# accidentally trigger a bump.
 
 on:
   push:
@@ -29,6 +36,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEFAULT_BUMP: patch
+          MAJOR_STRING_TOKEN: '[bump-major]'
+          MINOR_STRING_TOKEN: '[bump-minor]'
           TAG_PREFIX: v
           RELEASE_BRANCHES: main
           DRY_RUN: true
@@ -48,3 +57,9 @@ jobs:
 
           git tag "${NEW_TAG}"
           git push origin "${NEW_TAG}"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.next_version.outputs.new_tag }}
+          generate_release_notes: true

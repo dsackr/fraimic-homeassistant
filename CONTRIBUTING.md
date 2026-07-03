@@ -55,9 +55,9 @@ Send `out.bin` to a frame via its local API and verify it renders correctly. Col
 
 ## Releasing (maintainers)
 
-Releases are fully automatic. Every push to `main` (a direct commit or a merged PR) runs `bump-version.yaml`, which computes the next semver tag from the commit log, stamps it into `manifest.json`, commits that, and pushes the tag. The tag push then triggers `release.yaml`, which publishes the GitHub release; HACS picks it up automatically. Don't hand-edit `manifest.json`'s `version` field — it's overwritten by the workflow.
+Releases are fully automatic. Every push to `main` (a direct commit or a merged PR) runs `bump-version.yaml`, which computes the next semver tag from the commit log, stamps it into `manifest.json`, pushes the tag, and publishes the GitHub release itself in the same job; HACS picks it up automatically. Don't hand-edit `manifest.json`'s `version` field — it's overwritten by the workflow. (`release.yaml` still exists as a fallback for a tag pushed manually with a real user token, but the automatic path doesn't depend on it — a tag pushed with the workflow's own token can't cascade-trigger another workflow.)
 
-The default bump is `patch`. Put `#minor` or `#major` anywhere in a commit message (since the last tag) to bump that part instead.
+The default bump is `patch`. Put the literal token `[bump-minor]` or `[bump-major]` in a commit message (since the last tag) to bump that part instead — deliberately not a bare word like "major" or "minor", since prose describing this very feature could otherwise trigger a false bump.
 
 ## Pull requests
 
