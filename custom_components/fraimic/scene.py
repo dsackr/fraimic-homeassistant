@@ -22,7 +22,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -49,7 +48,7 @@ async def async_setup_entry(
         current = manager.scenes  # {scene_id: Scene}, kept live by SceneManager
 
         new_entities = [
-            FraimicSceneEntity(manager, entry, scene)
+            FraimicSceneEntity(manager, scene)
             for scene_id, scene in current.items()
             if scene_id not in entities
         ]
@@ -80,32 +79,28 @@ async def async_setup_entry(
 
 
 class FraimicSceneEntity(SceneEntity):
-    """A Fraimic scene, exposed as a native scene.* entity for voice control."""
+    """A Fraimic scene, exposed as a native scene.* entity for voice control.
+
+    Deliberately has no device_info: HA's legacy naming always concatenates
+    "{device_name} {entity_name}" for the displayed/spoken name whenever an
+    entity belongs to a device and has no registry name override, regardless
+    of has_entity_name. Grouping these under a virtual "Fraimic Scenes"
+    device would turn "Countdown Wall" into "Fraimic Scenes Countdown Wall",
+    which breaks "Alexa, run Countdown Wall" voice matching.
+    """
 
     _attr_should_poll = False
 
     def __init__(
         self,
         manager: SceneManager,
-        entry: ConfigEntry,
         scene: FraimicScene,
     ) -> None:
         """Initialise."""
         self._manager = manager
-        self._entry = entry
         self.scene_id = scene.scene_id
         self._attr_unique_id = f"fraimic_scene_{scene.scene_id}"
         self._attr_name = scene.name
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Group every scene under one virtual "Fraimic Scenes" device."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-            name="Fraimic Scenes",
-            manufacturer="Fraimic",
-            model="Scene Hub",
-        )
 
     def refresh(self, scene: FraimicScene) -> None:
         """Update this entity's displayed name after the scene was renamed."""
