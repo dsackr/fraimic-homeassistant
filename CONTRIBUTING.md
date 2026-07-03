@@ -5,7 +5,7 @@ Thanks for your interest in contributing. This is a custom HACS integration for 
 ## How it works (the short version)
 
 - **`coordinator.py`** — polls each frame's `/api/info` endpoint on a schedule; handles DHCP autodiscovery and IP self-healing
-- **`library.py`** — pluggable image storage (local HA storage, Dropbox, Google Drive); stores a JSON manifest + original images; generates per-resolution `.bin` files on upload
+- **`library.py`** — pluggable image storage (local HA storage, Dropbox, Google Drive); stores a JSON manifest + original images. Uploading only stores the original and returns immediately; per-resolution `.bin` generation for every configured frame size runs afterward in a background task (`LibraryManager._schedule_backfill`/`_async_backfill_worker`) so a bulk operation (a multi-file upload, a scene pack install) isn't one long blocking request, and `async_get_bin_for_send` still generates on the fly if a send happens before the background pass gets to it. Dropbox additionally supports "discovery" (`LibraryBackend.supports_discovery`): files dropped into `/fraimic_library/inbox` outside the app get adopted into the manifest and backfilled the same way. Google Drive can't support this -- its `drive.file` OAuth scope only ever sees files the app itself created.
 - **`image_converter.py`** — converts any Pillow-readable image to Spectra 6 raw binary (4bpp, nibble-packed, left/right half split)
 - **`fraimic-panel.js`** — vanilla JS custom panel; no frameworks; shadow DOM; talks to HA's REST/WS APIs with Bearer auth
 - **`library_http.py`** — HTTP views registered with HA for the panel to call (image upload, crop save/clear, frame list, etc.)

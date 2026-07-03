@@ -793,6 +793,8 @@
             style="flex:0 0 auto;padding-left:14px;padding-right:14px">⬆ Upload to Library</button>
           <button class="btn-ghost" id="album-create-btn"
             style="flex:0 0 auto;padding-left:14px;padding-right:14px">＋ Create Album</button>
+          <button class="btn-ghost" id="lib-discover-btn" style="display:none;flex:0 0 auto;padding-left:14px;padding-right:14px"
+            title="Adopt photos dropped into the Fraimic Library/inbox folder in Dropbox">🔍 Discover</button>
         </div>
         <div class="backend-config" id="backend-config"></div>
         <div class="feedback" id="lib-fb"></div>
@@ -1124,6 +1126,7 @@
       const backendSelect   = this.shadowRoot.getElementById('backend-select');
       const backBtn         = this.shadowRoot.getElementById('lib-back-btn');
       const albumCreateBtn  = this.shadowRoot.getElementById('album-create-btn');
+      const discoverBtn     = this.shadowRoot.getElementById('lib-discover-btn');
       const selectToggleBtn = this.shadowRoot.getElementById('lib-select-toggle');
       const selectCancelBtn = this.shadowRoot.getElementById('lib-select-cancel');
       const selectDeleteBtn = this.shadowRoot.getElementById('lib-select-delete');
@@ -1132,6 +1135,7 @@
       backendSelect.addEventListener('change', e => this._renderBackendConfig(e.target.value));
       backBtn.addEventListener('click', () => this._openAlbumFolders());
       albumCreateBtn.addEventListener('click', () => this._openAlbumCreateModal());
+      discoverBtn.addEventListener('click', () => this._discoverLibrary());
       selectToggleBtn.addEventListener('click', () => this._setLibrarySelectMode(true));
       selectCancelBtn.addEventListener('click', () => this._setLibrarySelectMode(false));
       selectDeleteBtn.addEventListener('click', () => this._deleteSelectedFromLibrary());
@@ -1222,6 +1226,49 @@
       const sel = this.shadowRoot.getElementById('backend-select');
       if (sel) sel.value = this._backend;
       this._renderBackendConfig(this._backend);
+      this._syncDiscoverButton();
+    }
+
+    // Only Dropbox can see files a user drops into its storage outside the
+    // app -- Google Drive's drive.file OAuth scope deliberately can't see
+    // anything it didn't create itself, and Local storage lives inside HA's
+    // own config dir, not somewhere a user casually drops photos into.
+    _syncDiscoverButton() {
+      const btn = this.shadowRoot.getElementById('lib-discover-btn');
+      if (btn) btn.style.display = this._backend === 'dropbox' ? '' : 'none';
+    }
+
+    async _discoverLibrary() {
+      const fb  = this.shadowRoot.getElementById('lib-fb');
+      const btn = this.shadowRoot.getElementById('lib-discover-btn');
+      const prevText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '⏳ Discovering…';
+
+      try {
+        const resp = await fetch('/api/fraimic/library/discover', {
+          method: 'POST', headers: this._authHeaders(),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+
+        await this._loadAlbums();
+        if (this._currentAlbum) await this._loadLibrary(this._currentAlbum);
+        this._renderLibrary();
+
+        fb.className = 'feedback ok';
+        fb.textContent = result.discovered
+          ? `✓ Found ${result.discovered} new photo${result.discovered === 1 ? '' : 's'} -- generating previews in the background.`
+          : '✓ Nothing new in the inbox folder.';
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Discover failed: ${err.message}`;
+      }
+      fb.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = prevText;
     }
 
     _renderBackendConfig(selected) {
@@ -1338,6 +1385,7 @@
           fb.textContent = `✓ Storage set to ${result.backend.replace('_', ' ')}`;
           const sel = this.shadowRoot.getElementById('backend-select');
           this._renderBackendConfig(sel ? sel.value : this._backend);
+          this._syncDiscoverButton();
           this._currentAlbum = null;
           await this._loadAlbums();
           this._renderLibrary();

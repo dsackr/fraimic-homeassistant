@@ -16,6 +16,7 @@ panel's "Connect Google Drive" flow) are all fully implemented.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import logging
@@ -42,6 +43,10 @@ _SETTINGS_STORAGE_VERSION = 1
 BACKEND_LOCAL = "local"
 BACKEND_GOOGLE_DRIVE = "google_drive"
 BACKEND_DROPBOX = "dropbox"
+
+# Sentinel queued onto LibraryManager._backfill_pending to mean "check every
+# image for missing .bin resolutions", as opposed to one specific image_id.
+_BACKFILL_SWEEP_ALL = "*"
 
 # Every image belongs to at least this album. It's a normal tag like any
 # other -- not a computed "all photos" view -- except it can't be renamed or
@@ -164,6 +169,12 @@ class LibraryBackend:
 
     name = "abstract"
 
+    # Whether this backend can find files added outside the app (e.g. a
+    # photo dropped straight into cloud storage) and adopt them into the
+    # manifest. False by default -- only backends that override
+    # async_discover_new_files() and flip this on actually support it.
+    supports_discovery = False
+
     async def async_setup(self) -> None:
         """Validate connectivity/credentials. Raise LibraryBackendError on failure."""
 
@@ -207,6 +218,12 @@ class LibraryBackend:
         raise NotImplementedError
 
     async def async_delete_image(self, image_id: str) -> None:
+        raise NotImplementedError
+
+    async def async_discover_new_files(self) -> list[LibraryImage]:
+        """Find files added outside the app and adopt them into the
+        manifest, returning the newly-adopted records. Only meaningful when
+        supports_discovery is True."""
         raise NotImplementedError
 
 
@@ -427,6 +444,11 @@ _DROPBOX_API = "https://api.dropboxapi.com/2"
 _DROPBOX_CONTENT_API = "https://content.dropboxapi.com/2"
 _DROPBOX_ROOT = "/fraimic_library"
 _DROPBOX_MANIFEST_PATH = f"{_DROPBOX_ROOT}/manifest.json"
+# Files dropped here (via Dropbox's own app/website, outside Fraimic) are
+# adopted into the manifest by async_discover_new_files() and moved into
+# the normal originals/ layout -- kept separate from originals/ itself so
+# discovery never has to guess which files there are "ours" vs. new.
+_DROPBOX_INBOX = f"{_DROPBOX_ROOT}/inbox"
 
 
 class DropboxLibraryBackend(LibraryBackend):
@@ -437,6 +459,7 @@ class DropboxLibraryBackend(LibraryBackend):
     """
 
     name = BACKEND_DROPBOX
+    supports_discovery = True
 
     def __init__(self, hass: "HomeAssistant", settings: dict[str, Any]) -> None:
         self.hass = hass
@@ -691,6 +714,80 @@ class DropboxLibraryBackend(LibraryBackend):
             d for d in manifest.get("images", []) if d["image_id"] != image_id
         ]
         await self._write_manifest(manifest)
+
+    async def async_discover_new_files(self) -> list[LibraryImage]:
+        """Adopt any files sitting in /fraimic_library/inbox -- dropped
+        there via Dropbox directly, not through Fraimic -- into the
+        manifest, moving each through the same upload path a manual
+        upload uses so it ends up in the normal originals/ layout."""
+        session = async_get_clientsession(self.hass)
+
+        # Make sure the inbox exists; a 409 here just means it already does.
+        resp = await session.post(
+            f"{_DROPBOX_API}/files/create_folder_v2",
+            headers=self._headers({"Content-Type": "application/json"}),
+            json={"path": _DROPBOX_INBOX},
+        )
+        if resp.status >= 400 and resp.status != 409:
+            text = await resp.text()
+            raise LibraryBackendError(
+                f"Couldn't prepare the Dropbox inbox folder ({resp.status}): {text[:200]}"
+            )
+
+        resp = await session.post(
+            f"{_DROPBOX_API}/files/list_folder",
+            headers=self._headers({"Content-Type": "application/json"}),
+            json={"path": _DROPBOX_INBOX},
+        )
+        if resp.status == 409:
+            return []  # a create/list race -- nothing to adopt yet
+        if resp.status >= 400:
+            text = await resp.text()
+            raise LibraryBackendError(
+                f"Couldn't list the Dropbox inbox folder ({resp.status}): {text[:200]}"
+            )
+        data = await resp.json()
+        entries = [e for e in data.get("entries", []) if e.get(".tag") == "file"]
+
+        adopted: list[LibraryImage] = []
+        for entry in entries:
+            path = entry["path_lower"]
+            filename = entry["name"]
+            try:
+                dl_resp = await session.post(
+                    f"{_DROPBOX_CONTENT_API}/files/download",
+                    headers=self._headers({"Dropbox-API-Arg": json.dumps({"path": path})}),
+                )
+                if dl_resp.status >= 400:
+                    text = await dl_resp.text()
+                    raise LibraryBackendError(
+                        f"Couldn't download '{filename}' ({dl_resp.status}): {text[:200]}"
+                    )
+                raw_bytes = await dl_resp.read()
+                content_type = await self.hass.async_add_executor_job(
+                    _detect_content_type, raw_bytes
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.error("Dropbox discovery: failed to fetch '%s': %s", filename, err)
+                continue
+
+            record = await self.async_upload_original(filename, raw_bytes, content_type, [])
+
+            del_resp = await session.post(
+                f"{_DROPBOX_API}/files/delete_v2",
+                headers=self._headers({"Content-Type": "application/json"}),
+                json={"path": path},
+            )
+            if del_resp.status >= 400 and del_resp.status != 409:
+                _LOGGER.warning(
+                    "Dropbox discovery: adopted '%s' but couldn't remove it from the "
+                    "inbox (%s) -- it may be re-discovered next time",
+                    filename, del_resp.status,
+                )
+
+            adopted.append(record)
+
+        return adopted
 
 
 # ---------------------------------------------------------------------------
@@ -974,6 +1071,16 @@ class LibraryManager:
         self._backend: LibraryBackend = LocalLibraryBackend(hass)
         self._pending_google_oauth: dict[str, dict[str, Any]] = {}
 
+        # .bin generation runs in the background instead of blocking whatever
+        # triggered the upload (a manual upload, a scene pack install, or
+        # discovery adopting an externally-added file) -- each entry is
+        # either an image_id to backfill, or the sentinel below meaning
+        # "sweep every image for any resolution it's missing". A single
+        # worker processes this serially so concurrent triggers can't race
+        # on the same manifest read-modify-write.
+        self._backfill_pending: set[str] = set()
+        self._backfill_task: asyncio.Task | None = None
+
     async def async_load(self) -> None:
         """Load persisted backend settings (if any) and stand up that backend."""
         stored = await self._store.async_load()
@@ -1060,18 +1167,79 @@ class LibraryManager:
     async def async_upload(
         self, filename: str, raw_bytes: bytes, albums: list[str] | None = None
     ) -> dict[str, Any]:
-        """Store the original, then eagerly generate a .bin for every
-        resolution currently in use across configured frames."""
+        """Store the original and return immediately -- .bin generation for
+        every configured frame resolution happens in the background (see
+        _schedule_backfill) instead of blocking the caller. A "Send" issued
+        before backfill finishes still works: async_get_bin_for_send
+        generates on the fly if the cache isn't warm yet."""
         content_type = await self.hass.async_add_executor_job(
             _detect_content_type, raw_bytes
         )
         record = await self._backend.async_upload_original(
             filename, raw_bytes, content_type, _normalize_albums(albums)
         )
+        self._schedule_backfill(record.image_id)
+        return record.to_dict()
+
+    async def async_discover(self) -> dict[str, Any]:
+        """Adopt files added to the backend outside of Fraimic (e.g.
+        dropped straight into Dropbox) into the manifest, then queue a full
+        backfill sweep to generate .bin files for them (and for anything
+        else left incomplete by an earlier interrupted install/upload)."""
+        if not getattr(self._backend, "supports_discovery", False):
+            raise LibraryBackendError(
+                f"Discovery isn't supported for the '{self._backend.name}' backend."
+            )
+        discovered = await self._backend.async_discover_new_files()
+        self._schedule_backfill(_BACKFILL_SWEEP_ALL)
+        return {
+            "success": True,
+            "discovered": len(discovered),
+            "images": [img.to_dict() for img in discovered],
+        }
+
+    def _schedule_backfill(self, item: str) -> None:
+        """Queue an image_id (or _BACKFILL_SWEEP_ALL) for background .bin
+        generation and make sure exactly one worker is running for it."""
+        self._backfill_pending.add(item)
+        if self._backfill_task is None or self._backfill_task.done():
+            self._backfill_task = self.hass.async_create_task(self._async_backfill_worker())
+
+    async def _async_backfill_worker(self) -> None:
+        while self._backfill_pending:
+            item = self._backfill_pending.pop()
+            try:
+                if item == _BACKFILL_SWEEP_ALL:
+                    for image in await self._backend.async_list_images():
+                        await self._backfill_one(image)
+                else:
+                    image = await self._find_image(item)
+                    if image is not None:
+                        await self._backfill_one(image)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.error("Library backfill failed for '%s': %s", item, err)
+
+    async def _backfill_one(self, record: LibraryImage) -> None:
+        """Generate whatever .bin resolutions `record` is missing for the
+        frames currently configured."""
+        missing = [
+            (w, h) for w, h in _all_frame_resolutions(self.hass)
+            if not record.has_resolution(w, h)
+        ]
+        if not missing:
+            return
+
+        try:
+            raw_bytes, _content_type = await self._backend.async_get_original(record.image_id)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error(
+                "Backfill: couldn't fetch original for '%s': %s", record.image_id, err
+            )
+            return
 
         from .image_converter import convert_image_bytes  # noqa: PLC0415
 
-        for width, height in _all_frame_resolutions(self.hass):
+        for width, height in missing:
             try:
                 bin_bytes = await self.hass.async_add_executor_job(
                     convert_image_bytes, raw_bytes, width, height
@@ -1079,17 +1247,10 @@ class LibraryManager:
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error(
                     "Failed converting library image %s to %dx%d: %s",
-                    record.image_id,
-                    width,
-                    height,
-                    err,
+                    record.image_id, width, height, err,
                 )
                 continue
             await self._backend.async_save_bin(record.image_id, width, height, bin_bytes)
-            if [width, height] not in record.resolutions:
-                record.resolutions.append([width, height])
-
-        return record.to_dict()
 
     async def _find_image(self, image_id: str) -> LibraryImage | None:
         images = await self._backend.async_list_images()

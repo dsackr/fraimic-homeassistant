@@ -20,6 +20,9 @@ Endpoints:
     GET  /api/fraimic/library/settings                    current backend name
     POST /api/fraimic/library/settings                    change backend (validates first;
                                                             used directly by Local + Dropbox)
+    POST /api/fraimic/library/discover                    adopt files added outside Fraimic
+                                                            (Dropbox only -- see LibraryBackend.
+                                                            supports_discovery)
     GET  /api/fraimic/library/oauth/google/redirect_uri   the URI to register in Google Cloud Console
     POST /api/fraimic/library/oauth/google/start          begin the Google consent flow
     GET  /api/fraimic/library/oauth/google/callback       Google's redirect target (no auth --
@@ -75,8 +78,9 @@ class FraimicLibraryUploadView(HomeAssistantView):
     """Upload one or more original images into the library, into a single
     target album (new or existing; defaults to the "Images" album).
 
-    Eagerly converts each to a .bin for every resolution currently in use
-    across configured frames (see LibraryManager.async_upload).
+    Returns as soon as each original is stored -- .bin generation for every
+    resolution currently in use across configured frames happens in the
+    background (see LibraryManager.async_upload / _schedule_backfill).
     """
 
     url = "/api/fraimic/library/upload"
@@ -498,6 +502,32 @@ class FraimicLibrarySettingsView(HomeAssistantView):
             return self.json_message(f"Failed to set backend: {err}", status_code=500)
 
         return self.json({"success": True, "backend": manager.backend_name})
+
+
+class FraimicLibraryDiscoverView(HomeAssistantView):
+    """Adopt files added to the active backend outside of Fraimic (only
+    supported by the Dropbox backend today -- see
+    LibraryBackend.supports_discovery)."""
+
+    url = "/api/fraimic/library/discover"
+    name = "api:fraimic:library:discover"
+    requires_auth = True
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass = request.app["hass"]
+        manager = _get_manager(hass)
+
+        from .library import LibraryBackendError  # noqa: PLC0415
+
+        try:
+            result = await manager.async_discover()
+        except LibraryBackendError as err:
+            return self.json_message(str(err), status_code=400)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Library discovery failed: %s", err)
+            return self.json_message(f"Discovery failed: {err}", status_code=500)
+
+        return self.json(result)
 
 
 class FraimicLibraryGoogleRedirectUriView(HomeAssistantView):
