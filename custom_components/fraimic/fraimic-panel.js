@@ -2829,6 +2829,20 @@
         this._renderScenes();
         await this._loadScenePacks();
         this._renderScenePacks();
+
+        // A partial install still reports success (some images did make
+        // it in) -- surface it on the page-level banner rather than the
+        // per-card one, since _renderScenePacks() just tore down the card
+        // this callback's `fb` reference pointed at.
+        if (result.errors && result.errors.length) {
+          const total = result.images_added + result.errors.length;
+          const pageFb = this.shadowRoot.getElementById('pack-fb');
+          pageFb.className = 'feedback err';
+          pageFb.textContent = `"${pack.name}" installed ${result.images_added} of ${total} images -- `
+            + `failed: ${result.errors.map(e => e.filename).join(', ')}. Remove and try again, `
+            + `or add the missing images to the album manually.`;
+          pageFb.style.display = 'block';
+        }
       } catch (err) {
         fb.className = 'feedback err';
         fb.textContent = `Install failed: ${err.message}`;

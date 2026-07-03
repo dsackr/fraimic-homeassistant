@@ -105,6 +105,7 @@ class ScenePackManager:
         self._scenes = scenes
         self._store: Store = Store(hass, _STORAGE_VERSION, _STORAGE_KEY)
         self._installed: dict[str, dict[str, Any]] = {}
+        self._installing: set[str] = set()
         self._index_cache: list[dict[str, Any]] | None = None
         self._index_cache_time: float = 0.0
 
@@ -171,6 +172,8 @@ class ScenePackManager:
             raise ScenePackError(
                 f"Pack '{pack_id}' is already installed -- remove it first to reinstall"
             )
+        if pack_id in self._installing:
+            raise ScenePackError(f"Pack '{pack_id}' is already being installed")
 
         pack = await self._async_get_pack(pack_id)
         album = pack["name"]
@@ -188,26 +191,45 @@ class ScenePackManager:
         uploaded: list[tuple[str, bool]] = []  # (image_id, is_landscape)
         errors: list[dict[str, str]] = []
 
-        for image_spec in pack.get("images", []):
-            filename = image_spec.get("filename") or "image.jpg"
-            path = image_spec.get("path")
-            url = f"{SCENE_PACK_RAW_BASE}/{path}"
-            try:
-                async with session.get(url, timeout=_DOWNLOAD_TIMEOUT) as resp:
-                    if resp.status != 200:
-                        raise ScenePackError(f"HTTP {resp.status} fetching {filename}")
-                    raw_bytes = await resp.read()
-                width, height = await self.hass.async_add_executor_job(
-                    _dimensions, raw_bytes
-                )
-                record = await self._library.async_upload(filename, raw_bytes, [album])
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.error(
-                    "Scene pack '%s': failed to import '%s': %s", pack_id, filename, err
-                )
-                errors.append({"filename": filename, "message": str(err)})
-                continue
-            uploaded.append((record["image_id"], width > height))
+        self._installing.add(pack_id)
+        try:
+            for image_spec in pack.get("images", []):
+                filename = image_spec.get("filename") or "image.jpg"
+                path = image_spec.get("path")
+                url = f"{SCENE_PACK_RAW_BASE}/{path}"
+                try:
+                    async with session.get(url, timeout=_DOWNLOAD_TIMEOUT) as resp:
+                        if resp.status != 200:
+                            raise ScenePackError(f"HTTP {resp.status} fetching {filename}")
+                        raw_bytes = await resp.read()
+                    width, height = await self.hass.async_add_executor_job(
+                        _dimensions, raw_bytes
+                    )
+                    record = await self._library.async_upload(filename, raw_bytes, [album])
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.error(
+                        "Scene pack '%s': failed to import '%s': %s", pack_id, filename, err
+                    )
+                    errors.append({"filename": filename, "message": str(err)})
+                    continue
+                uploaded.append((record["image_id"], width > height))
+        finally:
+            self._installing.discard(pack_id)
+            # However this exits -- including cancellation from a client
+            # timeout or disconnect partway through, which the loop's
+            # `except Exception` above can't catch -- remember whatever
+            # actually made it into the library. Otherwise the "already
+            # installed" guard above never trips, and a retry blindly
+            # re-uploads duplicates of the images that already succeeded
+            # while the rest of the pack silently never lands.
+            if uploaded and pack_id not in self._installed:
+                self._installed[pack_id] = {
+                    "album": album,
+                    "scene_id": None,
+                    "image_ids": [image_id for image_id, _ in uploaded],
+                    "installed_at": time.time(),
+                }
+                await self._async_persist()
 
         if not uploaded:
             raise ScenePackError(
@@ -256,6 +278,8 @@ class ScenePackManager:
 
         if installed.get("scene_id"):
             await self._scenes.async_delete_scene(installed["scene_id"])
+
+        remaining: list[str] = []
         for image_id in installed.get("image_ids", []):
             try:
                 await self._library.async_delete(image_id)
@@ -266,6 +290,21 @@ class ScenePackManager:
                     image_id,
                     err,
                 )
+                remaining.append(image_id)
+
+        if remaining:
+            # Don't forget these -- if we cleared tracking here, they'd
+            # become permanently orphaned (nothing else in this codebase
+            # ever looks for images outside a tracked pack's list), and a
+            # reinstall would still be blocked to boot since the caller
+            # sees this as failed, not "already installed".
+            installed["scene_id"] = None
+            installed["image_ids"] = remaining
+            await self._async_persist()
+            raise ScenePackError(
+                f"Removed the scene, but {len(remaining)} image(s) couldn't be "
+                f"deleted -- try removing '{pack_id}' again."
+            )
 
         del self._installed[pack_id]
         await self._async_persist()
