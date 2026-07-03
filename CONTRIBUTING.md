@@ -9,6 +9,8 @@ Thanks for your interest in contributing. This is a custom HACS integration for 
 - **`image_converter.py`** — converts any Pillow-readable image to Spectra 6 raw binary (4bpp, nibble-packed, left/right half split)
 - **`fraimic-panel.js`** — vanilla JS custom panel; no frameworks; shadow DOM; talks to HA's REST/WS APIs with Bearer auth
 - **`library_http.py`** — HTTP views registered with HA for the panel to call (image upload, crop save/clear, frame list, etc.)
+- **`scenes.py`** — named (frame, image) assignment lists sendable all at once; local-only state (HA's `Store` helper), independent of the library's storage backend
+- **`scenes_http.py`** — HTTP views for scene CRUD + send, mirroring `library_http.py`'s shape
 - **`helpers.py`** — network utilities: `/api/info` probe, subnet scanner for IP self-healing
 
 ## Dev environment

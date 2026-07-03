@@ -7,7 +7,7 @@
 (function () {
   'use strict';
 
-  const PANEL_VERSION = '0.5.0';
+  const PANEL_VERSION = '0.6.0';
 
   // Mirrors const.py's FRAME_RESOLUTIONS -- real hardware pixel counts for
   // each physical panel size, in their native (un-rotated) orientation.
@@ -374,6 +374,50 @@
       color: var(--primary-text-color);
     }
 
+    /* ---- scenes ---- */
+    .scene-card-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--primary-text-color);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .scene-card-summary {
+      font-size: 12px;
+      color: var(--secondary-text-color);
+      margin-top: 3px;
+    }
+    .scene-mapping-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 0;
+    }
+    .scene-mapping-thumb {
+      width: 40px;
+      height: 40px;
+      border-radius: 6px;
+      overflow: hidden;
+      background: var(--secondary-background-color, #f1f5f9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      font-size: 16px;
+    }
+    .scene-mapping-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .scene-mapping-frame {
+      flex: 1;
+      min-width: 0;
+      font-size: 13px;
+      color: var(--primary-text-color);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .scene-mapping-row select { flex: 1.4; min-width: 0; }
+
     /* -- crop / size / orientation editor -------------------------------- */
     .editor-overlay {
       position: fixed;
@@ -535,6 +579,9 @@
       this._currentAlbum  = null;     // null = album folder view; a name = viewing that album
       this._albumPickerImage = null;  // image currently open in the "Add to Album" picker
 
+      this._scenes        = [];       // [{ scene_id, name, mappings: { entry_id: image_id } }]
+      this._sceneEditorId  = null;    // scene_id being edited, or null when creating a new one
+
       this._editorState = null;   // active crop-editor session, or null when closed
       this._editorDrag  = null;   // in-progress pointer drag, or null
       this._editorImgUrl = null;  // blob: URL for the editor's full-size image
@@ -562,12 +609,16 @@
       this._wireEditor();
       this._wireUploadModal();
       this._wireAlbumPicker();
+      this._wireSceneToolbar();
+      this._wireSceneEditor();
       await this._discoverFrames();
       this._renderFrames();
       this._handleDeepLink();
       await this._loadBackendSettings();
       await this._loadAlbums();
       this._renderLibrary();
+      await this._loadScenes();
+      this._renderScenes();
     }
 
     // Coming from a device page's "Visit" link (/fraimic?entry=<entry_id>):
@@ -669,6 +720,38 @@
             <div class="modal-actions">
               <button class="btn-primary" id="album-picker-save">Save</button>
               <button class="btn-ghost" id="album-picker-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <h2 class="section-title">🎬 Scenes</h2>
+        <div class="lib-toolbar">
+          <button class="btn-primary" id="scene-new-btn"
+            style="flex:0 0 auto;padding-left:14px;padding-right:14px">＋ New Scene</button>
+        </div>
+        <div class="feedback" id="scene-fb"></div>
+        <div class="lib-grid" id="scene-grid">
+          <div class="empty">
+            <div style="font-size:36px">⏳</div>
+            <h2>Loading scenes…</h2>
+          </div>
+        </div>
+
+        <div class="modal-overlay" id="scene-editor-overlay">
+          <div class="modal-box" style="max-width:480px">
+            <h3 id="scene-editor-title">New Scene</h3>
+            <div class="modal-row">
+              <label>Scene name</label>
+              <input type="text" id="scene-editor-name" placeholder="e.g. Countdown Wall">
+            </div>
+            <div class="modal-row">
+              <label>Frame → Image</label>
+              <div id="scene-editor-mappings"></div>
+            </div>
+            <div class="feedback" id="scene-editor-fb"></div>
+            <div class="modal-actions">
+              <button class="btn-primary" id="scene-editor-save">Save Scene</button>
+              <button class="btn-ghost" id="scene-editor-cancel">Cancel</button>
             </div>
           </div>
         </div>
@@ -2058,6 +2141,259 @@
 
       saveBtn.disabled = false;
       saveBtn.textContent = 'Save';
+    }
+
+    // -----------------------------------------------------------------------
+    // Scenes: a saved (frame, image) assignment list sendable all at once.
+    // -----------------------------------------------------------------------
+
+    _wireSceneToolbar() {
+      this.shadowRoot.getElementById('scene-new-btn').addEventListener('click', () => this._openSceneEditor());
+    }
+
+    async _loadScenes() {
+      try {
+        const resp = await fetch('/api/fraimic/scenes', { headers: this._authHeaders() });
+        const result = await resp.json();
+        this._scenes = result.scenes || [];
+      } catch (err) {
+        console.error('[fraimic-panel] scenes load failed:', err);
+        this._scenes = [];
+      }
+    }
+
+    _renderScenes() {
+      const grid = this.shadowRoot.getElementById('scene-grid');
+
+      if (!this._scenes.length) {
+        grid.innerHTML = `
+          <div class="empty">
+            <div style="font-size:48px">🎬</div>
+            <h2>No scenes yet</h2>
+            <p>Map each of your frames to an image, then send them all at once —
+               e.g. four frames showing "1", "2", "3", "4" in order on the wall.</p>
+          </div>
+        `;
+        return;
+      }
+
+      grid.innerHTML = '';
+      for (const scene of this._scenes) {
+        grid.appendChild(this._buildSceneCard(scene));
+      }
+    }
+
+    _buildSceneCard(scene) {
+      const el = document.createElement('div');
+      el.className = 'card scene-card';
+      const sid = this._sid(scene.scene_id);
+      const count = Object.keys(scene.mappings || {}).length;
+
+      el.innerHTML = `
+        <div class="scene-card-title">${this._esc(scene.name)}</div>
+        <div class="scene-card-summary">${count} frame${count === 1 ? '' : 's'} mapped</div>
+        <div class="btns" style="margin-top:10px">
+          <button class="btn-primary" id="scene-send-${sid}">▶ Send</button>
+          <button class="btn-ghost" id="scene-edit-${sid}">✎ Edit</button>
+          <button class="btn-ghost" id="scene-delete-${sid}">🗑</button>
+        </div>
+        <div class="feedback" id="scene-card-fb-${sid}"></div>
+      `;
+
+      el.querySelector(`#scene-send-${sid}`).addEventListener('click', () => this._sendScene(scene, el, sid));
+      el.querySelector(`#scene-edit-${sid}`).addEventListener('click', () => this._openSceneEditor(scene));
+      el.querySelector(`#scene-delete-${sid}`).addEventListener('click', () => this._deleteScene(scene));
+
+      return el;
+    }
+
+    _wireSceneEditor() {
+      this.shadowRoot.getElementById('scene-editor-cancel').addEventListener('click', () => this._closeSceneEditor());
+      this.shadowRoot.getElementById('scene-editor-save').addEventListener('click', () => this._saveSceneEditor());
+    }
+
+    async _openSceneEditor(scene) {
+      this._sceneEditorId = scene ? scene.scene_id : null;
+
+      const overlay   = this.shadowRoot.getElementById('scene-editor-overlay');
+      const title      = this.shadowRoot.getElementById('scene-editor-title');
+      const nameInput = this.shadowRoot.getElementById('scene-editor-name');
+      const mappingsEl = this.shadowRoot.getElementById('scene-editor-mappings');
+      const fb         = this.shadowRoot.getElementById('scene-editor-fb');
+
+      title.textContent = scene ? 'Edit Scene' : 'New Scene';
+      nameInput.value = scene ? scene.name : '';
+      fb.style.display = 'none';
+
+      // Fetch the full, unfiltered library fresh -- this._library means
+      // "whatever album is currently open" elsewhere in the panel, so it
+      // can't be reused here.
+      let images = [];
+      try {
+        const resp = await fetch('/api/fraimic/library/list', { headers: this._authHeaders() });
+        const result = await resp.json();
+        images = result.images || [];
+      } catch (err) {
+        console.warn('[fraimic-panel] library load for scene editor failed:', err);
+      }
+
+      const existingMappings = (scene && scene.mappings) || {};
+      const imageOptions = images.map(img =>
+        `<option value="${this._esc(img.image_id)}">${this._esc(img.filename)}</option>`
+      ).join('');
+
+      mappingsEl.innerHTML = this._frames.map(frame => {
+        const rid = this._sid(frame.entryId);
+        return `
+          <div class="scene-mapping-row" data-entry-id="${this._esc(frame.entryId)}">
+            <div class="scene-mapping-thumb" id="scene-map-thumb-${rid}">🖼</div>
+            <div class="scene-mapping-frame">${this._esc(frame.title)}</div>
+            <select class="scene-mapping-select" id="scene-map-select-${rid}">
+              <option value="">— none —</option>
+              ${imageOptions}
+            </select>
+          </div>
+        `;
+      }).join('');
+
+      for (const frame of this._frames) {
+        const rid = this._sid(frame.entryId);
+        const select = mappingsEl.querySelector(`#scene-map-select-${rid}`);
+        const thumb  = mappingsEl.querySelector(`#scene-map-thumb-${rid}`);
+        const assigned = existingMappings[frame.entryId];
+        if (assigned && [...select.options].some(o => o.value === assigned)) {
+          select.value = assigned;
+          this._loadThumbnail(assigned, thumb);
+        }
+        select.addEventListener('change', () => {
+          thumb.innerHTML = '<div style="font-size:16px">🖼</div>';
+          if (select.value) this._loadThumbnail(select.value, thumb);
+        });
+      }
+
+      overlay.style.display = 'flex';
+    }
+
+    _closeSceneEditor() {
+      this.shadowRoot.getElementById('scene-editor-overlay').style.display = 'none';
+      this._sceneEditorId = null;
+    }
+
+    async _saveSceneEditor() {
+      const nameInput = this.shadowRoot.getElementById('scene-editor-name');
+      const mappingsEl = this.shadowRoot.getElementById('scene-editor-mappings');
+      const fb         = this.shadowRoot.getElementById('scene-editor-fb');
+      const saveBtn    = this.shadowRoot.getElementById('scene-editor-save');
+
+      const name = nameInput.value.trim();
+      if (!name) {
+        fb.className = 'feedback err';
+        fb.textContent = 'Enter a name for the scene.';
+        fb.style.display = 'block';
+        return;
+      }
+
+      const mappings = {};
+      mappingsEl.querySelectorAll('.scene-mapping-row').forEach(row => {
+        const select = row.querySelector('.scene-mapping-select');
+        if (select.value) mappings[row.dataset.entryId] = select.value;
+      });
+      if (!Object.keys(mappings).length) {
+        fb.className = 'feedback err';
+        fb.textContent = 'Assign an image to at least one frame.';
+        fb.style.display = 'block';
+        return;
+      }
+
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+
+      try {
+        const url = this._sceneEditorId
+          ? `/api/fraimic/scenes/${this._sceneEditorId}`
+          : '/api/fraimic/scenes';
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, mappings }),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+
+        this._closeSceneEditor();
+        await this._loadScenes();
+        this._renderScenes();
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Couldn't save scene: ${err.message}`;
+        fb.style.display = 'block';
+      }
+
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Scene';
+    }
+
+    async _sendScene(scene, el, sid) {
+      const btn = el.querySelector(`#scene-send-${sid}`);
+      const fb  = el.querySelector(`#scene-card-fb-${sid}`);
+      const prevText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '⏳ Sending…';
+
+      try {
+        const resp = await fetch(`/api/fraimic/scenes/${scene.scene_id}/send`, {
+          method: 'POST', headers: this._authHeaders(),
+        });
+        const result = await resp.json().catch(() => ({}));
+        const results = result.results || [];
+        const ok = results.filter(r => r.success).length;
+        const failed = results.filter(r => !r.success);
+
+        if (resp.ok && ok === results.length && results.length) {
+          fb.className = 'feedback ok';
+          fb.textContent = `✓ Sent to ${ok} frame${ok === 1 ? '' : 's'}`;
+        } else if (ok) {
+          fb.className = 'feedback err';
+          fb.textContent = `Sent to ${ok}/${results.length} frames — failed: `
+            + failed.map(f => f.message || f.entry_id).join(', ');
+        } else {
+          fb.className = 'feedback err';
+          fb.textContent = `Send failed: ${(failed[0] && failed[0].message) || result.message || resp.statusText || resp.status}`;
+        }
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Network error: ${err.message}`;
+      }
+      fb.style.display = 'block';
+
+      btn.disabled = false;
+      btn.textContent = prevText;
+      setTimeout(() => { fb.style.display = 'none'; }, 6000);
+    }
+
+    async _deleteScene(scene) {
+      if (!window.confirm(`Delete scene "${scene.name}"? This can't be undone.`)) return;
+
+      const fb = this.shadowRoot.getElementById('scene-fb');
+      try {
+        const resp = await fetch(`/api/fraimic/scenes/${scene.scene_id}`, {
+          method: 'DELETE', headers: this._authHeaders(),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (resp.ok && result.success) {
+          await this._loadScenes();
+          this._renderScenes();
+          return;
+        }
+        fb.className = 'feedback err';
+        fb.textContent = `Delete failed: ${result.message || resp.statusText || resp.status}`;
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Network error: ${err.message}`;
+      }
+      fb.style.display = 'block';
     }
 
     async _editorSendToCanvas() {

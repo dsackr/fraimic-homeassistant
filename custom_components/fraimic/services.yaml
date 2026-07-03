@@ -58,3 +58,14 @@ refresh:
       selector:
         device:
           integration: fraimic
+
+send_scene:
+  name: Send Scene
+  description: Send a Fraimic scene's mapped images to their assigned frames all at once.
+  fields:
+    name:
+      name: Scene
+      description: The name of the scene to send (set up in the Fraimic panel's Scenes section).
+      required: true
+      selector:
+        text:

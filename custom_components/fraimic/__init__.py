@@ -56,6 +56,12 @@ _SEND_IMAGE_SCHEMA = vol.Schema(
     }
 )
 
+_SEND_SCENE_SCHEMA = vol.Schema(
+    {
+        vol.Required("name"): cv.string,
+    }
+)
+
 
 # ---------------------------------------------------------------------------
 # Domain-level setup (runs once when the domain is first loaded)
@@ -135,6 +141,25 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.http.register_view(FraimicLibraryGoogleOAuthStartView())
     hass.http.register_view(FraimicLibraryGoogleOAuthCallbackView())
 
+    # Scenes: named (frame, image) assignment lists sendable all at once.
+    # Pure local state -- config entry_ids are meaningless off this HA
+    # instance, so (unlike the library) there's no pluggable backend here.
+    from .scenes import SceneManager  # noqa: PLC0415
+
+    scene_manager = SceneManager(hass)
+    await scene_manager.async_load()
+    hass.data.setdefault(DOMAIN, {})["_scenes"] = scene_manager
+
+    from .scenes_http import (  # noqa: PLC0415
+        FraimicSceneSendView,
+        FraimicSceneView,
+        FraimicScenesView,
+    )
+
+    hass.http.register_view(FraimicScenesView())
+    hass.http.register_view(FraimicSceneView())
+    hass.http.register_view(FraimicSceneSendView())
+
     # Inject the Lovelace card JS so it's available on any dashboard.
     from homeassistant.components.frontend import add_extra_js_url  # noqa: PLC0415
 
@@ -209,7 +234,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: "ConfigEntry") -> bool:
         ]
         if not remaining_frame_entries:
             # Remove services when the last frame entry is gone.
-            for service in ("send_image", "refresh", "sleep", "restart"):
+            for service in ("send_image", "send_scene", "refresh", "sleep", "restart"):
                 hass.services.async_remove(DOMAIN, service)
 
     return unload_ok
@@ -330,6 +355,34 @@ def _register_services(hass: HomeAssistant) -> None:
             coordinator.host,
         )
 
+    async def _handle_send_scene(call: ServiceCall) -> None:
+        name: str = call.data["name"]
+
+        scene_manager = hass.data.get(DOMAIN, {}).get("_scenes")
+        if scene_manager is None:
+            raise HomeAssistantError("Scene manager not initialised")
+
+        scene = await scene_manager.async_get_scene_by_name(name)
+        if scene is None:
+            raise HomeAssistantError(f"Scene '{name}' not found")
+
+        result = await scene_manager.async_send_scene(hass, scene.scene_id)
+        results = result["results"]
+        failures = [r for r in results if not r.get("success")]
+
+        if failures and len(failures) == len(results):
+            # Every mapping failed -- raise so the calling automation/script
+            # sees this as an error rather than a silent no-op success.
+            raise HomeAssistantError(
+                f"Scene '{name}' failed to send to any frame: {failures}"
+            )
+        if failures:
+            _LOGGER.warning(
+                "Scene '%s' sent with %d failure(s): %s", name, len(failures), failures
+            )
+        else:
+            _LOGGER.info("Scene '%s' sent to %d frame(s)", name, len(results))
+
     hass.services.async_register(
         DOMAIN, "restart", _handle_restart, schema=_DEVICE_ID_SCHEMA
     )
@@ -341,4 +394,7 @@ def _register_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, "send_image", _handle_send_image, schema=_SEND_IMAGE_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, "send_scene", _handle_send_scene, schema=_SEND_SCENE_SCHEMA
     )
