@@ -9,11 +9,13 @@ name: Bump version and release
 # run. release.yaml stays around only as a fallback for a manually pushed
 # tag (e.g. a hotfix pushed with a real user token).
 #
-# Default bump is patch. Put the literal token `[bump-minor]` or
-# `[bump-major]` in a commit message (anywhere since the last tag) to bump
-# that part instead. Deliberately not `#minor`/`#major` -- those are
-# common enough in prose that a commit merely describing this feature can
-# accidentally trigger a bump.
+# Default bump is patch. Put the literal token BUMPMINOR or BUMPMAJOR
+# (exact case, no punctuation) in a commit message to bump that part
+# instead. The action matches tokens as a bash `case` glob pattern, not a
+# literal substring or regex -- so avoid `#`, `[`, `]`, `*`, or `?` in
+# the token itself, since `[...]` is a glob character class that can
+# match nearly any text. Plain, all-caps, no-punctuation words avoid
+# that trap and are unlikely to appear by accident in ordinary prose.
 
 on:
   push:
@@ -36,8 +38,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEFAULT_BUMP: patch
-          MAJOR_STRING_TOKEN: '[bump-major]'
-          MINOR_STRING_TOKEN: '[bump-minor]'
+          MAJOR_STRING_TOKEN: 'BUMPMAJOR'
+          MINOR_STRING_TOKEN: 'BUMPMINOR'
           TAG_PREFIX: v
           RELEASE_BRANCHES: main
           DRY_RUN: true
