@@ -55,3 +55,12 @@ HUB_PLATFORMS = [Platform.SCENE]
 # Dispatcher signal fired whenever a scene is created, edited, or deleted so
 # the scene entity platform can add/remove/rename entities without a reload.
 SIGNAL_SCENES_UPDATED = f"{DOMAIN}_scenes_updated"
+
+# Where scene pack content (manifest + source images) is fetched from at
+# install time. Content lives in this same repo under scene_packs/ rather
+# than a separate service, so installing a pack is just downloading public
+# files -- no server-side component to run or keep available.
+SCENE_PACK_RAW_BASE = (
+    "https://raw.githubusercontent.com/dsackr/fraimic-homeassistant/main"
+)
+SCENE_PACK_INDEX_URL = f"{SCENE_PACK_RAW_BASE}/scene_packs/index.json"

@@ -13,6 +13,11 @@
   // unless/until it's reorganized elsewhere; can't be renamed or deleted.
   const DEFAULT_ALBUM = 'Images';
 
+  // Mirrors const.py's SCENE_PACK_RAW_BASE -- scene pack cover art is public
+  // content, so the browser fetches it directly instead of proxying through
+  // a Fraimic endpoint.
+  const SCENE_PACK_RAW_BASE = 'https://raw.githubusercontent.com/dsackr/fraimic-homeassistant/main';
+
   // -------------------------------------------------------------------------
   // Styles
   // -------------------------------------------------------------------------
@@ -426,6 +431,16 @@
       color: var(--secondary-text-color);
       margin-top: 3px;
     }
+
+    /* ---- scene packs ---- */
+    .pack-cover {
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      object-fit: cover;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      background: var(--secondary-background-color, #e2e8f0);
+    }
     .scene-mapping-row {
       display: flex;
       align-items: center;
@@ -621,6 +636,8 @@
       this._scenes        = [];       // [{ scene_id, name, mappings: { entry_id: image_id } }]
       this._sceneEditorId  = null;    // scene_id being edited, or null when creating a new one
 
+      this._scenePacks    = [];       // [{ id, name, description, license, cover, images, installed, scene_created }]
+
       this._editorState = null;   // active crop-editor session, or null when closed
       this._editorDrag  = null;   // in-progress pointer drag, or null
       this._editorImgUrl = null;  // blob: URL for the editor's full-size image
@@ -657,6 +674,8 @@
       this._handleDeepLink();
       this._availableSizes = this._computeAvailableSizes();
       this._renderEditorSizePills();
+      await this._loadScenePacks();
+      this._renderScenePacks();
       await this._loadBackendSettings();
       await this._loadAlbums();
       this._renderLibrary();
@@ -693,6 +712,15 @@
           <div class="empty">
             <div style="font-size:36px">⏳</div>
             <h2>Discovering frames…</h2>
+          </div>
+        </div>
+
+        <h2 class="section-title">🎨 Scene Packs</h2>
+        <div class="feedback" id="pack-fb"></div>
+        <div class="lib-grid" id="pack-grid">
+          <div class="empty">
+            <div style="font-size:36px">⏳</div>
+            <h2>Loading scene packs…</h2>
           </div>
         </div>
 
@@ -2646,6 +2674,152 @@
         fb.textContent = `Network error: ${err.message}`;
       }
       fb.style.display = 'block';
+    }
+
+    // -----------------------------------------------------------------------
+    // Scene packs -- curated public-domain image bundles, installable with
+    // one click (downloads into the library, tags an album, builds a scene).
+    // -----------------------------------------------------------------------
+
+    async _loadScenePacks() {
+      const fb = this.shadowRoot.getElementById('pack-fb');
+      fb.style.display = 'none';
+      try {
+        const resp = await fetch('/api/fraimic/scene_packs', { headers: this._authHeaders() });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        this._scenePacks = result.packs || [];
+      } catch (err) {
+        console.error('[fraimic-panel] scene packs load failed:', err);
+        this._scenePacks = [];
+        fb.className = 'feedback err';
+        fb.textContent = `Couldn't load the scene pack catalog: ${err.message}`;
+        fb.style.display = 'block';
+      }
+    }
+
+    _renderScenePacks() {
+      const grid = this.shadowRoot.getElementById('pack-grid');
+
+      if (!this._scenePacks.length) {
+        grid.innerHTML = `
+          <div class="empty">
+            <div style="font-size:48px">🎨</div>
+            <h2>No scene packs available</h2>
+            <p>Couldn't reach the scene pack catalog right now -- check your
+               internet connection and reload the page.</p>
+          </div>
+        `;
+        return;
+      }
+
+      grid.innerHTML = '';
+      for (const pack of this._scenePacks) {
+        grid.appendChild(this._buildPackCard(pack));
+      }
+    }
+
+    _buildPackCard(pack) {
+      const el = document.createElement('div');
+      el.className = 'card pack-card';
+      const sid = this._sid(pack.id);
+      const count = (pack.images || []).length;
+      const coverUrl = `${SCENE_PACK_RAW_BASE}/${pack.cover}`;
+
+      let statusHtml;
+      if (pack.installed) {
+        statusHtml = `
+          <button class="btn-ghost" id="pack-remove-${sid}">🗑 Remove</button>
+          <span class="scene-card-summary">${pack.scene_created ? '✓ Installed · scene created' : '✓ Installed'}</span>
+        `;
+      } else {
+        statusHtml = `<button class="btn-primary" id="pack-install-${sid}">⬇ Install</button>`;
+      }
+
+      el.innerHTML = `
+        <img class="pack-cover" src="${this._esc(coverUrl)}" alt="${this._esc(pack.name)}" loading="lazy">
+        <div class="scene-card-title">${this._esc(pack.name)}</div>
+        <div class="scene-card-summary">${this._esc(pack.description || '')}</div>
+        <div class="scene-card-summary">${count} image${count === 1 ? '' : 's'} · ${this._esc(pack.license || '')}</div>
+        <div class="btns" style="margin-top:10px;align-items:center">${statusHtml}</div>
+        <div class="feedback" id="pack-card-fb-${sid}"></div>
+      `;
+
+      if (pack.installed) {
+        el.querySelector(`#pack-remove-${sid}`)
+          .addEventListener('click', () => this._uninstallPack(pack, el, sid));
+      } else {
+        el.querySelector(`#pack-install-${sid}`)
+          .addEventListener('click', () => this._installPack(pack, el, sid));
+      }
+
+      return el;
+    }
+
+    async _installPack(pack, el, sid) {
+      const btn = el.querySelector(`#pack-install-${sid}`);
+      const fb  = el.querySelector(`#pack-card-fb-${sid}`);
+      const prevText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '⏳ Installing…';
+
+      try {
+        const resp = await fetch(`/api/fraimic/scene_packs/${pack.id}/install`, {
+          method: 'POST', headers: this._authHeaders(),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+
+        // Rebuild every section this touches -- new album + photos in the
+        // library, a new scene, and this pack's own card flipping to its
+        // "installed" state -- so nothing needs a page reload.
+        await this._loadAlbums();
+        this._renderLibrary();
+        await this._loadScenes();
+        this._renderScenes();
+        await this._loadScenePacks();
+        this._renderScenePacks();
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Install failed: ${err.message}`;
+        fb.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = prevText;
+      }
+    }
+
+    async _uninstallPack(pack, el, sid) {
+      if (!window.confirm(`Remove pack "${pack.name}"? This deletes the images and scene it added.`)) return;
+
+      const btn = el.querySelector(`#pack-remove-${sid}`);
+      const fb  = el.querySelector(`#pack-card-fb-${sid}`);
+      btn.disabled = true;
+      btn.textContent = '⏳ Removing…';
+
+      try {
+        const resp = await fetch(`/api/fraimic/scene_packs/${pack.id}`, {
+          method: 'DELETE', headers: this._authHeaders(),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+
+        await this._loadAlbums();
+        this._renderLibrary();
+        await this._loadScenes();
+        this._renderScenes();
+        await this._loadScenePacks();
+        this._renderScenePacks();
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Remove failed: ${err.message}`;
+        fb.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = '🗑 Remove';
+      }
     }
 
     async _editorSendToCanvas() {

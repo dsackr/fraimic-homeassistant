@@ -12,7 +12,20 @@ Thanks for your interest in contributing. This is a custom HACS integration for 
 - **`scenes.py`** — named (frame, image) assignment lists sendable all at once; local-only state (HA's `Store` helper), independent of the library's storage backend
 - **`scenes_http.py`** — HTTP views for scene CRUD + send, mirroring `library_http.py`'s shape
 - **`scene.py`** — exposes each saved scene as a `scene.*` entity (so Alexa/Google Assistant/Assist can activate it by name); lives on an auto-created, device-less "scenes hub" config entry rather than any frame's entry, since scenes are cross-frame state
+- **`scene_packs.py`** / **`scene_packs_http.py`** — curated, installable image bundles (see "Scene packs" below)
 - **`helpers.py`** — network utilities: `/api/info` probe, subnet scanner for IP self-healing
+
+## Scene packs
+
+`scene_packs/` holds the content for one-click "install a pack" bundles surfaced in the panel: a manifest (`scene_packs/index.json`) plus resized source images, fetched at install time from GitHub raw content. Installing a pack runs its images through the normal `LibraryManager.async_upload()` pipeline (so it respects whatever storage backend the user already has configured) and auto-builds a scene by matching image orientation to each configured frame.
+
+To add or refresh a pack, edit the `PACKS` list in `scripts/build_scene_pack.py` (a maintainer-only tool, not loaded by the integration) and run it:
+
+```
+python3 scripts/build_scene_pack.py
+```
+
+It searches Wikimedia Commons for each configured query, keeps only files whose license metadata explicitly says "public domain" *and* whose `Artist` metadata matches the expected artist (Commons full-text search can otherwise surface an unrelated painting for a loosely-worded query), downsizes them to a sane resolution, and rewrites `scene_packs/<pack_id>/` and `index.json`. Review `git diff` before committing — Commons occasionally reshuffles which scan ranks best for a given search.
 
 ## Dev environment
 

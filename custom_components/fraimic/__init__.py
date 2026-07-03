@@ -165,6 +165,25 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.http.register_view(FraimicSceneView())
     hass.http.register_view(FraimicSceneSendView())
 
+    # Scene packs: curated bundles of public-domain images + an auto-built
+    # scene, installable from the panel with no manual setup. Built on top
+    # of the library and scene managers above, so it's set up after both.
+    from .scene_packs import ScenePackManager  # noqa: PLC0415
+
+    scene_pack_manager = ScenePackManager(hass, library_manager, scene_manager)
+    await scene_pack_manager.async_load()
+    hass.data.setdefault(DOMAIN, {})["_scene_packs"] = scene_pack_manager
+
+    from .scene_packs_http import (  # noqa: PLC0415
+        FraimicScenePackInstallView,
+        FraimicScenePacksView,
+        FraimicScenePackUninstallView,
+    )
+
+    hass.http.register_view(FraimicScenePacksView())
+    hass.http.register_view(FraimicScenePackInstallView())
+    hass.http.register_view(FraimicScenePackUninstallView())
+
     # Auto-create the device-less "scenes hub" entry (hosts scene.* entities
     # for voice control) if it doesn't exist yet -- self-heals on upgrade,
     # no user action required.
