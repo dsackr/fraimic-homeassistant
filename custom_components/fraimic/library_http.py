@@ -14,6 +14,8 @@ Endpoints:
     GET  /api/fraimic/library/albums                      list albums with photo counts + cover image
     POST /api/fraimic/library/albums                      rename an album
     DELETE /api/fraimic/library/albums                     delete an album (untags, doesn't delete photos)
+    POST /api/fraimic/library/albums/{name}/images         add a batch of images to an album (creates it
+                                                            if the name isn't in use yet)
     GET  /api/fraimic/frames                              list frames with their configured width/height
     GET  /api/fraimic/library/settings                    current backend name
     POST /api/fraimic/library/settings                    change backend (validates first;
@@ -392,6 +394,40 @@ class FraimicLibraryAlbumsView(HomeAssistantView):
         except Exception as err:  # noqa: BLE001
             _LOGGER.error("Failed to delete album '%s': %s", name, err)
             return self.json_message(f"Failed to delete album: {err}", status_code=500)
+
+        return self.json({"success": True, "count": count})
+
+
+class FraimicLibraryAlbumImagesView(HomeAssistantView):
+    """Add a batch of existing images to an album in one call. Doubles as
+    "create an album" -- a fresh (not-yet-used) name is all that takes."""
+
+    url = "/api/fraimic/library/albums/{name}/images"
+    name = "api:fraimic:library:albums:images"
+    requires_auth = True
+
+    async def post(self, request: web.Request, name: str) -> web.Response:
+        hass = request.app["hass"]
+        manager = _get_manager(hass)
+
+        try:
+            body = await request.json()
+        except Exception as err:  # noqa: BLE001
+            return self.json_message(f"Invalid JSON body: {err}", status_code=400)
+
+        image_ids = body.get("image_ids") if isinstance(body, dict) else None
+        if not isinstance(image_ids, list) or not all(isinstance(i, str) for i in image_ids):
+            return self.json_message("image_ids must be a list of strings", status_code=400)
+
+        from .library import LibraryBackendError  # noqa: PLC0415
+
+        try:
+            count = await manager.async_add_images_to_album(image_ids, name)
+        except LibraryBackendError as err:
+            return self.json_message(str(err), status_code=400)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Failed to add images to album '%s': %s", name, err)
+            return self.json_message(f"Failed to add images to album: {err}", status_code=500)
 
         return self.json({"success": True, "count": count})
 

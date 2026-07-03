@@ -24,7 +24,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
@@ -1196,6 +1196,42 @@ class LibraryManager:
         record.albums = normalized
         return record.to_dict()
 
+    async def _async_apply_album_transform(
+        self, transform: Callable[[LibraryImage], list[str]]
+    ) -> dict[str, dict[str, Any]]:
+        """Build a bulk-update dict by applying `transform` to every image's
+        current album list, keeping only the images it actually changes.
+        Shared by every album-membership mutation (add/rename/delete) so
+        they all funnel through one manifest read + one bulk write."""
+        images = await self._backend.async_list_images()
+        updates: dict[str, dict[str, Any]] = {}
+        for img in images:
+            new_albums = _normalize_albums(transform(img))
+            if new_albums != img.albums:
+                updates[img.image_id] = {"albums": new_albums}
+        return updates
+
+    async def async_add_images_to_album(
+        self, image_ids: list[str], album_name: str
+    ) -> int:
+        """Tag a batch of existing images with an album in one manifest
+        round-trip. A fresh (not-yet-used) name is all "creating" an album
+        takes -- albums are emergent from tags, not a separate registry."""
+        album_name = (album_name or "").strip()
+        if not album_name:
+            raise LibraryBackendError("Album name can't be empty")
+
+        id_set = {i for i in (image_ids or []) if i}
+        if not id_set:
+            raise LibraryBackendError("Select at least one photo")
+
+        updates = await self._async_apply_album_transform(
+            lambda img: [*img.albums, album_name] if img.image_id in id_set else img.albums
+        )
+        if updates:
+            await self._backend.async_bulk_update_image_fields(updates)
+        return len(updates)
+
     async def async_rename_album(self, old_name: str, new_name: str) -> int:
         """Rename an album tag across every image that carries it. Returns
         how many images were affected."""
@@ -1211,15 +1247,9 @@ class LibraryManager:
                 "use the album picker to add individual photos to it instead"
             )
 
-        images = await self._backend.async_list_images()
-        updates: dict[str, dict[str, Any]] = {}
-        for img in images:
-            if old_name not in img.albums:
-                continue
-            updated = _normalize_albums(
-                [new_name if a == old_name else a for a in img.albums]
-            )
-            updates[img.image_id] = {"albums": updated}
+        updates = await self._async_apply_album_transform(
+            lambda img: [new_name if a == old_name else a for a in img.albums]
+        )
         if updates:
             await self._backend.async_bulk_update_image_fields(updates)
         return len(updates)
@@ -1234,13 +1264,9 @@ class LibraryManager:
         if not name:
             raise LibraryBackendError("Album name can't be empty")
 
-        images = await self._backend.async_list_images()
-        updates: dict[str, dict[str, Any]] = {}
-        for img in images:
-            if name not in img.albums:
-                continue
-            updated = _normalize_albums([a for a in img.albums if a != name])
-            updates[img.image_id] = {"albums": updated}
+        updates = await self._async_apply_album_transform(
+            lambda img: [a for a in img.albums if a != name]
+        )
         if updates:
             await self._backend.async_bulk_update_image_fields(updates)
         return len(updates)

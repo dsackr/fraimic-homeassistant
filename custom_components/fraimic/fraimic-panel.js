@@ -7,7 +7,7 @@
 (function () {
   'use strict';
 
-  const PANEL_VERSION = '0.6.0';
+  const PANEL_VERSION = '0.7.0';
 
   // Mirrors const.py's FRAME_RESOLUTIONS -- real hardware pixel counts for
   // each physical panel size, in their native (un-rotated) orientation.
@@ -374,6 +374,63 @@
       color: var(--primary-text-color);
     }
 
+    /* ---- image picker (Create Album) ---- */
+    .image-picker-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+      gap: 8px;
+      max-height: 280px;
+      overflow-y: auto;
+      padding: 4px;
+      border: 1px solid var(--divider-color, rgba(0,0,0,.12));
+      border-radius: 8px;
+    }
+    .image-picker-cell {
+      position: relative;
+      height: 70px;
+      border-radius: 6px;
+      overflow: hidden;
+      cursor: pointer;
+      border: 2px solid transparent;
+    }
+    .image-picker-thumb {
+      position: absolute;
+      inset: 0;
+      background: var(--secondary-background-color, #f1f5f9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+    .image-picker-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .image-picker-cell.selected {
+      border-color: var(--primary-color, #3b82f6);
+    }
+    .image-picker-check {
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: rgba(15,23,42,.55);
+      color: #fff;
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+    }
+    .image-picker-cell.selected .image-picker-check {
+      opacity: 1;
+      background: var(--primary-color, #3b82f6);
+    }
+
     /* ---- scenes ---- */
     .scene-card-title {
       font-size: 15px;
@@ -578,6 +635,7 @@
       this._albums        = [];       // [{ name, count, cover_image_id }]
       this._currentAlbum  = null;     // null = album folder view; a name = viewing that album
       this._albumPickerImage = null;  // image currently open in the "Add to Album" picker
+      this._albumCreateSelected = new Set();  // image_ids selected in the "Create Album" picker
 
       this._scenes        = [];       // [{ scene_id, name, mappings: { entry_id: image_id } }]
       this._sceneEditorId  = null;    // scene_id being edited, or null when creating a new one
@@ -609,6 +667,7 @@
       this._wireEditor();
       this._wireUploadModal();
       this._wireAlbumPicker();
+      this._wireAlbumCreate();
       this._wireSceneToolbar();
       this._wireSceneEditor();
       await this._discoverFrames();
@@ -669,6 +728,8 @@
           </div>
           <button class="btn-primary" id="lib-upload-btn"
             style="flex:0 0 auto;padding-left:14px;padding-right:14px">⬆ Upload to Library</button>
+          <button class="btn-ghost" id="album-create-btn"
+            style="flex:0 0 auto;padding-left:14px;padding-right:14px">＋ Create Album</button>
         </div>
         <div class="backend-config" id="backend-config"></div>
         <div class="feedback" id="lib-fb"></div>
@@ -720,6 +781,25 @@
             <div class="modal-actions">
               <button class="btn-primary" id="album-picker-save">Save</button>
               <button class="btn-ghost" id="album-picker-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-overlay" id="album-create-overlay">
+          <div class="modal-box" style="max-width:520px">
+            <h3>Create Album</h3>
+            <div class="modal-row">
+              <label>Album name</label>
+              <input type="text" id="album-create-name" placeholder="e.g. Vacation 2026">
+            </div>
+            <div class="modal-row">
+              <label>Select photos</label>
+              <div class="image-picker-grid" id="album-create-images"></div>
+            </div>
+            <div class="feedback" id="album-create-fb"></div>
+            <div class="modal-actions">
+              <button class="btn-primary" id="album-create-save">Create Album</button>
+              <button class="btn-ghost" id="album-create-cancel">Cancel</button>
             </div>
           </div>
         </div>
@@ -1058,13 +1138,15 @@
     // -----------------------------------------------------------------------
 
     _wireLibraryToolbar() {
-      const uploadBtn     = this.shadowRoot.getElementById('lib-upload-btn');
-      const backendSelect = this.shadowRoot.getElementById('backend-select');
-      const backBtn       = this.shadowRoot.getElementById('lib-back-btn');
+      const uploadBtn      = this.shadowRoot.getElementById('lib-upload-btn');
+      const backendSelect  = this.shadowRoot.getElementById('backend-select');
+      const backBtn        = this.shadowRoot.getElementById('lib-back-btn');
+      const albumCreateBtn = this.shadowRoot.getElementById('album-create-btn');
 
       uploadBtn.addEventListener('click', () => this._openUploadModal());
       backendSelect.addEventListener('change', e => this._renderBackendConfig(e.target.value));
       backBtn.addEventListener('click', () => this._openAlbumFolders());
+      albumCreateBtn.addEventListener('click', () => this._openAlbumCreateModal());
     }
 
     // -----------------------------------------------------------------------
@@ -1255,16 +1337,19 @@
     }
 
     _renderLibrary() {
-      const breadcrumb = this.shadowRoot.getElementById('lib-breadcrumb');
-      const title      = this.shadowRoot.getElementById('lib-breadcrumb-title');
+      const breadcrumb     = this.shadowRoot.getElementById('lib-breadcrumb');
+      const title          = this.shadowRoot.getElementById('lib-breadcrumb-title');
+      const albumCreateBtn = this.shadowRoot.getElementById('album-create-btn');
 
       if (this._currentAlbum === null) {
         breadcrumb.style.display = 'none';
+        albumCreateBtn.style.display = '';
         this._renderAlbumFolders();
         return;
       }
 
       breadcrumb.style.display = 'flex';
+      albumCreateBtn.style.display = 'none';
       title.textContent = `📁 ${this._currentAlbum}`;
       this._renderLibraryGrid();
     }
@@ -1430,6 +1515,7 @@
             ${frameOptions || '<option>No frames available</option>'}
           </select>
           <button class="btn-primary" id="lib-send-${sid}" ${this._frames.length ? '' : 'disabled'}>⬆ Send</button>
+          <button class="btn-ghost" id="lib-album-${sid}" title="Add to album">🏷</button>
           <button class="btn-ghost" id="lib-delete-${sid}" title="Remove from library">🗑</button>
         </div>
         <div class="feedback" id="lib-card-fb-${sid}"></div>
@@ -1444,6 +1530,10 @@
       el.querySelector(`#lib-send-${sid}`).addEventListener('click', () => {
         const entityId = el.querySelector(`#frame-select-${sid}`).value;
         if (entityId) this._sendFromLibrary(image.image_id, entityId, el, sid);
+      });
+
+      el.querySelector(`#lib-album-${sid}`).addEventListener('click', () => {
+        this._openAlbumPicker(image);
       });
 
       el.querySelector(`#lib-delete-${sid}`).addEventListener('click', () => {
@@ -2060,6 +2150,12 @@
     }
 
     async _openAlbumPicker(image) {
+      // A pending auto-close from a previous save (see _saveAlbumPicker)
+      // must not fire against whatever gets opened next.
+      if (this._albumPickerCloseTimer) {
+        clearTimeout(this._albumPickerCloseTimer);
+        this._albumPickerCloseTimer = null;
+      }
       await this._loadAlbums();
       this._albumPickerImage = image;
 
@@ -2089,6 +2185,10 @@
     }
 
     _closeAlbumPicker() {
+      if (this._albumPickerCloseTimer) {
+        clearTimeout(this._albumPickerCloseTimer);
+        this._albumPickerCloseTimer = null;
+      }
       this.shadowRoot.getElementById('album-picker-overlay').style.display = 'none';
       this._albumPickerImage = null;
     }
@@ -2131,8 +2231,22 @@
         }
         this._renderLibrary();
 
-        this._closeAlbumPicker();
-        this._editorShowFb('ok', '✓ Albums updated');
+        // Show success in the picker's own feedback element -- this may be
+        // opened directly from a library card with no editor open, so
+        // relying on the editor's feedback element (as before) meant the
+        // confirmation silently landed in a hidden part of the DOM.
+        fb.className = 'feedback ok';
+        fb.textContent = '✓ Albums updated';
+        fb.style.display = 'block';
+        // Only close if this is still the same picker session -- a fast
+        // Cancel + reopen-for-a-different-photo within this window must not
+        // have the wrong session slammed shut out from under it.
+        this._albumPickerCloseTimer = setTimeout(() => {
+          this._albumPickerCloseTimer = null;
+          if (this._albumPickerImage && this._albumPickerImage.image_id === image.image_id) {
+            this._closeAlbumPicker();
+          }
+        }, 700);
       } catch (err) {
         fb.className = 'feedback err';
         fb.textContent = `Couldn't update albums: ${err.message}`;
@@ -2141,6 +2255,159 @@
 
       saveBtn.disabled = false;
       saveBtn.textContent = 'Save';
+    }
+
+    // -----------------------------------------------------------------------
+    // Create Album: name a new album and multi-select photos into it.
+    // -----------------------------------------------------------------------
+
+    _wireAlbumCreate() {
+      this.shadowRoot.getElementById('album-create-cancel').addEventListener('click', () => {
+        // Distinct from _closeAlbumCreateModal() also being called on
+        // successful completion -- only an explicit Cancel click should
+        // tell an in-flight save not to navigate the panel afterward.
+        this._albumCreateCancelled = true;
+        this._closeAlbumCreateModal();
+      });
+      this.shadowRoot.getElementById('album-create-save').addEventListener('click', () => this._saveAlbumCreate());
+    }
+
+    async _openAlbumCreateModal() {
+      const overlay   = this.shadowRoot.getElementById('album-create-overlay');
+      const nameInput = this.shadowRoot.getElementById('album-create-name');
+      const grid       = this.shadowRoot.getElementById('album-create-images');
+      const fb         = this.shadowRoot.getElementById('album-create-fb');
+
+      nameInput.value = '';
+      fb.style.display = 'none';
+      this._albumCreateSelected = new Set();
+      this._albumCreateCancelled = false;
+
+      grid.innerHTML = '<div class="modal-file-summary">Loading photos…</div>';
+
+      let images = [];
+      try {
+        const resp = await fetch('/api/fraimic/library/list', { headers: this._authHeaders() });
+        const result = await resp.json();
+        images = result.images || [];
+      } catch (err) {
+        console.warn('[fraimic-panel] library load for create-album failed:', err);
+      }
+
+      if (!images.length) {
+        grid.innerHTML = '<div class="modal-file-summary">No photos in the library yet.</div>';
+      } else {
+        grid.innerHTML = '';
+        for (const image of images) {
+          const cell = document.createElement('div');
+          cell.className = 'image-picker-cell';
+          cell.dataset.imageId = image.image_id;
+          cell.title = image.filename;
+          // The thumbnail and the check badge are siblings, not
+          // parent/child -- _loadThumbnail replaces its target element's
+          // innerHTML wholesale, which would wipe out the badge if it were
+          // nested underneath.
+          cell.innerHTML = `
+            <div class="image-picker-thumb">🖼</div>
+            <div class="image-picker-check">✓</div>
+          `;
+          // This modal loads a thumbnail for every photo in the library --
+          // reopening it repeatedly would otherwise overwrite the shared
+          // this._libThumbUrls cache entries without ever revoking the
+          // blob: URLs they replace (every other _loadThumbnail call site
+          // is preceded by a _clearThumbCache() sweep; this one can't use
+          // that since it'd revoke thumbnails still visible in the grid
+          // behind this modal).
+          const previousUrl = this._libThumbUrls[image.image_id];
+          if (previousUrl) URL.revokeObjectURL(previousUrl);
+          this._loadThumbnail(image.image_id, cell.querySelector('.image-picker-thumb'));
+          cell.addEventListener('click', () => {
+            const id = cell.dataset.imageId;
+            if (this._albumCreateSelected.has(id)) {
+              this._albumCreateSelected.delete(id);
+              cell.classList.remove('selected');
+            } else {
+              this._albumCreateSelected.add(id);
+              cell.classList.add('selected');
+            }
+          });
+          grid.appendChild(cell);
+        }
+      }
+
+      overlay.style.display = 'flex';
+    }
+
+    _closeAlbumCreateModal() {
+      this.shadowRoot.getElementById('album-create-overlay').style.display = 'none';
+      this._albumCreateSelected = new Set();
+    }
+
+    async _saveAlbumCreate() {
+      const nameInput = this.shadowRoot.getElementById('album-create-name');
+      const fb         = this.shadowRoot.getElementById('album-create-fb');
+      const saveBtn    = this.shadowRoot.getElementById('album-create-save');
+
+      const name = nameInput.value.trim();
+      if (!name) {
+        fb.className = 'feedback err';
+        fb.textContent = 'Enter a name for the album.';
+        fb.style.display = 'block';
+        return;
+      }
+      if (!this._albumCreateSelected.size) {
+        fb.className = 'feedback err';
+        fb.textContent = 'Select at least one photo.';
+        fb.style.display = 'block';
+        return;
+      }
+
+      this._albumCreateCancelled = false;
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Creating…';
+
+      try {
+        const resp = await fetch(`/api/fraimic/library/albums/${encodeURIComponent(name)}/images`, {
+          method: 'POST',
+          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_ids: [...this._albumCreateSelected] }),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+
+        if (this._albumCreateCancelled) {
+          // User dismissed the modal while this was in flight -- the album
+          // was still created server-side, just don't yank them into it.
+          await this._loadAlbums();
+          this._renderLibrary();
+        } else {
+          this._closeAlbumCreateModal();
+          await this._loadAlbums();
+          await this._openAlbum(name);
+          if (!result.count) {
+            // Every selected photo already carried this tag (e.g. the name
+            // matched an existing album exactly) -- land in the album
+            // since that's still accurate, just don't imply anything new
+            // was added.
+            const libFb = this.shadowRoot.getElementById('lib-fb');
+            libFb.className = 'feedback ok';
+            libFb.textContent = `"${name}" already contained every photo you selected.`;
+            libFb.style.display = 'block';
+            setTimeout(() => { libFb.style.display = 'none'; }, 5000);
+          }
+        }
+      } catch (err) {
+        if (!this._albumCreateCancelled) {
+          fb.className = 'feedback err';
+          fb.textContent = `Couldn't create album: ${err.message}`;
+          fb.style.display = 'block';
+        }
+      }
+
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Create Album';
     }
 
     // -----------------------------------------------------------------------
