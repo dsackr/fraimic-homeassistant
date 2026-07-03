@@ -109,10 +109,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
     from .library_http import (  # noqa: PLC0415
         FraimicFramesView,
+        FraimicLibraryAlbumsView,
         FraimicLibraryCropView,
         FraimicLibraryGoogleOAuthCallbackView,
         FraimicLibraryGoogleOAuthStartView,
         FraimicLibraryGoogleRedirectUriView,
+        FraimicLibraryImageAlbumsView,
         FraimicLibraryImageView,
         FraimicLibraryListView,
         FraimicLibrarySendView,
@@ -123,8 +125,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.http.register_view(FraimicLibraryListView())
     hass.http.register_view(FraimicLibraryUploadView())
     hass.http.register_view(FraimicLibraryImageView())
+    hass.http.register_view(FraimicLibraryImageAlbumsView())
     hass.http.register_view(FraimicLibrarySendView())
     hass.http.register_view(FraimicLibraryCropView())
+    hass.http.register_view(FraimicLibraryAlbumsView())
     hass.http.register_view(FraimicFramesView())
     hass.http.register_view(FraimicLibrarySettingsView())
     hass.http.register_view(FraimicLibraryGoogleRedirectUriView())

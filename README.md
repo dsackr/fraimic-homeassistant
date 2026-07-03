@@ -9,6 +9,7 @@ Local Home Assistant integration for Fraimic e-ink canvas frames. Controls your 
 - **Send any image** — push PNG or JPG files to a frame; images are auto-converted to Spectra 6 format on the fly
 - **Controls** — refresh display, put frame to sleep, restart frame
 - **Daily agenda mode** — pulls calendar events and renders them as an image for the frame
+- **Shared photo library with albums** — upload one or many photos at once into a new or existing album; a photo can belong to multiple albums with no duplication, and albums show up as folders in the panel
 - **Photo rotation mode** — cycles through albums from Google Photos or iCloud
 
 ## Installation

@@ -2,11 +2,18 @@
 
 Endpoints:
     GET  /api/fraimic/library/list                       list images + active backend
-    POST /api/fraimic/library/upload                      upload a new original (multipart "image")
+                                                            (optional ?album=<name> filter)
+    POST /api/fraimic/library/upload                      upload one or more originals (multipart
+                                                            "image", repeatable) into an album
+                                                            (optional "album" / "new_album" fields)
     GET  /api/fraimic/library/image/{id}                  stream an original (for thumbnails)
+    POST /api/fraimic/library/image/{id}/albums           replace an image's album tags
     POST /api/fraimic/library/send                        send a library image to a frame
     POST /api/fraimic/library/crop                         save a manual crop rect for one image+resolution
     DELETE /api/fraimic/library/crop                       clear a saved crop, revert to auto-letterbox
+    GET  /api/fraimic/library/albums                      list albums with photo counts + cover image
+    POST /api/fraimic/library/albums                      rename an album
+    DELETE /api/fraimic/library/albums                     delete an album (untags, doesn't delete photos)
     GET  /api/fraimic/frames                              list frames with their configured width/height
     GET  /api/fraimic/library/settings                    current backend name
     POST /api/fraimic/library/settings                    change backend (validates first;
@@ -56,13 +63,17 @@ class FraimicLibraryListView(HomeAssistantView):
         hass = request.app["hass"]
         manager = _get_manager(hass)
         images = await manager.async_list_images()
+        album = request.query.get("album")
+        if album:
+            images = [img for img in images if album in (img.get("albums") or [])]
         return self.json({"images": images, "backend": manager.backend_name})
 
 
 class FraimicLibraryUploadView(HomeAssistantView):
-    """Upload a new original image into the library.
+    """Upload one or more original images into the library, into a single
+    target album (new or existing; defaults to the "Images" album).
 
-    Eagerly converts it to a .bin for every resolution currently in use
+    Eagerly converts each to a .bin for every resolution currently in use
     across configured frames (see LibraryManager.async_upload).
     """
 
@@ -79,26 +90,39 @@ class FraimicLibraryUploadView(HomeAssistantView):
         except Exception as err:  # noqa: BLE001
             return self.json_message(f"Invalid request body: {err}", status_code=400)
 
-        image_field = data.get("image")
-        if image_field is None:
+        image_fields = data.getall("image", [])
+        if not image_fields:
             return self.json_message("image file is required", status_code=400)
 
-        try:
-            raw_bytes: bytes = image_field.file.read()  # type: ignore[union-attr]
+        from .library import DEFAULT_ALBUM  # noqa: PLC0415
+
+        new_album = (data.get("new_album") or "").strip()
+        existing_album = (data.get("album") or "").strip()
+        target_album = new_album or existing_album
+        albums = [DEFAULT_ALBUM] if not target_album or target_album == DEFAULT_ALBUM else [DEFAULT_ALBUM, target_album]
+
+        # Each file is uploaded independently -- one bad file in a multi-file
+        # batch shouldn't strand the others (or the ones already persisted
+        # earlier in this same loop) in limbo with no way for the caller to
+        # know they actually succeeded.
+        records = []
+        errors = []
+        for image_field in image_fields:
             filename = getattr(image_field, "filename", None) or "image"
-        except Exception as err:  # noqa: BLE001
-            return self.json_message(f"Could not read image data: {err}", status_code=400)
+            try:
+                # image_field.file is a spooled temp file -- .read() is
+                # blocking I/O and must not run directly on the event loop.
+                raw_bytes: bytes = await hass.async_add_executor_job(
+                    image_field.file.read  # type: ignore[union-attr]
+                )
+                if not raw_bytes:
+                    raise ValueError("uploaded file is empty")
+                records.append(await manager.async_upload(filename, raw_bytes, albums))
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.error("Library upload failed for '%s': %s", filename, err)
+                errors.append({"filename": filename, "message": str(err)})
 
-        if not raw_bytes:
-            return self.json_message("Uploaded file is empty", status_code=400)
-
-        try:
-            record = await manager.async_upload(filename, raw_bytes)
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.error("Library upload failed: %s", err)
-            return self.json_message(f"Upload failed: {err}", status_code=500)
-
-        return self.json({"success": True, "image": record})
+        return self.json({"success": bool(records), "images": records, "errors": errors})
 
 
 class FraimicLibraryImageView(HomeAssistantView):
@@ -126,6 +150,39 @@ class FraimicLibraryImageView(HomeAssistantView):
             _LOGGER.error("Failed to delete library image %s: %s", image_id, err)
             return self.json_message(f"Delete failed: {err}", status_code=500)
         return self.json({"success": True})
+
+
+class FraimicLibraryImageAlbumsView(HomeAssistantView):
+    """Replace the full set of album tags on one library image."""
+
+    url = "/api/fraimic/library/image/{image_id}/albums"
+    name = "api:fraimic:library:image:albums"
+    requires_auth = True
+
+    async def post(self, request: web.Request, image_id: str) -> web.Response:
+        hass = request.app["hass"]
+        manager = _get_manager(hass)
+
+        try:
+            body = await request.json()
+        except Exception as err:  # noqa: BLE001
+            return self.json_message(f"Invalid JSON body: {err}", status_code=400)
+
+        albums = (body or {}).get("albums")
+        if not isinstance(albums, list) or not all(isinstance(a, str) for a in albums):
+            return self.json_message("albums must be a list of strings", status_code=400)
+
+        from .library import LibraryBackendError  # noqa: PLC0415
+
+        try:
+            record = await manager.async_set_image_albums(image_id, albums)
+        except LibraryBackendError as err:
+            return self.json_message(str(err), status_code=404)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Failed to set albums for %s: %s", image_id, err)
+            return self.json_message(f"Failed to set albums: {err}", status_code=500)
+
+        return self.json({"success": True, "image": record})
 
 
 class FraimicLibrarySendView(HomeAssistantView):
@@ -268,6 +325,75 @@ class FraimicLibraryCropView(HomeAssistantView):
             return self.json_message(f"Failed to clear crop: {err}", status_code=500)
 
         return self.json({"success": True, "image": record})
+
+
+class FraimicLibraryAlbumsView(HomeAssistantView):
+    """List, rename, or delete albums.
+
+    Renaming/deleting an album never touches the underlying photos -- it
+    only rewrites which album tags they carry.
+    """
+
+    url = "/api/fraimic/library/albums"
+    name = "api:fraimic:library:albums"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass = request.app["hass"]
+        manager = _get_manager(hass)
+        albums = await manager.async_list_albums()
+        return self.json({"albums": albums})
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass = request.app["hass"]
+        manager = _get_manager(hass)
+
+        try:
+            body = await request.json()
+        except Exception as err:  # noqa: BLE001
+            return self.json_message(f"Invalid JSON body: {err}", status_code=400)
+
+        old_name = (body or {}).get("old_name")
+        new_name = (body or {}).get("new_name")
+        if not old_name or not new_name:
+            return self.json_message("old_name and new_name are required", status_code=400)
+
+        from .library import LibraryBackendError  # noqa: PLC0415
+
+        try:
+            count = await manager.async_rename_album(old_name, new_name)
+        except LibraryBackendError as err:
+            return self.json_message(str(err), status_code=400)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Failed to rename album '%s': %s", old_name, err)
+            return self.json_message(f"Failed to rename album: {err}", status_code=500)
+
+        return self.json({"success": True, "count": count})
+
+    async def delete(self, request: web.Request) -> web.Response:
+        hass = request.app["hass"]
+        manager = _get_manager(hass)
+
+        try:
+            body = await request.json()
+        except Exception as err:  # noqa: BLE001
+            return self.json_message(f"Invalid JSON body: {err}", status_code=400)
+
+        name = (body or {}).get("name")
+        if not name:
+            return self.json_message("name is required", status_code=400)
+
+        from .library import LibraryBackendError  # noqa: PLC0415
+
+        try:
+            count = await manager.async_delete_album(name)
+        except LibraryBackendError as err:
+            return self.json_message(str(err), status_code=400)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Failed to delete album '%s': %s", name, err)
+            return self.json_message(f"Failed to delete album: {err}", status_code=500)
+
+        return self.json({"success": True, "count": count})
 
 
 class FraimicFramesView(HomeAssistantView):

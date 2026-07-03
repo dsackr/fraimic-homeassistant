@@ -7,7 +7,7 @@
 (function () {
   'use strict';
 
-  const PANEL_VERSION = '0.4.0';
+  const PANEL_VERSION = '0.5.0';
 
   // Mirrors const.py's FRAME_RESOLUTIONS -- real hardware pixel counts for
   // each physical panel size, in their native (un-rotated) orientation.
@@ -15,6 +15,10 @@
     '13.3': { width: 1200, height: 1600 }, // portrait-native
     '31.5': { width: 2560, height: 1440 }, // landscape-native
   };
+
+  // Mirrors library.py's DEFAULT_ALBUM -- every photo belongs to this album
+  // unless/until it's reorganized elsewhere; can't be renamed or deleted.
+  const DEFAULT_ALBUM = 'Images';
 
   // -------------------------------------------------------------------------
   // Styles
@@ -251,6 +255,125 @@
     .lib-card .btns select { flex: 1; }
     .lib-thumb { cursor: pointer; }
 
+    /* ---- albums ---- */
+    .lib-breadcrumb {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .lib-breadcrumb button {
+      flex: 0 0 auto;
+      padding: 6px 12px;
+      border-radius: 8px;
+      background: var(--secondary-background-color, #e2e8f0);
+      color: var(--primary-text-color);
+      border: none;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .lib-breadcrumb-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--primary-text-color);
+    }
+    .album-tile { cursor: pointer; }
+    .album-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--primary-text-color);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: pointer;
+    }
+    .album-count {
+      font-size: 12px;
+      color: var(--secondary-text-color);
+      margin-top: 2px;
+    }
+    .album-tile-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .album-tile-actions button {
+      flex: 1;
+      padding: 6px;
+      font-size: 12px;
+    }
+
+    /* ---- simple modal (upload / album picker) ---- */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, .5);
+      z-index: 1100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+    .modal-box {
+      background: var(--card-background-color, #fff);
+      border-radius: 12px;
+      padding: 20px;
+      width: 100%;
+      max-width: 380px;
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: 0 10px 40px rgba(0,0,0,.3);
+      box-sizing: border-box;
+    }
+    .modal-box h3 {
+      margin: 0 0 14px;
+      font-size: 16px;
+      color: var(--primary-text-color);
+    }
+    .modal-row { margin-bottom: 12px; }
+    .modal-row label {
+      display: block;
+      font-size: 12px;
+      color: var(--secondary-text-color);
+      margin-bottom: 4px;
+    }
+    .modal-row select, .modal-row input[type="text"] {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--divider-color, rgba(0,0,0,.15));
+      background: var(--card-background-color, #fff);
+      color: var(--primary-text-color);
+      font-size: 13px;
+      box-sizing: border-box;
+    }
+    #upload-modal-files {
+      display: block;
+      width: 100%;
+      font-size: 12px;
+      color: var(--primary-text-color);
+    }
+    .modal-file-summary {
+      font-size: 12px;
+      color: var(--secondary-text-color);
+      margin-top: 6px;
+    }
+    .modal-actions { display: flex; gap: 8px; margin-top: 16px; }
+    .album-checklist {
+      max-height: 220px;
+      overflow-y: auto;
+      margin-bottom: 12px;
+    }
+    .album-checklist label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 0;
+      font-size: 13px;
+      color: var(--primary-text-color);
+    }
+
     /* -- crop / size / orientation editor -------------------------------- */
     .editor-overlay {
       position: fixed;
@@ -404,9 +527,13 @@
       this._stateMap = {};   // entityId → { battery, available }
       this._cards    = {};   // entityId → { dom refs + state }
 
-      this._library      = [];        // [{ image_id, filename, content_type, resolutions }]
+      this._library      = [];        // [{ image_id, filename, content_type, resolutions, albums }]
       this._backend       = 'local';  // active library storage backend
       this._libThumbUrls  = {};       // image_id → blob: URL (revoked on re-render)
+
+      this._albums        = [];       // [{ name, count, cover_image_id }]
+      this._currentAlbum  = null;     // null = album folder view; a name = viewing that album
+      this._albumPickerImage = null;  // image currently open in the "Add to Album" picker
 
       this._editorState = null;   // active crop-editor session, or null when closed
       this._editorDrag  = null;   // in-progress pointer drag, or null
@@ -433,11 +560,13 @@
       this._buildShell();
       this._wireLibraryToolbar();
       this._wireEditor();
+      this._wireUploadModal();
+      this._wireAlbumPicker();
       await this._discoverFrames();
       this._renderFrames();
       this._handleDeepLink();
       await this._loadBackendSettings();
-      await this._loadLibrary();
+      await this._loadAlbums();
       this._renderLibrary();
     }
 
@@ -489,15 +618,58 @@
           </div>
           <button class="btn-primary" id="lib-upload-btn"
             style="flex:0 0 auto;padding-left:14px;padding-right:14px">⬆ Upload to Library</button>
-          <input type="file" id="lib-upload-input"
-            accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,image/tiff,image/*">
         </div>
         <div class="backend-config" id="backend-config"></div>
         <div class="feedback" id="lib-fb"></div>
+        <div class="lib-breadcrumb" id="lib-breadcrumb">
+          <button id="lib-back-btn">← Albums</button>
+          <span class="lib-breadcrumb-title" id="lib-breadcrumb-title"></span>
+        </div>
         <div class="lib-grid" id="lib-grid">
           <div class="empty">
             <div style="font-size:36px">⏳</div>
             <h2>Loading library…</h2>
+          </div>
+        </div>
+
+        <div class="modal-overlay" id="upload-modal-overlay">
+          <div class="modal-box">
+            <h3>Upload to Library</h3>
+            <div class="modal-row">
+              <label>Photos</label>
+              <input type="file" id="upload-modal-files" multiple
+                accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,image/tiff,image/*">
+              <div class="modal-file-summary" id="upload-modal-file-summary">No files selected</div>
+            </div>
+            <div class="modal-row">
+              <label>Album</label>
+              <select id="upload-modal-album"></select>
+            </div>
+            <div class="modal-row" id="upload-modal-new-album-row" style="display:none">
+              <label>New album name</label>
+              <input type="text" id="upload-modal-new-album" placeholder="e.g. Vacation 2026">
+            </div>
+            <div class="feedback" id="upload-modal-fb"></div>
+            <div class="modal-actions">
+              <button class="btn-primary" id="upload-modal-submit">⬆ Upload</button>
+              <button class="btn-ghost" id="upload-modal-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-overlay" id="album-picker-overlay">
+          <div class="modal-box">
+            <h3>Add to Album</h3>
+            <div class="album-checklist" id="album-picker-list"></div>
+            <div class="modal-row">
+              <label>New album name</label>
+              <input type="text" id="album-picker-new-name" placeholder="e.g. Vacation 2026">
+            </div>
+            <div class="feedback" id="album-picker-fb"></div>
+            <div class="modal-actions">
+              <button class="btn-primary" id="album-picker-save">Save</button>
+              <button class="btn-ghost" id="album-picker-cancel">Cancel</button>
+            </div>
           </div>
         </div>
 
@@ -804,17 +976,12 @@
 
     _wireLibraryToolbar() {
       const uploadBtn     = this.shadowRoot.getElementById('lib-upload-btn');
-      const uploadInput   = this.shadowRoot.getElementById('lib-upload-input');
       const backendSelect = this.shadowRoot.getElementById('backend-select');
+      const backBtn       = this.shadowRoot.getElementById('lib-back-btn');
 
-      uploadBtn.addEventListener('click', () => uploadInput.click());
-
-      uploadInput.addEventListener('change', e => {
-        const file = e.target.files && e.target.files[0];
-        if (file) this._onLibraryFile(file);
-      });
-
+      uploadBtn.addEventListener('click', () => this._openUploadModal());
       backendSelect.addEventListener('change', e => this._renderBackendConfig(e.target.value));
+      backBtn.addEventListener('click', () => this._openAlbumFolders());
     }
 
     // -----------------------------------------------------------------------
@@ -948,7 +1115,8 @@
           fb.textContent = `✓ Storage set to ${result.backend.replace('_', ' ')}`;
           const sel = this.shadowRoot.getElementById('backend-select');
           this._renderBackendConfig(sel ? sel.value : this._backend);
-          await this._loadLibrary();
+          this._currentAlbum = null;
+          await this._loadAlbums();
           this._renderLibrary();
         } else {
           fb.className = 'feedback err';
@@ -966,9 +1134,12 @@
     // Library: list + render
     // -----------------------------------------------------------------------
 
-    async _loadLibrary() {
+    async _loadLibrary(album) {
       try {
-        const resp = await fetch('/api/fraimic/library/list', { headers: this._authHeaders() });
+        const url = album
+          ? `/api/fraimic/library/list?album=${encodeURIComponent(album)}`
+          : '/api/fraimic/library/list';
+        const resp = await fetch(url, { headers: this._authHeaders() });
         const result = await resp.json();
         this._library = result.images || [];
         if (result.backend) this._backend = result.backend;
@@ -978,21 +1149,174 @@
       }
     }
 
-    _renderLibrary() {
-      const grid = this.shadowRoot.getElementById('lib-grid');
+    async _loadAlbums() {
+      try {
+        const resp = await fetch('/api/fraimic/library/albums', { headers: this._authHeaders() });
+        const result = await resp.json();
+        this._albums = result.albums || [];
+      } catch (err) {
+        console.error('[fraimic-panel] albums load failed:', err);
+        this._albums = [];
+      }
+    }
 
-      // Release previously-fetched thumbnail blob URLs before re-rendering.
+    _openAlbumFolders() {
+      this._currentAlbum = null;
+      this._renderLibrary();
+    }
+
+    async _openAlbum(name) {
+      this._currentAlbum = name;
+      await this._loadLibrary(name);
+      this._renderLibrary();
+    }
+
+    _renderLibrary() {
+      const breadcrumb = this.shadowRoot.getElementById('lib-breadcrumb');
+      const title      = this.shadowRoot.getElementById('lib-breadcrumb-title');
+
+      if (this._currentAlbum === null) {
+        breadcrumb.style.display = 'none';
+        this._renderAlbumFolders();
+        return;
+      }
+
+      breadcrumb.style.display = 'flex';
+      title.textContent = `📁 ${this._currentAlbum}`;
+      this._renderLibraryGrid();
+    }
+
+    _clearThumbCache() {
       for (const url of Object.values(this._libThumbUrls)) URL.revokeObjectURL(url);
       this._libThumbUrls = {};
+    }
+
+    _renderAlbumFolders() {
+      const grid = this.shadowRoot.getElementById('lib-grid');
+      this._clearThumbCache();
+
+      // The default album is always present (even with 0 photos), so
+      // "library is empty" has to be judged by total photo count, not
+      // album count.
+      const totalPhotos = this._albums.reduce((sum, a) => sum + a.count, 0);
+      if (!totalPhotos) {
+        grid.innerHTML = `
+          <div class="empty">
+            <div style="font-size:48px">📚</div>
+            <h2>Library is empty</h2>
+            <p>Upload photos above to add them to the shared library. They're converted
+               once per frame resolution and reused by every frame that matches —
+               no need to re-upload per frame.</p>
+          </div>
+        `;
+        return;
+      }
+
+      grid.innerHTML = '';
+      for (const album of this._albums) {
+        grid.appendChild(this._buildAlbumTile(album));
+      }
+    }
+
+    _buildAlbumTile(album) {
+      const el = document.createElement('div');
+      el.className = 'card album-tile';
+      const sid = this._sid(album.name);
+      const isDefault = album.name === DEFAULT_ALBUM;
+
+      el.innerHTML = `
+        <div class="lib-thumb" id="album-thumb-${sid}">
+          <div style="font-size:32px;text-align:center;padding:30px 0">📁</div>
+        </div>
+        <div class="album-name">${this._esc(album.name)}</div>
+        <div class="album-count">${album.count} photo${album.count === 1 ? '' : 's'}</div>
+        ${isDefault ? '' : `
+          <div class="album-tile-actions">
+            <button class="btn-ghost" id="album-rename-${sid}">✎ Rename</button>
+            <button class="btn-ghost" id="album-delete-${sid}">🗑 Delete</button>
+          </div>
+        `}
+      `;
+
+      if (album.cover_image_id) {
+        this._loadThumbnail(album.cover_image_id, el.querySelector(`#album-thumb-${sid}`));
+      }
+
+      const open = () => this._openAlbum(album.name);
+      el.querySelector(`#album-thumb-${sid}`).addEventListener('click', open);
+      el.querySelector('.album-name').addEventListener('click', open);
+
+      const renameBtn = el.querySelector(`#album-rename-${sid}`);
+      if (renameBtn) renameBtn.addEventListener('click', e => { e.stopPropagation(); this._renameAlbum(album.name); });
+      const deleteBtn = el.querySelector(`#album-delete-${sid}`);
+      if (deleteBtn) deleteBtn.addEventListener('click', e => { e.stopPropagation(); this._deleteAlbum(album.name); });
+
+      return el;
+    }
+
+    async _renameAlbum(oldName) {
+      const newName = window.prompt(`Rename album "${oldName}" to:`, oldName);
+      if (!newName || !newName.trim() || newName.trim() === oldName) return;
+
+      const fb = this.shadowRoot.getElementById('lib-fb');
+      try {
+        const resp = await fetch('/api/fraimic/library/albums', {
+          method: 'POST',
+          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ old_name: oldName, new_name: newName.trim() }),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (resp.ok && result.success) {
+          await this._loadAlbums();
+          this._renderLibrary();
+          return;
+        }
+        fb.className = 'feedback err';
+        fb.textContent = `Rename failed: ${result.message || resp.statusText || resp.status}`;
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Network error: ${err.message}`;
+      }
+      fb.style.display = 'block';
+    }
+
+    async _deleteAlbum(name) {
+      if (!window.confirm(
+        `Delete album "${name}"? Photos in it aren't deleted — they'll just no longer be tagged with this album.`
+      )) return;
+
+      const fb = this.shadowRoot.getElementById('lib-fb');
+      try {
+        const resp = await fetch('/api/fraimic/library/albums', {
+          method: 'DELETE',
+          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (resp.ok && result.success) {
+          await this._loadAlbums();
+          this._renderLibrary();
+          return;
+        }
+        fb.className = 'feedback err';
+        fb.textContent = `Delete failed: ${result.message || resp.statusText || resp.status}`;
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Network error: ${err.message}`;
+      }
+      fb.style.display = 'block';
+    }
+
+    _renderLibraryGrid() {
+      const grid = this.shadowRoot.getElementById('lib-grid');
+      this._clearThumbCache();
 
       if (!this._library.length) {
         grid.innerHTML = `
           <div class="empty">
             <div style="font-size:48px">📚</div>
-            <h2>Library is empty</h2>
-            <p>Upload an image above to add it to the shared library. It's converted
-               once per frame resolution and reused by every frame that matches —
-               no need to re-upload per frame.</p>
+            <h2>No photos in "${this._esc(this._currentAlbum)}" yet</h2>
+            <p>Upload photos into this album, or use "＋ Add to Album" on an existing photo.</p>
           </div>
         `;
         return;
@@ -1071,7 +1395,8 @@
         });
         const result = await resp.json().catch(() => ({}));
         if (resp.ok && result.success) {
-          await this._loadLibrary();
+          await this._loadAlbums();
+          if (this._currentAlbum) await this._loadLibrary(this._currentAlbum);
           this._renderLibrary();
         } else {
           fb.className = 'feedback err';
@@ -1089,34 +1414,129 @@
     // Library: upload
     // -----------------------------------------------------------------------
 
-    async _onLibraryFile(file) {
-      const fb = this.shadowRoot.getElementById('lib-fb');
+    _wireUploadModal() {
+      const filesInput  = this.shadowRoot.getElementById('upload-modal-files');
+      const albumSelect = this.shadowRoot.getElementById('upload-modal-album');
+      const newAlbumRow = this.shadowRoot.getElementById('upload-modal-new-album-row');
+
+      filesInput.addEventListener('change', () => {
+        const n = filesInput.files ? filesInput.files.length : 0;
+        this.shadowRoot.getElementById('upload-modal-file-summary').textContent =
+          n ? `${n} file${n === 1 ? '' : 's'} selected` : 'No files selected';
+      });
+
+      albumSelect.addEventListener('change', () => {
+        newAlbumRow.style.display = albumSelect.value === '' ? 'block' : 'none';
+      });
+
+      this.shadowRoot.getElementById('upload-modal-cancel').addEventListener('click', () => this._closeUploadModal());
+      this.shadowRoot.getElementById('upload-modal-submit').addEventListener('click', () => this._submitUpload());
+    }
+
+    _openUploadModal() {
+      const overlay      = this.shadowRoot.getElementById('upload-modal-overlay');
+      const filesInput    = this.shadowRoot.getElementById('upload-modal-files');
+      const albumSelect   = this.shadowRoot.getElementById('upload-modal-album');
+      const newAlbumRow   = this.shadowRoot.getElementById('upload-modal-new-album-row');
+      const newAlbumInput = this.shadowRoot.getElementById('upload-modal-new-album');
+      const fb            = this.shadowRoot.getElementById('upload-modal-fb');
+
+      filesInput.value = '';
+      this.shadowRoot.getElementById('upload-modal-file-summary').textContent = 'No files selected';
+      newAlbumInput.value = '';
       fb.style.display = 'none';
 
+      // Real album names are never empty (server-side normalization strips
+      // blanks), so '' is a safe sentinel that can't collide with a
+      // user-created album literally named e.g. "__new__".
+      albumSelect.innerHTML = this._albums.map(a =>
+        `<option value="${this._esc(a.name)}">${this._esc(a.name)}</option>`
+      ).join('') + `<option value="">＋ New album…</option>`;
+
+      // Default to whichever album is currently open, otherwise the default album.
+      const preferred = this._currentAlbum || DEFAULT_ALBUM;
+      if ([...albumSelect.options].some(o => o.value === preferred)) {
+        albumSelect.value = preferred;
+      }
+      newAlbumRow.style.display = albumSelect.value === '' ? 'block' : 'none';
+
+      overlay.style.display = 'flex';
+    }
+
+    _closeUploadModal() {
+      this.shadowRoot.getElementById('upload-modal-overlay').style.display = 'none';
+    }
+
+    async _submitUpload() {
+      const filesInput    = this.shadowRoot.getElementById('upload-modal-files');
+      const albumSelect   = this.shadowRoot.getElementById('upload-modal-album');
+      const newAlbumInput = this.shadowRoot.getElementById('upload-modal-new-album');
+      const fb            = this.shadowRoot.getElementById('upload-modal-fb');
+      const submitBtn     = this.shadowRoot.getElementById('upload-modal-submit');
+
+      const files = filesInput.files ? Array.from(filesInput.files) : [];
+      if (!files.length) {
+        fb.className = 'feedback err';
+        fb.textContent = 'Choose at least one photo.';
+        fb.style.display = 'block';
+        return;
+      }
+
+      const isNew = albumSelect.value === '';
+      const newAlbumName = newAlbumInput.value.trim();
+      if (isNew && !newAlbumName) {
+        fb.className = 'feedback err';
+        fb.textContent = 'Enter a name for the new album.';
+        fb.style.display = 'block';
+        return;
+      }
+
       const form = new FormData();
-      form.append('image', file);
+      for (const file of files) form.append('image', file);
+      if (isNew) form.append('new_album', newAlbumName);
+      else form.append('album', albumSelect.value);
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = '⏳ Uploading…';
+      fb.style.display = 'none';
 
       try {
         const resp = await fetch('/api/fraimic/library/upload', {
           method: 'POST', headers: this._authHeaders(), body: form,
         });
         const result = await resp.json().catch(() => ({}));
+        const uploaded = (result.images || []).length;
+        const errors   = result.errors || [];
 
-        if (resp.ok && result.success) {
-          fb.className = 'feedback ok';
-          fb.textContent = '✓ Added to library';
-          await this._loadLibrary();
+        // Refresh as soon as anything landed -- a later file failing
+        // shouldn't hide the ones that already succeeded.
+        if (uploaded) {
+          await this._loadAlbums();
+          if (this._currentAlbum) await this._loadLibrary(this._currentAlbum);
           this._renderLibrary();
+        }
+
+        if (resp.ok && result.success && !errors.length) {
+          this._closeUploadModal();
+        } else if (uploaded) {
+          filesInput.value = '';
+          fb.className = 'feedback err';
+          fb.textContent = `Uploaded ${uploaded} of ${uploaded + errors.length} — `
+            + `failed: ${errors.map(e => e.filename).join(', ')}`;
+          fb.style.display = 'block';
         } else {
           fb.className = 'feedback err';
-          fb.textContent = `Upload failed: ${result.message || resp.statusText || resp.status}`;
+          fb.textContent = `Upload failed: ${(errors[0] && errors[0].message) || result.message || resp.statusText || resp.status}`;
+          fb.style.display = 'block';
         }
       } catch (err) {
         fb.className = 'feedback err';
         fb.textContent = `Network error: ${err.message}`;
+        fb.style.display = 'block';
       }
-      fb.style.display = 'block';
-      this.shadowRoot.getElementById('lib-upload-input').value = '';
+
+      submitBtn.disabled = false;
+      submitBtn.textContent = '⬆ Upload';
     }
 
     // -----------------------------------------------------------------------
@@ -1537,12 +1957,107 @@
 
     async _editorAddToAlbum() {
       try {
+        // Preserve whatever crop adjustment the user was mid-editing.
         await this._editorSaveCrop();
-        this._editorShowFb('ok', '✓ Crop saved');
-        setTimeout(() => this._closeEditor(), 700);
       } catch (err) {
+        // Surface the failure rather than silently discarding the edit --
+        // still open the picker so album management isn't blocked by it.
         this._editorShowFb('err', `Couldn't save crop: ${err.message}`);
       }
+      await this._openAlbumPicker(this._editorState.image);
+    }
+
+    // -----------------------------------------------------------------------
+    // Album picker (used from the crop editor's "＋ Add to Album" button)
+    // -----------------------------------------------------------------------
+
+    _wireAlbumPicker() {
+      this.shadowRoot.getElementById('album-picker-cancel').addEventListener('click', () => this._closeAlbumPicker());
+      this.shadowRoot.getElementById('album-picker-save').addEventListener('click', () => this._saveAlbumPicker());
+    }
+
+    async _openAlbumPicker(image) {
+      await this._loadAlbums();
+      this._albumPickerImage = image;
+
+      const overlay      = this.shadowRoot.getElementById('album-picker-overlay');
+      const list          = this.shadowRoot.getElementById('album-picker-list');
+      const newNameInput = this.shadowRoot.getElementById('album-picker-new-name');
+      const fb            = this.shadowRoot.getElementById('album-picker-fb');
+
+      const current = new Set(image.albums && image.albums.length ? image.albums : [DEFAULT_ALBUM]);
+      // Union of every known album with whatever this image already carries
+      // (covers an album that, for whatever reason, only lives on this image).
+      const names = new Set(this._albums.map(a => a.name));
+      current.forEach(n => names.add(n));
+
+      list.innerHTML = [...names]
+        .sort((a, b) => (a === DEFAULT_ALBUM ? -1 : b === DEFAULT_ALBUM ? 1 : a.localeCompare(b)))
+        .map(name => `
+          <label>
+            <input type="checkbox" value="${this._esc(name)}" ${current.has(name) ? 'checked' : ''}>
+            ${this._esc(name)}
+          </label>
+        `).join('');
+
+      newNameInput.value = '';
+      fb.style.display = 'none';
+      overlay.style.display = 'flex';
+    }
+
+    _closeAlbumPicker() {
+      this.shadowRoot.getElementById('album-picker-overlay').style.display = 'none';
+      this._albumPickerImage = null;
+    }
+
+    async _saveAlbumPicker() {
+      const image = this._albumPickerImage;
+      if (!image) return;
+
+      const list          = this.shadowRoot.getElementById('album-picker-list');
+      const newNameInput = this.shadowRoot.getElementById('album-picker-new-name');
+      const fb            = this.shadowRoot.getElementById('album-picker-fb');
+      const saveBtn       = this.shadowRoot.getElementById('album-picker-save');
+
+      const checked = [...list.querySelectorAll('input[type="checkbox"]:checked')].map(cb => cb.value);
+      const newName = newNameInput.value.trim();
+      if (newName) checked.push(newName);
+
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+
+      try {
+        const resp = await fetch(`/api/fraimic/library/image/${image.image_id}/albums`, {
+          method: 'POST',
+          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ albums: checked }),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+
+        image.albums = result.image.albums;
+        const libImg = this._library.find(i => i.image_id === image.image_id);
+        if (libImg) libImg.albums = result.image.albums;
+
+        await this._loadAlbums();
+        // If we're viewing an album this photo just left, drop it from the grid.
+        if (this._currentAlbum && !result.image.albums.includes(this._currentAlbum)) {
+          this._library = this._library.filter(i => i.image_id !== image.image_id);
+        }
+        this._renderLibrary();
+
+        this._closeAlbumPicker();
+        this._editorShowFb('ok', '✓ Albums updated');
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Couldn't update albums: ${err.message}`;
+        fb.style.display = 'block';
+      }
+
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save';
     }
 
     async _editorSendToCanvas() {
@@ -1612,7 +2127,11 @@
     }
 
     _esc(str) {
-      return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      // Also escapes quotes -- callers embed this inside attribute values
+      // (e.g. value="${this._esc(name)}") for user-supplied album names.
+      return (str || '')
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     }
 
     _showFb(sid, el, type, msg) {

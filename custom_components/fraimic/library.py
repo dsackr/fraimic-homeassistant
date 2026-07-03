@@ -43,6 +43,23 @@ BACKEND_LOCAL = "local"
 BACKEND_GOOGLE_DRIVE = "google_drive"
 BACKEND_DROPBOX = "dropbox"
 
+# Every image belongs to at least this album. It's a normal tag like any
+# other -- not a computed "all photos" view -- except it can't be renamed or
+# deleted, so there's always at least one folder every photo is reachable
+# from even after being fully reorganized into other albums.
+DEFAULT_ALBUM = "Images"
+
+
+def _normalize_albums(albums: list[str] | None) -> list[str]:
+    """Strip/dedupe (order-preserving) album names, falling back to the
+    default album if the result would otherwise be empty."""
+    seen: list[str] = []
+    for name in albums if isinstance(albums, list) else []:
+        name = (name or "").strip()
+        if name and name not in seen:
+            seen.append(name)
+    return seen or [DEFAULT_ALBUM]
+
 _CONTENT_TYPE_BY_FORMAT = {
     "JPEG": "image/jpeg",
     "PNG": "image/png",
@@ -101,6 +118,9 @@ class LibraryImage:
     # original image. Absent key == no manual crop saved for that
     # resolution yet (falls back to the automatic letterbox render).
     crops: dict[str, list[float]] = field(default_factory=dict)
+    # Album tags this image belongs to. Not folders -- an image can carry
+    # any number of these with no duplication of the underlying file.
+    albums: list[str] = field(default_factory=lambda: [DEFAULT_ALBUM])
 
     def has_resolution(self, width: int, height: int) -> bool:
         return [width, height] in self.resolutions
@@ -113,6 +133,7 @@ class LibraryImage:
             "content_type": self.content_type,
             "resolutions": self.resolutions,
             "crops": self.crops,
+            "albums": self.albums,
         }
 
     @classmethod
@@ -124,6 +145,7 @@ class LibraryImage:
             content_type=data.get("content_type", "application/octet-stream"),
             resolutions=data.get("resolutions", []),
             crops=data.get("crops", {}),
+            albums=_normalize_albums(data.get("albums")),
         )
 
 
@@ -166,12 +188,21 @@ class LibraryBackend:
         """Patch arbitrary manifest fields (e.g. crops) for one image."""
         raise NotImplementedError
 
+    async def async_bulk_update_image_fields(
+        self, updates: dict[str, dict[str, Any]]
+    ) -> None:
+        """Patch arbitrary manifest fields for many images (keyed by
+        image_id) in a single manifest read + write, instead of one
+        round-trip per image -- used for album rename/delete, which can
+        touch every image in the library at once."""
+        raise NotImplementedError
+
     async def async_delete_bin(self, image_id: str, width: int, height: int) -> None:
         """Remove a cached .bin for one resolution so it regenerates on next send."""
         raise NotImplementedError
 
     async def async_upload_original(
-        self, filename: str, raw_bytes: bytes, content_type: str
+        self, filename: str, raw_bytes: bytes, content_type: str, albums: list[str]
     ) -> LibraryImage:
         raise NotImplementedError
 
@@ -243,7 +274,7 @@ class LocalLibraryBackend(LibraryBackend):
         return [LibraryImage.from_dict(d) for d in manifest.get("images", [])]
 
     def _upload_original_sync(
-        self, filename: str, raw_bytes: bytes, content_type: str
+        self, filename: str, raw_bytes: bytes, content_type: str, albums: list[str]
     ) -> LibraryImage:
         self._ensure_dirs()
         image_id = uuid.uuid4().hex[:12]
@@ -256,6 +287,7 @@ class LocalLibraryBackend(LibraryBackend):
             uploaded_at=time.time(),
             content_type=content_type,
             resolutions=[],
+            albums=_normalize_albums(albums),
         )
         manifest = self._read_manifest()
         manifest.setdefault("images", []).append(record.to_dict())
@@ -322,6 +354,16 @@ class LocalLibraryBackend(LibraryBackend):
                 break
         self._write_manifest(manifest)
 
+    def _bulk_update_image_fields_sync(
+        self, updates: dict[str, dict[str, Any]]
+    ) -> None:
+        manifest = self._read_manifest()
+        for d in manifest.get("images", []):
+            fields = updates.get(d["image_id"])
+            if fields:
+                d.update(fields)
+        self._write_manifest(manifest)
+
     def _delete_bin_sync(self, image_id: str, width: int, height: int) -> None:
         path = self._bin_path(image_id, width, height)
         if os.path.isfile(path):
@@ -354,16 +396,23 @@ class LocalLibraryBackend(LibraryBackend):
             self._update_image_fields_sync, image_id, fields
         )
 
+    async def async_bulk_update_image_fields(
+        self, updates: dict[str, dict[str, Any]]
+    ) -> None:
+        await self.hass.async_add_executor_job(
+            self._bulk_update_image_fields_sync, updates
+        )
+
     async def async_delete_bin(self, image_id: str, width: int, height: int) -> None:
         await self.hass.async_add_executor_job(
             self._delete_bin_sync, image_id, width, height
         )
 
     async def async_upload_original(
-        self, filename: str, raw_bytes: bytes, content_type: str
+        self, filename: str, raw_bytes: bytes, content_type: str, albums: list[str]
     ) -> LibraryImage:
         return await self.hass.async_add_executor_job(
-            self._upload_original_sync, filename, raw_bytes, content_type
+            self._upload_original_sync, filename, raw_bytes, content_type, albums
         )
 
     async def async_delete_image(self, image_id: str) -> None:
@@ -491,7 +540,7 @@ class DropboxLibraryBackend(LibraryBackend):
         return [LibraryImage.from_dict(d) for d in manifest.get("images", [])]
 
     async def async_upload_original(
-        self, filename: str, raw_bytes: bytes, content_type: str
+        self, filename: str, raw_bytes: bytes, content_type: str, albums: list[str]
     ) -> LibraryImage:
         image_id = uuid.uuid4().hex[:12]
         path = f"{_DROPBOX_ROOT}/originals/{image_id}_{_safe_filename(filename)}"
@@ -516,6 +565,7 @@ class DropboxLibraryBackend(LibraryBackend):
             uploaded_at=time.time(),
             content_type=content_type,
             resolutions=[],
+            albums=_normalize_albums(albums),
         )
         manifest = await self._read_manifest() or {"images": []}
         manifest.setdefault("images", []).append(record.to_dict())
@@ -588,6 +638,16 @@ class DropboxLibraryBackend(LibraryBackend):
             if d["image_id"] == image_id:
                 d.update(fields)
                 break
+        await self._write_manifest(manifest)
+
+    async def async_bulk_update_image_fields(
+        self, updates: dict[str, dict[str, Any]]
+    ) -> None:
+        manifest = await self._read_manifest() or {"images": []}
+        for d in manifest.get("images", []):
+            fields = updates.get(d["image_id"])
+            if fields:
+                d.update(fields)
         await self._write_manifest(manifest)
 
     async def async_delete_bin(self, image_id: str, width: int, height: int) -> None:
@@ -786,7 +846,7 @@ class GoogleDriveLibraryBackend(LibraryBackend):
         return [LibraryImage.from_dict(d) for d in manifest.get("images", [])]
 
     async def async_upload_original(
-        self, filename: str, raw_bytes: bytes, content_type: str
+        self, filename: str, raw_bytes: bytes, content_type: str, albums: list[str]
     ) -> LibraryImage:
         image_id = uuid.uuid4().hex[:12]
         file_id = await self._create_file(
@@ -799,6 +859,7 @@ class GoogleDriveLibraryBackend(LibraryBackend):
             "uploaded_at": time.time(),
             "content_type": content_type,
             "resolutions": [],
+            "albums": _normalize_albums(albums),
             "drive_file_id": file_id,
             "bin_file_ids": {},
         }
@@ -858,6 +919,16 @@ class GoogleDriveLibraryBackend(LibraryBackend):
         manifest = await self._read_manifest()
         entry = self._find_entry(manifest, image_id)
         entry.update(fields)
+        await self._write_manifest(manifest)
+
+    async def async_bulk_update_image_fields(
+        self, updates: dict[str, dict[str, Any]]
+    ) -> None:
+        manifest = await self._read_manifest()
+        for d in manifest.get("images", []):
+            fields = updates.get(d["image_id"])
+            if fields:
+                d.update(fields)
         await self._write_manifest(manifest)
 
     async def async_delete_bin(self, image_id: str, width: int, height: int) -> None:
@@ -986,14 +1057,16 @@ class LibraryManager:
     async def async_get_original(self, image_id: str) -> tuple[bytes, str]:
         return await self._backend.async_get_original(image_id)
 
-    async def async_upload(self, filename: str, raw_bytes: bytes) -> dict[str, Any]:
+    async def async_upload(
+        self, filename: str, raw_bytes: bytes, albums: list[str] | None = None
+    ) -> dict[str, Any]:
         """Store the original, then eagerly generate a .bin for every
         resolution currently in use across configured frames."""
         content_type = await self.hass.async_add_executor_job(
             _detect_content_type, raw_bytes
         )
         record = await self._backend.async_upload_original(
-            filename, raw_bytes, content_type
+            filename, raw_bytes, content_type, _normalize_albums(albums)
         )
 
         from .image_converter import convert_image_bytes  # noqa: PLC0415
@@ -1087,3 +1160,87 @@ class LibraryManager:
 
     async def async_delete(self, image_id: str) -> None:
         await self._backend.async_delete_image(image_id)
+
+    async def async_list_albums(self) -> list[dict[str, Any]]:
+        """Every distinct album tag in use, with a photo count and a cover
+        image (the most recently uploaded photo carrying that tag). Always
+        includes the default album even if it's currently empty."""
+        images = await self._backend.async_list_images()
+        by_name: dict[str, list[LibraryImage]] = {DEFAULT_ALBUM: []}
+        for img in images:
+            for name in img.albums:
+                by_name.setdefault(name, []).append(img)
+
+        albums = []
+        for name, members in by_name.items():
+            cover = max(members, key=lambda i: i.uploaded_at) if members else None
+            albums.append(
+                {
+                    "name": name,
+                    "count": len(members),
+                    "cover_image_id": cover.image_id if cover else None,
+                }
+            )
+        albums.sort(key=lambda a: (a["name"] != DEFAULT_ALBUM, a["name"].lower()))
+        return albums
+
+    async def async_set_image_albums(
+        self, image_id: str, albums: list[str]
+    ) -> dict[str, Any]:
+        """Replace the full set of album tags on one image."""
+        record = await self._find_image(image_id)
+        if record is None:
+            raise LibraryBackendError(f"Image '{image_id}' not found")
+        normalized = _normalize_albums(albums)
+        await self._backend.async_update_image_fields(image_id, albums=normalized)
+        record.albums = normalized
+        return record.to_dict()
+
+    async def async_rename_album(self, old_name: str, new_name: str) -> int:
+        """Rename an album tag across every image that carries it. Returns
+        how many images were affected."""
+        old_name = (old_name or "").strip()
+        new_name = (new_name or "").strip()
+        if old_name == DEFAULT_ALBUM:
+            raise LibraryBackendError(f"The default album '{DEFAULT_ALBUM}' can't be renamed")
+        if not old_name or not new_name:
+            raise LibraryBackendError("Album names can't be empty")
+        if new_name == DEFAULT_ALBUM:
+            raise LibraryBackendError(
+                f"Can't rename an album to the default album '{DEFAULT_ALBUM}' -- "
+                "use the album picker to add individual photos to it instead"
+            )
+
+        images = await self._backend.async_list_images()
+        updates: dict[str, dict[str, Any]] = {}
+        for img in images:
+            if old_name not in img.albums:
+                continue
+            updated = _normalize_albums(
+                [new_name if a == old_name else a for a in img.albums]
+            )
+            updates[img.image_id] = {"albums": updated}
+        if updates:
+            await self._backend.async_bulk_update_image_fields(updates)
+        return len(updates)
+
+    async def async_delete_album(self, name: str) -> int:
+        """Remove an album tag from every image that carries it (the images
+        themselves are never deleted). Returns how many images were
+        affected."""
+        name = (name or "").strip()
+        if name == DEFAULT_ALBUM:
+            raise LibraryBackendError(f"The default album '{DEFAULT_ALBUM}' can't be deleted")
+        if not name:
+            raise LibraryBackendError("Album name can't be empty")
+
+        images = await self._backend.async_list_images()
+        updates: dict[str, dict[str, Any]] = {}
+        for img in images:
+            if name not in img.albums:
+                continue
+            updated = _normalize_albums([a for a in img.albums if a != name])
+            updates[img.image_id] = {"albums": updated}
+        if updates:
+            await self._backend.async_bulk_update_image_fields(updates)
+        return len(updates)
