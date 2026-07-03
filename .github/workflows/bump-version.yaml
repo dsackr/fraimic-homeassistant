@@ -1,0 +1,50 @@
+name: Bump version and tag
+
+# Every push to main (direct commit or merged PR) is a release: compute the
+# next semver tag, stamp it into manifest.json, and push that tag. The
+# existing release.yaml workflow reacts to the new tag and publishes the
+# GitHub release -- this workflow only owns the version number.
+#
+# Default bump is patch. Include `#minor` or `#major` in a commit message
+# (anywhere in the range since the last tag) to bump that part instead.
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  bump-version:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: '0'
+
+      - name: Compute next version
+        id: next_version
+        uses: anothrNick/github-tag-action@1.75.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BUMP: patch
+          TAG_PREFIX: v
+          RELEASE_BRANCHES: main
+          DRY_RUN: true
+
+      - name: Stamp manifest.json and tag
+        env:
+          NEW_TAG: ${{ steps.next_version.outputs.new_tag }}
+        run: |
+          version="${NEW_TAG#v}"
+          sed -i "s/\"version\": \".*\"/\"version\": \"${version}\"/" custom_components/fraimic/manifest.json
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add custom_components/fraimic/manifest.json
+          git commit -m "Bump version to ${NEW_TAG} [skip ci]"
+          git push origin HEAD:main
+
+          git tag "${NEW_TAG}"
+          git push origin "${NEW_TAG}"

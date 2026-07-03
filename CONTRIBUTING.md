@@ -55,7 +55,9 @@ Send `out.bin` to a frame via its local API and verify it renders correctly. Col
 
 ## Releasing (maintainers)
 
-Releases are cut via `gh release create vX.Y.Z --title "vX.Y.Z" --notes "..."`. The GitHub Actions workflow tags the release; HACS picks it up automatically. Wait ~10 seconds after the release command before triggering a HACS download, as GitHub's zipball CDN takes a moment to generate.
+Releases are fully automatic. Every push to `main` (a direct commit or a merged PR) runs `bump-version.yaml`, which computes the next semver tag from the commit log, stamps it into `manifest.json`, commits that, and pushes the tag. The tag push then triggers `release.yaml`, which publishes the GitHub release; HACS picks it up automatically. Don't hand-edit `manifest.json`'s `version` field — it's overwritten by the workflow.
+
+The default bump is `patch`. Put `#minor` or `#major` anywhere in a commit message (since the last tag) to bump that part instead.
 
 ## Pull requests
 
