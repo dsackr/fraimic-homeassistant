@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.scene import Scene as SceneEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -44,6 +44,7 @@ async def async_setup_entry(
     manager: SceneManager = hass.data[DOMAIN]["_scenes"]
     entities: dict[str, FraimicSceneEntity] = {}
 
+    @callback
     def _sync() -> None:
         current = manager.scenes  # {scene_id: Scene}, kept live by SceneManager
 
