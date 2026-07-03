@@ -41,6 +41,19 @@
       gap: 10px;
     }
 
+    .page-nav {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 4px;
+    }
+    .addons-link {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--primary-color, #3b82f6);
+      text-decoration: none;
+    }
+    .addons-link:hover { text-decoration: underline; }
+
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -637,6 +650,7 @@
       this._sceneEditorId  = null;    // scene_id being edited, or null when creating a new one
 
       this._scenePacks    = [];       // [{ id, name, description, license, cover, images, installed, scene_created }]
+      this._view          = 'main';   // 'main' | 'addons'
 
       this._editorState = null;   // active crop-editor session, or null when closed
       this._editorDrag  = null;   // in-progress pointer drag, or null
@@ -662,6 +676,7 @@
 
     async _init() {
       this._buildShell();
+      this._wireNav();
       this._wireLibraryToolbar();
       this._wireEditor();
       this._wireUploadModal();
@@ -704,27 +719,35 @@
       setTimeout(() => card.el.classList.remove('deep-link-highlight'), 3000);
     }
 
+    // -----------------------------------------------------------------------
+    // Add-ons: secondary page (Scene Packs live here, off the main page)
+    // -----------------------------------------------------------------------
+
+    _wireNav() {
+      const addonsLink = this.shadowRoot.getElementById('addons-link');
+      const backLink   = this.shadowRoot.getElementById('addons-back-link');
+      if (addonsLink) addonsLink.addEventListener('click', () => this._setView('addons'));
+      if (backLink)   backLink.addEventListener('click', () => this._setView('main'));
+    }
+
+    _setView(view) {
+      this._view = view;
+      const mainEl   = this.shadowRoot.getElementById('view-main');
+      const addonsEl = this.shadowRoot.getElementById('view-addons');
+      if (mainEl)   mainEl.style.display   = view === 'main'   ? '' : 'none';
+      if (addonsEl) addonsEl.style.display = view === 'addons' ? '' : 'none';
+    }
+
     _buildShell() {
       this.shadowRoot.innerHTML = `
         <style>${CSS}</style>
-        <h1>🖼 Fraimic Frames</h1>
-        <div class="grid" id="grid">
-          <div class="empty">
-            <div style="font-size:36px">⏳</div>
-            <h2>Discovering frames…</h2>
-          </div>
+
+        <div id="view-main">
+        <div class="page-nav">
+          <a href="javascript:void(0)" class="addons-link" id="addons-link">🧩 Add-ons →</a>
         </div>
 
-        <h2 class="section-title">🎨 Scene Packs</h2>
-        <div class="feedback" id="pack-fb"></div>
-        <div class="lib-grid" id="pack-grid">
-          <div class="empty">
-            <div style="font-size:36px">⏳</div>
-            <h2>Loading scene packs…</h2>
-          </div>
-        </div>
-
-        <h2 class="section-title">📚 Library</h2>
+        <h2 class="section-title" style="margin-top:0">📚 Library</h2>
         <div class="lib-toolbar">
           <div class="lib-backend">
             <label for="backend-select">Storage:</label>
@@ -812,6 +835,14 @@
           </div>
         </div>
 
+        <h1>🖼 Fraimic Frames</h1>
+        <div class="grid" id="grid">
+          <div class="empty">
+            <div style="font-size:36px">⏳</div>
+            <h2>Discovering frames…</h2>
+          </div>
+        </div>
+
         <h2 class="section-title">🎬 Scenes</h2>
         <div class="lib-toolbar">
           <button class="btn-primary" id="scene-new-btn"
@@ -847,6 +878,23 @@
             </div>
           </div>
         </div>
+        </div><!-- /view-main -->
+
+        <div id="view-addons" style="display:none">
+        <div class="page-nav" style="justify-content:flex-start">
+          <a href="javascript:void(0)" class="addons-link" id="addons-back-link">← Back</a>
+        </div>
+        <h1>🧩 Add-ons</h1>
+
+        <h2 class="section-title" style="margin-top:0">🎨 Scene Packs</h2>
+        <div class="feedback" id="pack-fb"></div>
+        <div class="lib-grid" id="pack-grid">
+          <div class="empty">
+            <div style="font-size:36px">⏳</div>
+            <h2>Loading scene packs…</h2>
+          </div>
+        </div>
+        </div><!-- /view-addons -->
 
         <div class="editor-overlay" id="editor-overlay">
           <div class="editor-header">
