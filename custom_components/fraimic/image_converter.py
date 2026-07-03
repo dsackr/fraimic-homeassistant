@@ -1,25 +1,21 @@
 """
-Spectra 6 image converter for Fraimic e-ink frame.
+Spectra 6 image converter for Fraimic e-ink frames.
 
 Converts arbitrary images (any format Pillow supports) to the raw binary format
-expected by the Fraimic API for its E Ink Spectra 6 display.
+expected by the target panel. All Fraimic-supported panels share the same 4bpp
+Spectra 6 palette, but NOT the same byte layout -- see "Binary format
+specification" below. Getting this wrong doesn't error, it silently produces a
+garbled/duplicated image on the physical frame (confirmed the hard way: see
+the 7.3" panel investigation that added SPLIT_HALF_RESOLUTIONS).
 
 Binary format specification
 ----------------------------
-Confirmed against Fraimic's own reference converter
-(github.com/Fraimic/fraimic_bin_converter, EL133UF1 / Spectra 6 13.3"):
-
+Common to every panel:
 - 4 bits per pixel (one nibble)
-- 2 pixels packed per byte: high nibble = pixel at even x, low nibble = pixel
-  at odd x
+- 2 pixels packed per byte: high nibble = first pixel of the pair, low
+  nibble = second
 - Pixels are scanned in normal row-major order: y from top to bottom, x from
   left to right
-- Each row is split into a LEFT half (columns 0 .. width//2 - 1) and a RIGHT
-  half (columns width//2 .. width - 1). ALL left-half bytes for the entire
-  image come first (every row, top to bottom), followed by ALL right-half
-  bytes (every row, top to bottom). This matches the panel's physical
-  construction as two side-by-side half-width e-ink halves, each driven from
-  its own contiguous block of the buffer.
 - Nibble values map to Spectra 6 colors (note: value 4 is unused by the hardware):
     0 = Black
     1 = White
@@ -28,13 +24,31 @@ Confirmed against Fraimic's own reference converter
     5 = Blue
     6 = Green
 
+Byte ordering differs by physical panel construction, keyed by resolution
+(see SPLIT_HALF_RESOLUTIONS):
+
+- **Split-half** (confirmed against Fraimic's own reference converter,
+  github.com/Fraimic/fraimic_bin_converter, EL133UF1 / Spectra 6 13.3"):
+  each row is split into a LEFT half (columns 0 .. width//2 - 1) and a RIGHT
+  half (columns width//2 .. width - 1). ALL left-half bytes for the entire
+  image come first (every row, top to bottom), followed by ALL right-half
+  bytes (every row, top to bottom) -- matching a panel physically built from
+  two side-by-side half-width e-ink halves, each driven from its own
+  contiguous block of the buffer. Used by the 13.1"/13.3" (EL133UF1) and
+  31.5" panels.
+- **Sequential** (confirmed against Waveshare's own epd7in3e.py reference
+  driver for the 7.3" E6 panel): one single contiguous buffer, pixel pairs
+  packed in plain left-to-right, top-to-bottom order with no half-split.
+  Used by the 7.3" panel.
+
 Conversion pipeline
 --------------------
 1. Open image (any format Pillow supports)
 2. Auto-rotate to match target orientation (landscape vs portrait) if needed
 3. Resize to fit target dimensions while preserving aspect ratio; letterbox with white fill
 4. Quantize to the 6 Spectra 6 real-world colors using Floyd-Steinberg dithering
-5. Pack pixels into the left-half-then-right-half nibble format described above
+5. Pack pixels into the nibble format described above, using the byte
+   ordering that matches the target resolution's physical panel
 """
 
 from __future__ import annotations
@@ -74,6 +88,21 @@ SPECTRA6_NIBBLE_VALUES: Tuple[int, ...] = (0, 1, 2, 3, 5, 6)
 
 # Sanity check: palette and nibble tables must stay in sync.
 assert len(SPECTRA6_REAL_WORLD_RGB) == len(SPECTRA6_NIBBLE_VALUES)
+
+# (width, height) pairs whose physical panel is built from two independent
+# half-width e-ink halves and therefore needs the left-half-then-right-half
+# byte ordering (see module docstring). Any resolution NOT listed here is
+# assumed to use a single contiguous buffer in plain row-major order.
+#
+# Keyed by resolution rather than the frame's size label (CONF_SIZE) purely
+# for simplicity -- today's panels don't have two different physical
+# constructions sharing one resolution. If that ever changes, this needs to
+# become a size-label lookup instead (the same ambiguity problem CONF_SIZE
+# was introduced to solve for physical size labels).
+SPLIT_HALF_RESOLUTIONS: frozenset = frozenset({
+    (1200, 1600),  # 13.1" / 13.3" (EL133UF1)
+    (2560, 1440),  # 31.5"
+})
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -271,21 +300,32 @@ def _pack_row_half(
 
 def _pack_to_spectra6_bin(quantized_image: "Image.Image") -> bytes:
     """
-    Pack a quantized RGB image into the raw Spectra 6 binary format.
-
-    Scan order (confirmed against Fraimic's own reference converter): rows
-    are visited top to bottom, columns left to right within each half. Each
-    row is split at the midpoint into a left half and a right half. All
-    left-half bytes for the whole image are emitted first (row by row, top
-    to bottom), followed by all right-half bytes (row by row, top to
-    bottom) — matching the panel's two physical half-width e-ink halves,
-    each driven from its own contiguous block of the buffer.
+    Pack a quantized RGB image into the raw Spectra 6 binary format, using
+    the byte ordering that matches this image's resolution (see
+    SPLIT_HALF_RESOLUTIONS and the module docstring).
 
     :param quantized_image: RGB image whose pixels are restricted to the six
         entries of :data:`SPECTRA6_REAL_WORLD_RGB`.
     :returns: Raw bytes ready to be sent as a ``.bin`` file.
     :raises ValueError: If a pixel colour does not match any palette entry
         (indicates a bug in the quantization step).
+    """
+    size = (quantized_image.width, quantized_image.height)
+    if size in SPLIT_HALF_RESOLUTIONS:
+        return _pack_split_halves(quantized_image)
+    return _pack_sequential(quantized_image)
+
+
+def _pack_split_halves(quantized_image: "Image.Image") -> bytes:
+    """
+    Pack a quantized image for a panel built from two independent
+    half-width e-ink halves (confirmed against Fraimic's own reference
+    converter for the EL133UF1 / 13.1"/13.3" and 31.5" panels): rows are
+    visited top to bottom, columns left to right within each half. Each row
+    is split at the midpoint into a left half and a right half. All
+    left-half bytes for the whole image are emitted first (row by row, top
+    to bottom), followed by all right-half bytes (row by row, top to
+    bottom) — matching each half's own contiguous block of the buffer.
     """
     width = quantized_image.width
     height = quantized_image.height
@@ -299,6 +339,20 @@ def _pack_to_spectra6_bin(quantized_image: "Image.Image") -> bytes:
         right_bytes.extend(_pack_row_half(quantized_image, y, half, width))
 
     return bytes(left_bytes) + bytes(right_bytes)
+
+
+def _pack_sequential(quantized_image: "Image.Image") -> bytes:
+    """
+    Pack a quantized image for a panel with a single contiguous buffer
+    (confirmed against Waveshare's own epd7in3e.py reference driver for the
+    7.3" E6 panel): plain row-major order, no half-split.
+    """
+    width = quantized_image.width
+    height = quantized_image.height
+    out = bytearray()
+    for y in range(height):
+        out.extend(_pack_row_half(quantized_image, y, 0, width))
+    return bytes(out)
 
 
 def _open_as_rgb(source: "str | bytes") -> "Image.Image":

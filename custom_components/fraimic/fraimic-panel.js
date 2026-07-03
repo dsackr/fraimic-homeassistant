@@ -1773,6 +1773,10 @@
         select.innerHTML = '<option value="">No frame sizes configured</option>';
         select.disabled = true;
         this.shadowRoot.getElementById('editor-send').disabled = true;
+        // No cropBox will be computed this session -- hide the crop box
+        // rather than leave it showing wherever a previous image's session
+        // last positioned it.
+        this.shadowRoot.getElementById('editor-cropbox').style.display = 'none';
       }
 
       const overlay = this.shadowRoot.getElementById('editor-overlay');
@@ -1912,6 +1916,7 @@
       if (!box) return;
       const { offsetX, offsetY, renderedW, renderedH } = this._editorImageRect();
       const el = this.shadowRoot.getElementById('editor-cropbox');
+      el.style.display = '';
       el.style.left   = `${offsetX + box[0] * renderedW}px`;
       el.style.top    = `${offsetY + box[1] * renderedH}px`;
       el.style.width  = `${(box[2] - box[0]) * renderedW}px`;
