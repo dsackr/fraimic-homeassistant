@@ -31,28 +31,37 @@
       box-sizing: border-box;
     }
 
-    h1 {
-      margin: 0 0 24px;
-      font-size: 20px;
-      font-weight: 600;
-      color: var(--primary-text-color);
+    /* ---- tab bar ---- */
+    .tab-bar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
       display: flex;
-      align-items: center;
-      gap: 10px;
+      gap: 4px;
+      background: var(--card-background-color, #fff);
+      border-bottom: 1px solid var(--divider-color, rgba(0,0,0,.12));
+      margin: -24px -24px 20px;
+      padding: 0 24px;
     }
-
-    .page-nav {
-      display: flex;
-      justify-content: flex-end;
-      margin-bottom: 4px;
-    }
-    .addons-link {
-      font-size: 13px;
+    .tab-btn {
+      flex: 0 0 auto;
+      padding: 12px 20px;
+      border: none;
+      background: transparent;
+      font-size: 14px;
       font-weight: 500;
-      color: var(--primary-color, #3b82f6);
-      text-decoration: none;
+      color: var(--secondary-text-color);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color .15s ease, border-color .15s ease;
     }
-    .addons-link:hover { text-decoration: underline; }
+    .tab-btn:hover:not(.active) { color: var(--primary-text-color); }
+    .tab-btn.active {
+      color: var(--primary-color, #3b82f6);
+      border-bottom-color: var(--primary-color, #3b82f6);
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
 
     .grid {
       display: grid;
@@ -62,8 +71,8 @@
 
     .card {
       background: var(--card-background-color, #fff);
-      border-radius: 12px;
-      padding: 16px;
+      border-radius: var(--ha-card-border-radius, 12px);
+      padding: 20px;
       box-shadow: var(--ha-card-box-shadow, 0 2px 6px rgba(0,0,0,.1));
     }
     .card.deep-link-highlight {
@@ -76,20 +85,31 @@
     }
 
     /* ---- frame tile ---- */
-    .frame-link {
+    .frame-row {
       display: flex;
       align-items: center;
       gap: 10px;
-      text-decoration: none;
-      color: inherit;
     }
     .frame-icon {
       width: 32px; height: 32px;
       border-radius: 8px;
       background: var(--primary-color, #3b82f6);
+      color: #fff;
       display: flex; align-items: center; justify-content: center;
-      font-size: 16px;
       flex-shrink: 0;
+    }
+    .frame-host-link {
+      flex: 0 0 auto;
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--secondary-text-color);
+      text-decoration: none;
+      transition: background .15s ease, color .15s ease;
+    }
+    .frame-host-link:hover {
+      background: var(--secondary-background-color, #e2e8f0);
+      color: var(--primary-text-color);
     }
     .frame-meta { flex: 1; min-width: 0; }
     .frame-name {
@@ -156,39 +176,61 @@
     .feedback {
       display: none;
       margin-top: 8px;
-      padding: 7px 10px;
-      border-radius: 6px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border-left: 3px solid transparent;
       font-size: 12px;
       line-height: 1.4;
+      width: fit-content;
+      max-width: 100%;
+      box-sizing: border-box;
     }
-    .feedback.ok  { background: rgba(22,163,74,.1);  color: var(--success-color, #15803d); }
-    .feedback.err { background: rgba(220,38,38,.08); color: var(--error-color,   #b91c1c); }
+    .feedback.ok {
+      background: rgba(22,163,74,.08);
+      border-left-color: var(--success-color, #16a34a);
+      color: var(--success-color, #15803d);
+    }
+    .feedback.err {
+      background: rgba(220,38,38,.08);
+      border-left-color: var(--error-color, #dc2626);
+      color: var(--error-color, #b91c1c);
+    }
 
     /* ---- empty state ---- */
     .empty {
       text-align: center;
-      padding: 60px 24px;
+      padding: 56px 24px;
       color: var(--secondary-text-color);
     }
-    .empty h2 { margin: 12px 0 8px; font-size: 18px; color: var(--primary-text-color); }
-    .empty p  { margin: 0; font-size: 14px; line-height: 1.6; }
-
-    /* ---- library ---- */
-    h2.section-title {
-      margin: 36px 0 16px;
-      font-size: 18px;
-      font-weight: 600;
-      color: var(--primary-text-color);
+    .empty-icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 16px;
+      border-radius: 50%;
+      background: var(--secondary-background-color, #e2e8f0);
+      color: var(--secondary-text-color);
       display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: center;
+      font-size: 24px;
     }
+    .empty h2 { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: var(--primary-text-color); }
+    .empty p  { margin: 0 auto; max-width: 420px; font-size: 13px; line-height: 1.6; }
+
+    /* ---- library ---- */
     .lib-toolbar {
       display: flex;
       align-items: center;
-      gap: 12px;
-      margin-bottom: 16px;
+      gap: 14px;
+      margin-bottom: 20px;
       flex-wrap: wrap;
+    }
+    .lib-toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-left: auto;
     }
     .lib-backend {
       display: flex;
@@ -240,7 +282,7 @@
     .lib-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: 16px;
+      gap: 20px;
     }
     .lib-thumb {
       position: relative;
@@ -248,10 +290,11 @@
       overflow: hidden;
       background: var(--secondary-background-color, #f1f5f9);
       margin-bottom: 10px;
-      height: 140px;
+      height: 160px;
       display: flex;
       align-items: center;
       justify-content: center;
+      cursor: pointer;
     }
     .lib-thumb img {
       width: 100%;
@@ -259,7 +302,6 @@
       object-fit: cover;
     }
     .lib-card .btns select { flex: 1; }
-    .lib-thumb { cursor: pointer; }
     .lib-card .btns + .btns { margin-top: 6px; }
 
     /* ---- library multi-select ---- */
@@ -351,7 +393,7 @@
     }
     .modal-box {
       background: var(--card-background-color, #fff);
-      border-radius: 12px;
+      border-radius: var(--ha-card-border-radius, 12px);
       padding: 20px;
       width: 100%;
       max-width: 380px;
@@ -368,14 +410,14 @@
     .modal-row { margin-bottom: 12px; }
     .modal-row label {
       display: block;
-      font-size: 12px;
+      font-size: 13px;
       color: var(--secondary-text-color);
       margin-bottom: 4px;
     }
     .modal-row select, .modal-row input[type="text"] {
       width: 100%;
       padding: 8px 10px;
-      border-radius: 6px;
+      border-radius: 8px;
       border: 1px solid var(--divider-color, rgba(0,0,0,.15));
       background: var(--card-background-color, #fff);
       color: var(--primary-text-color);
@@ -488,6 +530,26 @@
       border-radius: 8px;
       margin-bottom: 10px;
       background: var(--secondary-background-color, #e2e8f0);
+    }
+    .pack-desc {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      font-size: 12px;
+      color: var(--secondary-text-color);
+      margin-top: 3px;
+    }
+    .badge-installed {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(22,163,74,.12);
+      color: var(--success-color, #16a34a);
+      font-size: 12px;
+      font-weight: 600;
     }
     .scene-mapping-row {
       display: flex;
@@ -688,7 +750,7 @@
       this._sceneEditorId  = null;    // scene_id being edited, or null when creating a new one
 
       this._scenePacks    = [];       // [{ id, name, description, license, cover, images, installed, scene_created }]
-      this._view          = 'main';   // 'main' | 'addons'
+      this._activeTab     = 'frames'; // 'frames' | 'library' | 'scenes' | 'addons'
 
       this._editorState = null;   // active crop-editor session, or null when closed
       this._editorDrag  = null;   // in-progress pointer drag, or null
@@ -758,34 +820,48 @@
     }
 
     // -----------------------------------------------------------------------
-    // Add-ons: secondary page (Scene Packs live here, off the main page)
+    // Tab bar: Frames / Library / Scenes / Add-ons
     // -----------------------------------------------------------------------
 
     _wireNav() {
-      const addonsLink = this.shadowRoot.getElementById('addons-link');
-      const backLink   = this.shadowRoot.getElementById('addons-back-link');
-      if (addonsLink) addonsLink.addEventListener('click', () => this._setView('addons'));
-      if (backLink)   backLink.addEventListener('click', () => this._setView('main'));
+      this.shadowRoot.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => this._setTab(btn.dataset.tab));
+      });
+      this._setTab('frames');
     }
 
-    _setView(view) {
-      this._view = view;
-      const mainEl   = this.shadowRoot.getElementById('view-main');
-      const addonsEl = this.shadowRoot.getElementById('view-addons');
-      if (mainEl)   mainEl.style.display   = view === 'main'   ? '' : 'none';
-      if (addonsEl) addonsEl.style.display = view === 'addons' ? '' : 'none';
+    _setTab(name) {
+      this._activeTab = name;
+      const root = this.shadowRoot;
+      ['frames', 'library', 'scenes', 'addons'].forEach(tab => {
+        const content = root.getElementById(`tab-${tab}`);
+        const btn     = root.querySelector(`.tab-btn[data-tab="${tab}"]`);
+        if (content) content.classList.toggle('active', tab === name);
+        if (btn)     btn.classList.toggle('active', tab === name);
+      });
     }
 
     _buildShell() {
       this.shadowRoot.innerHTML = `
         <style>${CSS}</style>
 
-        <div id="view-main">
-        <div class="page-nav">
-          <a href="javascript:void(0)" class="addons-link" id="addons-link">🧩 Add-ons →</a>
+        <div class="tab-bar" id="tab-bar">
+          <button class="tab-btn active" data-tab="frames">Frames</button>
+          <button class="tab-btn" data-tab="library">Library</button>
+          <button class="tab-btn" data-tab="scenes">Scenes</button>
+          <button class="tab-btn" data-tab="addons">Add-ons</button>
         </div>
 
-        <h2 class="section-title" style="margin-top:0">📚 Library</h2>
+        <div class="tab-content active" id="tab-frames">
+        <div class="grid" id="grid">
+          <div class="empty">
+            <div class="empty-icon">⋯</div>
+            <h2>Discovering frames…</h2>
+          </div>
+        </div>
+        </div><!-- /tab-frames -->
+
+        <div class="tab-content" id="tab-library">
         <div class="lib-toolbar">
           <div class="lib-backend">
             <label for="backend-select">Storage:</label>
@@ -795,12 +871,12 @@
               <option value="dropbox">Dropbox</option>
             </select>
           </div>
-          <button class="btn-primary" id="lib-upload-btn"
-            style="flex:0 0 auto;padding-left:14px;padding-right:14px">⬆ Upload to Library</button>
-          <button class="btn-ghost" id="album-create-btn"
-            style="flex:0 0 auto;padding-left:14px;padding-right:14px">＋ Create Album</button>
-          <button class="btn-ghost" id="lib-discover-btn" style="display:none;flex:0 0 auto;padding-left:14px;padding-right:14px"
-            title="Adopt photos dropped into the Fraimic Library/inbox folder in Dropbox">🔍 Discover</button>
+          <div class="lib-toolbar-actions">
+            <button class="btn-primary" id="lib-upload-btn" style="flex:0 0 auto">⬆ Upload to Library</button>
+            <button class="btn-ghost" id="album-create-btn" style="flex:0 0 auto">＋ Create Album</button>
+            <button class="btn-ghost" id="lib-discover-btn" style="display:none;flex:0 0 auto"
+              title="Adopt photos dropped into the Fraimic Library/inbox folder in Dropbox">🔍 Discover</button>
+          </div>
         </div>
         <div class="backend-config" id="backend-config"></div>
         <div class="feedback" id="lib-fb"></div>
@@ -811,18 +887,43 @@
         </div>
         <div class="lib-toolbar" id="lib-select-toolbar" style="display:none">
           <span class="lib-select-count" id="lib-select-count">0 selected</span>
-          <button class="btn-primary" id="lib-select-delete"
-            style="flex:0 0 auto;padding-left:14px;padding-right:14px">🗑 Delete Selected</button>
-          <button class="btn-ghost" id="lib-select-cancel"
-            style="flex:0 0 auto;padding-left:14px;padding-right:14px">Cancel</button>
+          <button class="btn-primary" id="lib-select-delete" style="flex:0 0 auto">🗑 Delete Selected</button>
+          <button class="btn-ghost" id="lib-select-cancel" style="flex:0 0 auto">Cancel</button>
         </div>
         <div class="lib-grid" id="lib-grid">
           <div class="empty">
-            <div style="font-size:36px">⏳</div>
+            <div class="empty-icon">⋯</div>
             <h2>Loading library…</h2>
           </div>
         </div>
+        </div><!-- /tab-library -->
 
+        <div class="tab-content" id="tab-scenes">
+        <div class="lib-toolbar" style="justify-content:flex-end">
+          <button class="btn-primary" id="scene-new-btn" style="flex:0 0 auto">＋ New Scene</button>
+        </div>
+        <div class="feedback" id="scene-fb"></div>
+        <div class="lib-grid" id="scene-grid">
+          <div class="empty">
+            <div class="empty-icon">⋯</div>
+            <h2>Loading scenes…</h2>
+          </div>
+        </div>
+        </div><!-- /tab-scenes -->
+
+        <div class="tab-content" id="tab-addons">
+        <div class="feedback" id="pack-fb"></div>
+        <div class="lib-grid" id="pack-grid">
+          <div class="empty">
+            <div class="empty-icon">⋯</div>
+            <h2>Loading scene packs…</h2>
+          </div>
+        </div>
+        </div><!-- /tab-addons -->
+
+        <!-- Modals live outside the tab-content divs -- they're position:fixed
+             overlays, so a tab switch (which sets display:none on an ancestor)
+             must never be able to hide one while it's open. -->
         <div class="modal-overlay" id="upload-modal-overlay">
           <div class="modal-box">
             <h3>Upload to Library</h3>
@@ -883,27 +984,6 @@
           </div>
         </div>
 
-        <h1>🖼 Fraimic Frames</h1>
-        <div class="grid" id="grid">
-          <div class="empty">
-            <div style="font-size:36px">⏳</div>
-            <h2>Discovering frames…</h2>
-          </div>
-        </div>
-
-        <h2 class="section-title">🎬 Scenes</h2>
-        <div class="lib-toolbar">
-          <button class="btn-primary" id="scene-new-btn"
-            style="flex:0 0 auto;padding-left:14px;padding-right:14px">＋ New Scene</button>
-        </div>
-        <div class="feedback" id="scene-fb"></div>
-        <div class="lib-grid" id="scene-grid">
-          <div class="empty">
-            <div style="font-size:36px">⏳</div>
-            <h2>Loading scenes…</h2>
-          </div>
-        </div>
-
         <div class="modal-overlay" id="scene-editor-overlay">
           <div class="modal-box" style="max-width:480px">
             <h3 id="scene-editor-title">New Scene</h3>
@@ -926,23 +1006,6 @@
             </div>
           </div>
         </div>
-        </div><!-- /view-main -->
-
-        <div id="view-addons" style="display:none">
-        <div class="page-nav" style="justify-content:flex-start">
-          <a href="javascript:void(0)" class="addons-link" id="addons-back-link">← Back</a>
-        </div>
-        <h1>🧩 Add-ons</h1>
-
-        <h2 class="section-title" style="margin-top:0">🎨 Scene Packs</h2>
-        <div class="feedback" id="pack-fb"></div>
-        <div class="lib-grid" id="pack-grid">
-          <div class="empty">
-            <div style="font-size:36px">⏳</div>
-            <h2>Loading scene packs…</h2>
-          </div>
-        </div>
-        </div><!-- /view-addons -->
 
         <div class="editor-overlay" id="editor-overlay">
           <div class="editor-header">
@@ -1055,7 +1118,7 @@
       if (!this._frames.length) {
         grid.innerHTML = `
           <div class="empty">
-            <div style="font-size:48px">🖼</div>
+            <div class="empty-icon">▦</div>
             <h2>No frames found</h2>
             <p>Go to <strong>Settings → Integrations → + Add Integration</strong>
                and search for <strong>Fraimic</strong> to set up your frames.</p>
@@ -1084,21 +1147,31 @@
       const originLabel = frame.origin === 'clone'
         ? `Community Clone${frame.platform ? ` · ${this._esc(frame.platform)}` : ''}`
         : '';
-      const tag = frame.host ? 'a' : 'div';
-      const linkAttrs = frame.host
-        ? `href="http://${this._esc(frame.host)}" target="_blank" rel="noopener"`
+      const hostLink = frame.host
+        ? `<a class="frame-host-link" href="http://${this._esc(frame.host)}" target="_blank" rel="noopener" title="Open frame's web UI">
+             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+               <path d="M14 3h7v7"/><path d="M10 14 21 3"/>
+               <path d="M21 14v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h6"/>
+             </svg>
+           </a>`
         : '';
 
       el.innerHTML = `
-        <${tag} class="frame-link" ${linkAttrs}>
-          <div class="frame-icon">🖼</div>
+        <div class="frame-row">
+          <div class="frame-icon">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <rect x="7" y="7" width="10" height="10" rx="1"/>
+            </svg>
+          </div>
           <div class="frame-meta">
             <div class="frame-name">${this._esc(frame.title)}</div>
             <div class="frame-status" id="status-${sid}"></div>
             ${sizeLabel ? `<div class="frame-status">${sizeLabel}</div>` : ''}
             ${originLabel ? `<div class="frame-origin-clone">${originLabel}</div>` : ''}
           </div>
-        </${tag}>
+          ${hostLink}
+        </div>
       `;
 
       return { el };
@@ -1492,7 +1565,7 @@
       if (!totalPhotos) {
         grid.innerHTML = `
           <div class="empty">
-            <div style="font-size:48px">📚</div>
+            <div class="empty-icon">▤</div>
             <h2>Library is empty</h2>
             <p>Upload photos above to add them to the shared library. They're converted
                once per frame resolution and reused by every frame that matches —
@@ -1604,7 +1677,7 @@
       if (!this._library.length) {
         grid.innerHTML = `
           <div class="empty">
-            <div style="font-size:48px">📚</div>
+            <div class="empty-icon">▤</div>
             <h2>No photos in "${this._esc(this._currentAlbum)}" yet</h2>
             <p>Upload photos into this album, or use "＋ Add to Album" on an existing photo.</p>
           </div>
@@ -2650,7 +2723,7 @@
       if (!this._scenes.length) {
         grid.innerHTML = `
           <div class="empty">
-            <div style="font-size:48px">🎬</div>
+            <div class="empty-icon">▶</div>
             <h2>No scenes yet</h2>
             <p>Pick an album, match its photos to frames, then send them all to
                your wall at once — e.g. four frames showing "1", "2", "3", "4" in order.</p>
@@ -2670,13 +2743,13 @@
       el.className = 'card scene-card';
       const sid = this._sid(scene.scene_id);
       const count = Object.keys(scene.mappings || {}).length;
-      const albumNote = scene.album ? ` · ${this._esc(scene.album)}` : '';
+      const albumNote = scene.album ? `${this._esc(scene.album)} · ` : '';
 
       el.innerHTML = `
         <div class="scene-card-title">${this._esc(scene.name)}</div>
-        <div class="scene-card-summary">${count} frame${count === 1 ? '' : 's'} mapped${albumNote}</div>
+        <div class="scene-card-summary">${albumNote}${count} frame${count === 1 ? '' : 's'}</div>
         <div class="btns" style="margin-top:10px">
-          <button class="btn-primary" id="scene-send-${sid}">▶ Send</button>
+          <button class="btn-primary" id="scene-send-${sid}">▶ Send Scene</button>
           <button class="btn-ghost" id="scene-edit-${sid}">✎ Edit</button>
           <button class="btn-ghost" id="scene-delete-${sid}">🗑</button>
         </div>
@@ -2957,7 +3030,7 @@
       if (!this._scenePacks.length) {
         grid.innerHTML = `
           <div class="empty">
-            <div style="font-size:48px">🎨</div>
+            <div class="empty-icon">◈</div>
             <h2>No scene packs available</h2>
             <p>Couldn't reach the scene pack catalog right now -- check your
                internet connection and reload the page.</p>
@@ -2984,7 +3057,7 @@
         statusHtml = `
           <button class="btn-ghost" id="pack-sync-${sid}" title="Re-check for missing or newly added images">🔄 Sync</button>
           <button class="btn-ghost" id="pack-remove-${sid}">🗑 Remove</button>
-          <span class="scene-card-summary">${pack.scene_created ? '✓ Installed · scene created' : '✓ Installed'}</span>
+          <span class="badge-installed">✓ ${pack.scene_created ? 'Installed · scene created' : 'Installed'}</span>
         `;
       } else {
         statusHtml = `<button class="btn-primary" id="pack-install-${sid}">⬇ Install</button>`;
@@ -2993,7 +3066,7 @@
       el.innerHTML = `
         <img class="pack-cover" src="${this._esc(coverUrl)}" alt="${this._esc(pack.name)}" loading="lazy">
         <div class="scene-card-title">${this._esc(pack.name)}</div>
-        <div class="scene-card-summary">${this._esc(pack.description || '')}</div>
+        <div class="pack-desc">${this._esc(pack.description || '')}</div>
         <div class="scene-card-summary">${count} image${count === 1 ? '' : 's'} · ${this._esc(pack.license || '')}</div>
         <div class="btns" style="margin-top:10px;align-items:center">${statusHtml}</div>
         <div class="feedback" id="pack-card-fb-${sid}"></div>
