@@ -49,10 +49,14 @@
         "data": {
           "name": "Frame Name",
           "scan_interval": "Update Interval (seconds)",
-          "resolution": "Physical Size"
+          "resolution": "Physical Size",
+          "rotation_edge": "Rotated hanging (which edge is up)",
+          "rotate_portrait_180": "Flip portrait images 180\u00b0",
+          "rotate_landscape_180": "Flip landscape images 180\u00b0"
         },
         "data_description": {
-          "resolution": "The physical print size of your frame. Leave unset if you don't need to change it."
+          "resolution": "The physical print size of your frame. Leave unset if you don't need to change it.",
+          "rotation_edge": "Only matters when the frame's Orientation is locked to its non-native orientation (e.g. a portrait frame hung landscape). Official Fraimic frames hang left-edge-up; if images on a rotated clone come out upside down, switch this."
         }
       }
     }

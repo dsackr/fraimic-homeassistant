@@ -10,7 +10,7 @@ Endpoints:
     POST /api/fraimic/library/image/{id}/albums           replace an image's album tags
     POST /api/fraimic/library/send                        send a library image to a frame
     POST /api/fraimic/library/crop                         save a manual crop rect for one image+resolution
-    DELETE /api/fraimic/library/crop                       clear a saved crop, revert to auto-letterbox
+    DELETE /api/fraimic/library/crop                       clear a saved crop, revert to auto framing
     GET  /api/fraimic/library/albums                      list albums with photo counts + cover image
     POST /api/fraimic/library/albums                      rename an album
     DELETE /api/fraimic/library/albums                     delete an album (untags, doesn't delete photos)
@@ -39,8 +39,17 @@ from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import CONF_HEIGHT, CONF_HOST, CONF_SIZE, CONF_WIDTH, DOMAIN, CONF_ROTATE_PORTRAIT_180, CONF_ROTATE_LANDSCAPE_180
+from .const import (
+    CONF_HEIGHT,
+    CONF_HOST,
+    CONF_ORIENTATION,
+    CONF_SIZE,
+    CONF_WIDTH,
+    DOMAIN,
+    ORIENTATION_AUTO,
+)
 from .frame_types import FRAME_TYPES
+from .helpers import render_spec_for_entry
 from .http_api import resolve_frame_by_entity
 
 _LOGGER = logging.getLogger(__name__)
@@ -225,17 +234,10 @@ class FraimicLibrarySendView(HomeAssistantView):
         except ValueError as err:
             return self.json_message(str(err), status_code=404)
 
-        width: int = entry.data[CONF_WIDTH]
-        height: int = entry.data[CONF_HEIGHT]
-        rotation = 0
-        is_landscape = width > height
-        if is_landscape and entry.options.get(CONF_ROTATE_LANDSCAPE_180):
-            rotation = 180
-        elif not is_landscape and entry.options.get(CONF_ROTATE_PORTRAIT_180):
-            rotation = 180
+        spec = render_spec_for_entry(entry)
 
         try:
-            bin_bytes = await manager.async_get_bin_for_send(image_id, width, height, rotation)
+            bin_bytes = await manager.async_get_bin_for_send(image_id, spec)
         except Exception as err:  # noqa: BLE001
             _LOGGER.error("Library send conversion failed: %s", err)
             return self.json_message(f"Conversion failed: {err}", status_code=500)
@@ -257,7 +259,7 @@ class FraimicLibraryCropView(HomeAssistantView):
 
     Saving (or clearing) invalidates that resolution's cached .bin so the
     next send re-converts with the new crop (or reverts to the automatic
-    letterbox render).
+    centered cover-crop render).
     """
 
     url = "/api/fraimic/library/crop"
@@ -462,12 +464,22 @@ class FraimicFramesView(HomeAssistantView):
             height = entry.data.get(CONF_HEIGHT)
             if isinstance(width, int) and isinstance(height, int):
                 frame_type = FRAME_TYPES.get(entry.data.get(CONF_SIZE))
+                spec = render_spec_for_entry(entry)
                 frames.append(
                     {
                         "entry_id": entry.entry_id,
                         "title": entry.title,
-                        "width": width,
-                        "height": height,
+                        # Effective composition dimensions -- what the crop
+                        # editor's aspect ratio must match and what crop
+                        # rects are keyed by. Reflects the orientation lock.
+                        "width": spec.width,
+                        "height": spec.height,
+                        # Native (frame-reported) panel dimensions.
+                        "native_width": width,
+                        "native_height": height,
+                        "orientation": entry.options.get(
+                            CONF_ORIENTATION, ORIENTATION_AUTO
+                        ),
                         "size": entry.data.get(CONF_SIZE),
                         "host": entry.data.get(CONF_HOST),
                         "origin": frame_type.origin if frame_type else None,

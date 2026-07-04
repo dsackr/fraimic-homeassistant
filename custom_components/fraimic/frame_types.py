@@ -104,9 +104,14 @@ def byte_layout_for_resolution(width: int, height: int) -> str:
 
     Safe to key purely on resolution because _validate_registry() guarantees
     every frame type sharing a resolution agrees on layout.
+
+    Orientation-agnostic: (height, width) matches too. Some frames report
+    swapped dimensions from /api/info after being physically rotated, and the
+    coordinator persists whatever the frame reports -- the physical panel
+    (and its byte layout) is the same either way.
     """
     for frame_type in FRAME_TYPES.values():
-        if frame_type.resolution == (width, height):
+        if frame_type.resolution in ((width, height), (height, width)):
             return frame_type.byte_layout
     raise ValueError(
         f"No registered frame type has resolution {width}x{height}"

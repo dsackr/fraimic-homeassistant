@@ -264,7 +264,13 @@ class ScenePackManager:
             width = entry.data.get(CONF_WIDTH)
             height = entry.data.get(CONF_HEIGHT)
             if isinstance(width, int) and isinstance(height, int):
-                frames.append((entry.entry_id, width > height))
+                # Match pack images against the frame's *effective*
+                # orientation (honours the orientation lock), not the
+                # panel's native buffer orientation.
+                from .helpers import render_spec_for_entry  # noqa: PLC0415
+
+                spec = render_spec_for_entry(entry)
+                frames.append((entry.entry_id, spec.width > spec.height))
 
         scene_id = None
         if frames:

@@ -51,6 +51,47 @@ async def async_setup_entry(
 # ---------------------------------------------------------------------------
 
 
+def frame_device_info(
+    hass: HomeAssistant, coordinator: FraimicCoordinator, entry: ConfigEntry
+) -> DeviceInfo:
+    """Device registry info for one frame -- shared by every entity platform
+    (sensors, the orientation select) so they all land on the same device."""
+    fw: str | None = None
+    if coordinator.data:
+        fw = coordinator.data.get("firmware_version")
+
+    frame_type = FRAME_TYPES.get(entry.data.get(CONF_SIZE))
+    if frame_type is not None:
+        manufacturer = (
+            "Fraimic" if frame_type.origin == ORIGIN_OFFICIAL
+            else "Community (Fraimic-compatible)"
+        )
+        model = frame_type.display_name
+    else:
+        manufacturer = "Fraimic"
+        model = "E-Ink Canvas"
+
+    info: dict[str, Any] = {
+        "identifiers": {(DOMAIN, entry.entry_id)},
+        "name": entry.data[CONF_NAME],
+        "manufacturer": manufacturer,
+        "model": model,
+        "sw_version": fw,
+    }
+
+    # configuration_url must be an absolute URL -- HA rejects relative
+    # paths outright (and will fail entity setup entirely if it isn't
+    # valid), so only add it when we actually have a base URL to anchor
+    # to. Falls back to internal_url if no external_url is configured.
+    base_url = hass.config.external_url or hass.config.internal_url
+    if base_url:
+        info["configuration_url"] = (
+            f"{base_url.rstrip('/')}/fraimic?entry={entry.entry_id}"
+        )
+
+    return DeviceInfo(**info)
+
+
 class FraimicBaseSensor(CoordinatorEntity, SensorEntity):
     """Base class shared by all Fraimic sensors."""
 
@@ -68,40 +109,7 @@ class FraimicBaseSensor(CoordinatorEntity, SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device registry information."""
-        fw: str | None = None
-        if self.coordinator.data:
-            fw = self.coordinator.data.get("firmware_version")
-
-        frame_type = FRAME_TYPES.get(self._entry.data.get(CONF_SIZE))
-        if frame_type is not None:
-            manufacturer = (
-                "Fraimic" if frame_type.origin == ORIGIN_OFFICIAL
-                else "Community (Fraimic-compatible)"
-            )
-            model = frame_type.display_name
-        else:
-            manufacturer = "Fraimic"
-            model = "E-Ink Canvas"
-
-        info: dict[str, Any] = {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name": self._entry.data[CONF_NAME],
-            "manufacturer": manufacturer,
-            "model": model,
-            "sw_version": fw,
-        }
-
-        # configuration_url must be an absolute URL -- HA rejects relative
-        # paths outright (and will fail entity setup entirely if it isn't
-        # valid), so only add it when we actually have a base URL to anchor
-        # to. Falls back to internal_url if no external_url is configured.
-        base_url = self.hass.config.external_url or self.hass.config.internal_url
-        if base_url:
-            info["configuration_url"] = (
-                f"{base_url.rstrip('/')}/fraimic?entry={self._entry.entry_id}"
-            )
-
-        return DeviceInfo(**info)
+        return frame_device_info(self.hass, self.coordinator, self._entry)
 
 
 # ---------------------------------------------------------------------------

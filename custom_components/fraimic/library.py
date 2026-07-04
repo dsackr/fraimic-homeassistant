@@ -30,7 +30,8 @@ from typing import TYPE_CHECKING, Any, Callable
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 
-from .const import CONF_HEIGHT, CONF_WIDTH, DOMAIN, CONF_ROTATE_PORTRAIT_180, CONF_ROTATE_LANDSCAPE_180
+from .const import CONF_HEIGHT, CONF_WIDTH, DOMAIN
+from .helpers import RenderSpec, render_spec_for_entry
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -88,29 +89,28 @@ def _detect_content_type(raw_bytes: bytes) -> str:
     return _CONTENT_TYPE_BY_FORMAT.get(fmt, "application/octet-stream")
 
 
-def _all_frame_resolutions(hass: "HomeAssistant") -> set[tuple[int, int]]:
-    """Distinct (width, height) pairs across every configured Fraimic frame."""
-    resolutions: set[tuple[int, int]] = set()
+def _all_render_specs(hass: "HomeAssistant") -> set[RenderSpec]:
+    """Distinct render specs (effective resolution + rotation + lock) across
+    every configured Fraimic frame. Two frames with identical settings
+    collapse to one spec (they share cached .bin files)."""
+    specs: set[RenderSpec] = set()
     for entry in hass.config_entries.async_entries(DOMAIN):
         width = entry.data.get(CONF_WIDTH)
         height = entry.data.get(CONF_HEIGHT)
         if isinstance(width, int) and isinstance(height, int):
-            resolutions.add((width, height))
-    return resolutions
+            specs.add(render_spec_for_entry(entry))
+    return specs
 
 
-def _rotation_for_resolution(hass: "HomeAssistant", width: int, height: int) -> int:
-    """Return 180 if the configured frame for this resolution has 180° rotation enabled."""
-    for entry in hass.config_entries.async_entries(DOMAIN):
-        w = entry.data.get(CONF_WIDTH)
-        h = entry.data.get(CONF_HEIGHT)
-        if w == width and h == height:
-            is_landscape = width > height
-            if is_landscape and entry.options.get(CONF_ROTATE_LANDSCAPE_180):
-                return 180
-            if not is_landscape and entry.options.get(CONF_ROTATE_PORTRAIT_180):
-                return 180
-    return 0
+# Every cache-key suffix a .bin file can be stored under (see
+# RenderSpec.variant): 4 rotations x locked/unlocked. Used to invalidate
+# *all* renders of one image+resolution when its crop changes -- deleting
+# only the base variant would leave rotated/locked renders stale.
+_ALL_BIN_VARIANTS: tuple[str, ...] = tuple(
+    (f"_r{rot}" if rot else "") + ("_c" if locked else "")
+    for locked in (False, True)
+    for rot in (0, 90, 180, 270)
+)
 
 
 def _safe_filename(name: str) -> str:
@@ -135,7 +135,7 @@ class LibraryImage:
     # Per-resolution manual crop rectangles, keyed by "WIDTHxHEIGHT".
     # Each value is [x0, y0, x1, y1], normalized 0.0-1.0 against the
     # original image. Absent key == no manual crop saved for that
-    # resolution yet (falls back to the automatic letterbox render).
+    # resolution yet (falls back to the automatic centered cover-crop).
     crops: dict[str, list[float]] = field(default_factory=dict)
     # Album tags this image belongs to. Not folders -- an image can carry
     # any number of these with no duplication of the underlying file.
@@ -200,12 +200,14 @@ class LibraryBackend:
         raise NotImplementedError
 
     async def async_get_bin(
-        self, image_id: str, width: int, height: int, rotation: int = 0
+        self, image_id: str, width: int, height: int, variant: str = ""
     ) -> bytes | None:
+        """*variant* is the cache-key suffix from RenderSpec.variant ("" for
+        the default render, e.g. "_r180" / "_r90_c" otherwise)."""
         raise NotImplementedError
 
     async def async_save_bin(
-        self, image_id: str, width: int, height: int, data: bytes, rotation: int = 0
+        self, image_id: str, width: int, height: int, data: bytes, variant: str = ""
     ) -> None:
         raise NotImplementedError
 
@@ -223,7 +225,8 @@ class LibraryBackend:
         raise NotImplementedError
 
     async def async_delete_bin(self, image_id: str, width: int, height: int) -> None:
-        """Remove a cached .bin for one resolution so it regenerates on next send."""
+        """Remove every cached .bin variant for one resolution so they all
+        regenerate on next send (crops apply to all rotations/locks alike)."""
         raise NotImplementedError
 
     async def async_upload_original(
@@ -289,9 +292,8 @@ class LocalLibraryBackend(LibraryBackend):
             json.dump(manifest, f, indent=2)
         os.replace(tmp, self._manifest_path)
 
-    def _bin_path(self, image_id: str, width: int, height: int, rotation: int = 0) -> str:
-        suffix = f"_r{rotation}" if rotation else ""
-        return os.path.join(self._root, "bin", f"{width}x{height}{suffix}", f"{image_id}.bin")
+    def _bin_path(self, image_id: str, width: int, height: int, variant: str = "") -> str:
+        return os.path.join(self._root, "bin", f"{width}x{height}{variant}", f"{image_id}.bin")
 
     def _original_path_for(self, image_id: str, filename: str) -> str:
         return os.path.join(
@@ -346,17 +348,17 @@ class LocalLibraryBackend(LibraryBackend):
         with open(path, "rb") as f:
             return f.read(), content_type
 
-    def _get_bin_sync(self, image_id: str, width: int, height: int, rotation: int = 0) -> bytes | None:
-        path = self._bin_path(image_id, width, height, rotation)
+    def _get_bin_sync(self, image_id: str, width: int, height: int, variant: str = "") -> bytes | None:
+        path = self._bin_path(image_id, width, height, variant)
         if not os.path.isfile(path):
             return None
         with open(path, "rb") as f:
             return f.read()
 
     def _save_bin_sync(
-        self, image_id: str, width: int, height: int, data: bytes, rotation: int = 0
+        self, image_id: str, width: int, height: int, data: bytes, variant: str = ""
     ) -> None:
-        path = self._bin_path(image_id, width, height, rotation)
+        path = self._bin_path(image_id, width, height, variant)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as f:
             f.write(data)
@@ -404,9 +406,10 @@ class LocalLibraryBackend(LibraryBackend):
         self._write_manifest(manifest)
 
     def _delete_bin_sync(self, image_id: str, width: int, height: int) -> None:
-        path = self._bin_path(image_id, width, height)
-        if os.path.isfile(path):
-            os.remove(path)
+        for variant in _ALL_BIN_VARIANTS:
+            path = self._bin_path(image_id, width, height, variant)
+            if os.path.isfile(path):
+                os.remove(path)
 
     # -- async public API --
 
@@ -417,18 +420,18 @@ class LocalLibraryBackend(LibraryBackend):
         return await self.hass.async_add_executor_job(self._get_original_sync, image_id)
 
     async def async_get_bin(
-        self, image_id: str, width: int, height: int, rotation: int = 0
+        self, image_id: str, width: int, height: int, variant: str = ""
     ) -> bytes | None:
         return await self.hass.async_add_executor_job(
-            self._get_bin_sync, image_id, width, height, rotation
+            self._get_bin_sync, image_id, width, height, variant
         )
 
     async def async_save_bin(
-        self, image_id: str, width: int, height: int, data: bytes, rotation: int = 0
+        self, image_id: str, width: int, height: int, data: bytes, variant: str = ""
     ) -> None:
         async with self._manifest_lock:
             await self.hass.async_add_executor_job(
-                self._save_bin_sync, image_id, width, height, data, rotation
+                self._save_bin_sync, image_id, width, height, data, variant
             )
 
     async def async_update_image_fields(self, image_id: str, **fields: Any) -> None:
@@ -574,8 +577,8 @@ class DropboxLibraryBackend(LibraryBackend):
                 f"Dropbox manifest write failed ({resp.status}): {text[:200]}"
             )
 
-    def _bin_path(self, image_id: str, width: int, height: int) -> str:
-        return f"{_DROPBOX_ROOT}/bin/{width}x{height}/{image_id}.bin"
+    def _bin_path(self, image_id: str, width: int, height: int, variant: str = "") -> str:
+        return f"{_DROPBOX_ROOT}/bin/{width}x{height}{variant}/{image_id}.bin"
 
     async def _original_dropbox_path(self, image_id: str) -> tuple[str, str]:
         manifest = await self._read_manifest() or {"images": []}
@@ -639,13 +642,13 @@ class DropboxLibraryBackend(LibraryBackend):
         return await resp.read(), content_type
 
     async def async_get_bin(
-        self, image_id: str, width: int, height: int, rotation: int = 0
+        self, image_id: str, width: int, height: int, variant: str = ""
     ) -> bytes | None:
         session = async_get_clientsession(self.hass)
         resp = await session.post(
             f"{_DROPBOX_CONTENT_API}/files/download",
             headers=self._headers(
-                {"Dropbox-API-Arg": json.dumps({"path": self._bin_path(image_id, width, height, rotation)})}
+                {"Dropbox-API-Arg": json.dumps({"path": self._bin_path(image_id, width, height, variant)})}
             ),
         )
         if resp.status in (404, 409):
@@ -658,7 +661,7 @@ class DropboxLibraryBackend(LibraryBackend):
         return await resp.read()
 
     async def async_save_bin(
-        self, image_id: str, width: int, height: int, data: bytes, rotation: int = 0
+        self, image_id: str, width: int, height: int, data: bytes, variant: str = ""
     ) -> None:
         session = async_get_clientsession(self.hass)
         resp = await session.post(
@@ -666,7 +669,7 @@ class DropboxLibraryBackend(LibraryBackend):
             headers=self._headers(
                 {
                     "Dropbox-API-Arg": json.dumps(
-                        {"path": self._bin_path(image_id, width, height, rotation), "mode": "overwrite"}
+                        {"path": self._bin_path(image_id, width, height, variant), "mode": "overwrite"}
                     ),
                     "Content-Type": "application/octet-stream",
                 }
@@ -709,16 +712,17 @@ class DropboxLibraryBackend(LibraryBackend):
 
     async def async_delete_bin(self, image_id: str, width: int, height: int) -> None:
         session = async_get_clientsession(self.hass)
-        resp = await session.post(
-            f"{_DROPBOX_API}/files/delete_v2",
-            headers=self._headers({"Content-Type": "application/json"}),
-            json={"path": self._bin_path(image_id, width, height)},
-        )
-        if resp.status >= 400 and resp.status not in (404, 409):
-            text = await resp.text()
-            raise LibraryBackendError(
-                f"Dropbox bin delete failed ({resp.status}): {text[:200]}"
+        for variant in _ALL_BIN_VARIANTS:
+            resp = await session.post(
+                f"{_DROPBOX_API}/files/delete_v2",
+                headers=self._headers({"Content-Type": "application/json"}),
+                json={"path": self._bin_path(image_id, width, height, variant)},
             )
+            if resp.status >= 400 and resp.status not in (404, 409):
+                text = await resp.text()
+                raise LibraryBackendError(
+                    f"Dropbox bin delete failed ({resp.status}): {text[:200]}"
+                )
 
     async def async_delete_image(self, image_id: str) -> None:
         session = async_get_clientsession(self.hass)
@@ -1021,7 +1025,7 @@ class GoogleDriveLibraryBackend(LibraryBackend):
         return data, entry.get("content_type", "application/octet-stream")
 
     async def async_get_bin(
-        self, image_id: str, width: int, height: int, rotation: int = 0
+        self, image_id: str, width: int, height: int, variant: str = ""
     ) -> bytes | None:
         manifest = await self._read_manifest()
         entry = next(
@@ -1030,20 +1034,18 @@ class GoogleDriveLibraryBackend(LibraryBackend):
         )
         if entry is None:
             return None
-        suffix = f"_r{rotation}" if rotation else ""
-        bin_file_id = entry.get("bin_file_ids", {}).get(f"{width}x{height}{suffix}")
+        bin_file_id = entry.get("bin_file_ids", {}).get(f"{width}x{height}{variant}")
         if not bin_file_id:
             return None
         return await self._download_content(bin_file_id)
 
     async def async_save_bin(
-        self, image_id: str, width: int, height: int, data: bytes, rotation: int = 0
+        self, image_id: str, width: int, height: int, data: bytes, variant: str = ""
     ) -> None:
         async with self._manifest_lock:
             manifest = await self._read_manifest()
             entry = self._find_entry(manifest, image_id)
-            suffix = f"_r{rotation}" if rotation else ""
-            res_key = f"{width}x{height}{suffix}"
+            res_key = f"{width}x{height}{variant}"
             existing_id = entry.get("bin_file_ids", {}).get(res_key)
             if existing_id:
                 await self._upload_content(existing_id, data, "application/octet-stream")
@@ -1076,10 +1078,14 @@ class GoogleDriveLibraryBackend(LibraryBackend):
         async with self._manifest_lock:
             manifest = await self._read_manifest()
             entry = self._find_entry(manifest, image_id)
-            res_key = f"{width}x{height}"
-            bin_file_id = entry.get("bin_file_ids", {}).pop(res_key, None)
-            if bin_file_id:
-                await self._delete_file(bin_file_id)
+            deleted_any = False
+            for variant in _ALL_BIN_VARIANTS:
+                res_key = f"{width}x{height}{variant}"
+                bin_file_id = entry.get("bin_file_ids", {}).pop(res_key, None)
+                if bin_file_id:
+                    await self._delete_file(bin_file_id)
+                    deleted_any = True
+            if deleted_any:
                 await self._write_manifest(manifest)
 
     async def async_delete_image(self, image_id: str) -> None:
@@ -1266,11 +1272,11 @@ class LibraryManager:
                 _LOGGER.error("Library backfill failed for '%s': %s", item, err)
 
     async def _backfill_one(self, record: LibraryImage) -> None:
-        """Generate whatever .bin resolutions `record` is missing for the
+        """Generate whatever .bin renders `record` is missing for the
         frames currently configured."""
         missing = [
-            (w, h) for w, h in _all_frame_resolutions(self.hass)
-            if not record.has_resolution(w, h)
+            spec for spec in _all_render_specs(self.hass)
+            if not record.has_resolution(spec.width, spec.height)
         ]
         if not missing:
             return
@@ -1285,34 +1291,36 @@ class LibraryManager:
 
         from .image_converter import convert_image_bytes  # noqa: PLC0415
 
-        for width, height in missing:
+        for spec in missing:
             try:
-                rotation = _rotation_for_resolution(self.hass, width, height)
                 bin_bytes = await self.hass.async_add_executor_job(
-                    convert_image_bytes, raw_bytes, width, height, rotation
+                    convert_image_bytes, raw_bytes, spec.width, spec.height,
+                    spec.rotation, spec.locked,
                 )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error(
                     "Failed converting library image %s to %dx%d: %s",
-                    record.image_id, width, height, err,
+                    record.image_id, spec.width, spec.height, err,
                 )
                 continue
-            await self._backend.async_save_bin(record.image_id, width, height, bin_bytes, rotation)
+            await self._backend.async_save_bin(
+                record.image_id, spec.width, spec.height, bin_bytes, spec.variant
+            )
 
     async def _find_image(self, image_id: str) -> LibraryImage | None:
         images = await self._backend.async_list_images()
         return next((img for img in images if img.image_id == image_id), None)
 
-    async def async_get_bin_for_send(
-        self, image_id: str, width: int, height: int, rotation: int = 0
-    ) -> bytes:
-        """Return a cached .bin, generating + caching it on the fly if this
-        resolution hasn't been seen for this image before (e.g. a frame
-        added after the image was uploaded, or a crop was just changed and
-        invalidated the old cache). Uses the image's saved manual crop for
-        this resolution if one exists; otherwise falls back to the
-        automatic letterbox render."""
-        cached = await self._backend.async_get_bin(image_id, width, height, rotation)
+    async def async_get_bin_for_send(self, image_id: str, spec: RenderSpec) -> bytes:
+        """Return a cached .bin for this render spec, generating + caching it
+        on the fly if this render hasn't been seen for this image before
+        (e.g. a frame added after the image was uploaded, or a crop was just
+        changed and invalidated the old cache). Uses the image's saved manual
+        crop for the spec's effective resolution if one exists; otherwise
+        falls back to the automatic render (centered cover-crop when locked,
+        sideways-rotate-to-fill when not)."""
+        width, height = spec.width, spec.height
+        cached = await self._backend.async_get_bin(image_id, width, height, spec.variant)
         if cached is not None:
             return cached
 
@@ -1324,15 +1332,17 @@ class LibraryManager:
             from .image_converter import convert_image_bytes_cropped  # noqa: PLC0415
 
             bin_bytes = await self.hass.async_add_executor_job(
-                convert_image_bytes_cropped, raw_bytes, width, height, tuple(crop_box), rotation
+                convert_image_bytes_cropped, raw_bytes, width, height,
+                tuple(crop_box), spec.rotation,
             )
         else:
             from .image_converter import convert_image_bytes  # noqa: PLC0415
 
             bin_bytes = await self.hass.async_add_executor_job(
-                convert_image_bytes, raw_bytes, width, height, rotation
+                convert_image_bytes, raw_bytes, width, height,
+                spec.rotation, spec.locked,
             )
-        await self._backend.async_save_bin(image_id, width, height, bin_bytes, rotation)
+        await self._backend.async_save_bin(image_id, width, height, bin_bytes, spec.variant)
         return bin_bytes
 
     async def async_set_crop(
@@ -1354,7 +1364,7 @@ class LibraryManager:
     async def async_clear_crop(
         self, image_id: str, width: int, height: int
     ) -> dict[str, Any]:
-        """Revert to the original (un-cropped, auto-letterboxed) rendering
+        """Revert to the automatic (centered cover-crop) rendering
         for one image at one resolution."""
         record = await self._find_image(image_id)
         if record is None:

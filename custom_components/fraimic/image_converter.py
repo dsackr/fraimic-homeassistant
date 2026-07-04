@@ -45,11 +45,18 @@ type in frame_types.py (FrameType.byte_layout) rather than inferred:
 Conversion pipeline
 --------------------
 1. Open image (any format Pillow supports)
-2. Auto-rotate to match target orientation (landscape vs portrait) if needed
-3. Resize to fit target dimensions while preserving aspect ratio; letterbox with white fill
-4. Quantize to the 6 Spectra 6 real-world colors using Floyd-Steinberg dithering
-5. Pack pixels into the nibble format described above, using the byte
-   ordering that matches the target resolution's physical panel
+2. Handle a landscape/portrait mismatch between image and target:
+   - default (unlocked, the Fraimic way): rotate the image 90 degrees so it
+     fills the frame sideways at full size
+   - locked=True (frame has an orientation lock): keep the image upright
+     and let step 3's centered cover-crop trim it to the target shape
+3. Scale to cover the target dimensions (preserving aspect ratio) and
+   center -- overflow is cropped
+4. Optionally rotate the finished canvas (90/180/270) -- used for frames
+   physically hung in their non-native orientation and/or upside down
+5. Quantize to the 6 Spectra 6 real-world colors using Floyd-Steinberg dithering
+6. Pack pixels into the nibble format described above, using the byte
+   ordering that matches the final resolution's physical panel
 """
 
 from __future__ import annotations
@@ -113,19 +120,17 @@ def _build_palette_image() -> "Image.Image":
     return pal_image
 
 
-def _resize_with_letterbox(
+def _resize_cover_centered(
     image: "Image.Image",
     target_width: int,
     target_height: int,
 ) -> "Image.Image":
     """
-    Resize *image* to fit within *target_width* × *target_height* while
-    preserving the original aspect ratio. Any uncovered area is filled with
-    white (matching the default Spectra 6 background).
-
-    The image is scaled so that it fills the longest dimension, then centred.
-    This means no content is cropped, but narrow images may have white bars on
-    the sides (letterbox / pillarbox).
+    Scale *image* (preserving aspect ratio) so it fully covers
+    *target_width* × *target_height*, then center it on the canvas. Whatever
+    overflows the canvas is cropped away -- i.e. a centered "cover" crop, not
+    a letterbox. (Historically misnamed: this function has always used
+    max-scaling, so it has always cropped rather than padded.)
     """
     orig_w, orig_h = image.size
 
@@ -191,7 +196,8 @@ def default_cover_crop_box(
     _resize_with_letterbox would produce if it cropped instead of padding.
 
     This is the starting point the crop editor shows for an image that
-    doesn't have a saved crop yet for the chosen size/orientation.
+    doesn't have a saved crop yet for the chosen frame, and exactly the
+    framing the automatic (no-saved-crop) locked-orientation path produces.
     """
     target_ratio = target_width / target_height
     orig_ratio = orig_width / orig_height
@@ -378,57 +384,78 @@ def _open_as_rgb(source: "str | bytes") -> "Image.Image":
 # Public API
 # ---------------------------------------------------------------------------
 
-def convert_image(image_path: str, width: int, height: int, rotation: int = 0) -> bytes:
+def convert_image(
+    image_path: str,
+    width: int,
+    height: int,
+    rotation: int = 0,
+    locked: bool = False,
+) -> bytes:
     """
     Convert an image file to the raw Spectra 6 binary format.
 
     The full conversion pipeline is:
 
     1. Open the image (any format Pillow supports; EXIF orientation applied).
-    2. Auto-rotate 270° if the image and target have mismatched orientations.
-    3. Resize / letterbox to *width* × *height* with a white background.
-    4. Quantize to the 6 Spectra 6 palette colours with Floyd-Steinberg
+    2. If the image and target orientations mismatch: rotate the image
+       sideways (default) or, with *locked*, keep it upright and rely on the
+       cover-crop in step 3.
+    3. Scale-to-cover *width* × *height*, centered (overflow cropped).
+    4. Apply *rotation* (canvas rotation, e.g. 90/180/270 for frames hung
+       rotated / upside down).
+    5. Quantize to the 6 Spectra 6 palette colours with Floyd-Steinberg
        dithering.
-    5. Pack pixels into 4-bit nibbles, left-half-then-right-half (see module docstring).
+    6. Pack pixels into 4-bit nibbles (see module docstring).
 
     :param image_path: Path to the source image file.
-    :param width: Target display width in pixels.
-    :param height: Target display height in pixels.
-    :param rotation: Optional extra rotation in degrees (e.g. 180).
+    :param width: Composition width in pixels (the frame's effective width).
+    :param height: Composition height in pixels.
+    :param rotation: Canvas rotation in degrees CCW (0/90/180/270), applied
+        after composition. The packed output dimensions are the post-rotation
+        dimensions, which must be a registered panel resolution.
+    :param locked: True when the target frame has an orientation lock --
+        mismatched-orientation images are auto-cropped upright instead of
+        being rotated sideways.
     :returns: Raw bytes in Spectra 6 ``.bin`` format, ready for the Fraimic
         API.  The length will be ``(width * height) // 2`` bytes.
     :raises FileNotFoundError: If *image_path* does not exist.
     :raises ImportError: If Pillow is not installed.
     """
     image = _open_as_rgb(image_path)
-    return _process(image, width, height, rotation)
+    return _process(image, width, height, rotation, locked)
 
 
-def convert_image_bytes(image_data: bytes, width: int, height: int, rotation: int = 0) -> bytes:
+def convert_image_bytes(
+    image_data: bytes,
+    width: int,
+    height: int,
+    rotation: int = 0,
+    locked: bool = False,
+) -> bytes:
     """
     Convert raw image bytes to the raw Spectra 6 binary format.
 
     Accepts any image format that Pillow can decode (JPEG, PNG, WebP, GIF,
-    BMP, TIFF, …).
-
-    :param image_data: Raw bytes of the source image file.
-    :param width: Target display width in pixels.
-    :param height: Target display height in pixels.
-    :param rotation: Optional extra rotation in degrees (e.g. 180).
-    :returns: Raw bytes in Spectra 6 ``.bin`` format, ready for the Fraimic
-        API.  The length will be ``(width * height) // 2`` bytes.
-    :raises ImportError: If Pillow is not installed.
-    :raises PIL.UnidentifiedImageError: If *image_data* is not a recognised
-        image format.
+    BMP, TIFF, …). See :func:`convert_image` for parameter details.
     """
     image = _open_as_rgb(image_data)
-    return _process(image, width, height, rotation)
+    return _process(image, width, height, rotation, locked)
 
 
-def _process(image: "Image.Image", width: int, height: int, rotation: int = 0) -> bytes:
+def _process(
+    image: "Image.Image",
+    width: int,
+    height: int,
+    rotation: int = 0,
+    locked: bool = False,
+) -> bytes:
     """Shared implementation used by both public entry points."""
-    image = _auto_rotate(image, width, height)
-    image = _resize_with_letterbox(image, width, height)
+    if not locked:
+        # The Fraimic way: a mismatched image lies sideways at full size.
+        image = _auto_rotate(image, width, height)
+    # Locked: no source rotation -- the centered cover-crop below trims a
+    # mismatched image to the target shape while keeping it upright.
+    image = _resize_cover_centered(image, width, height)
     if rotation:
         image = image.rotate(rotation, expand=True)
     image = _quantize_to_spectra6(image)

@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 
-from .const import CONF_HEIGHT, CONF_WIDTH, DOMAIN, SIGNAL_SCENES_UPDATED, CONF_ROTATE_PORTRAIT_180, CONF_ROTATE_LANDSCAPE_180
+from .const import DOMAIN, SIGNAL_SCENES_UPDATED
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -223,16 +223,10 @@ class SceneManager:
                 })
                 continue
             try:
-                width: int = entry.data[CONF_WIDTH]
-                height: int = entry.data[CONF_HEIGHT]
-                rotation = 0
-                is_landscape = width > height
-                if is_landscape and entry.options.get(CONF_ROTATE_LANDSCAPE_180):
-                    rotation = 180
-                elif not is_landscape and entry.options.get(CONF_ROTATE_PORTRAIT_180):
-                    rotation = 180
+                from .helpers import render_spec_for_entry  # noqa: PLC0415
+
                 bin_bytes = await library_manager.async_get_bin_for_send(
-                    image_id, width, height, rotation
+                    image_id, render_spec_for_entry(entry)
                 )
             except Exception as err:  # noqa: BLE001
                 results.append({"entry_id": entry_id, "success": False, "message": str(err)})

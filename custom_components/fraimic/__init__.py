@@ -20,8 +20,6 @@ from .const import (
     API_REFRESH,
     API_RESTART,
     API_SLEEP,
-    CONF_HEIGHT,
-    CONF_WIDTH,
     DOMAIN,
     HUB_PLATFORMS,
     KIND_SCENES_HUB,
@@ -389,8 +387,9 @@ def _register_services(hass: HomeAssistant) -> None:
         if entry is None:
             raise HomeAssistantError(f"Config entry '{entry_id}' not found")
 
-        width: int = entry.data[CONF_WIDTH]
-        height: int = entry.data[CONF_HEIGHT]
+        from .helpers import render_spec_for_entry  # noqa: PLC0415
+
+        spec = render_spec_for_entry(entry)
 
         abs_path = await _resolve_media_path(hass, media_content_id)
 
@@ -401,7 +400,8 @@ def _register_services(hass: HomeAssistant) -> None:
 
         try:
             image_bytes: bytes = await hass.async_add_executor_job(
-                convert_image, abs_path, width, height
+                convert_image, abs_path, spec.width, spec.height,
+                spec.rotation, spec.locked,
             )
         except Exception as err:  # noqa: BLE001
             raise HomeAssistantError(
@@ -412,8 +412,8 @@ def _register_services(hass: HomeAssistant) -> None:
         _LOGGER.info(
             "Image '%s' (%dx%d) sent to frame %s",
             abs_path,
-            width,
-            height,
+            spec.width,
+            spec.height,
             coordinator.host,
         )
 

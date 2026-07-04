@@ -26,8 +26,9 @@ from .const import (
     KIND_SCENES_HUB,
     CONF_ORIENTATION,
     ORIENTATION_AUTO,
-    ORIENTATION_PORTRAIT,
-    ORIENTATION_LANDSCAPE,
+    CONF_ROTATION_EDGE,
+    EDGE_LEFT,
+    EDGE_RIGHT,
     CONF_ROTATE_PORTRAIT_180,
     CONF_ROTATE_LANDSCAPE_180,
 )
@@ -383,33 +384,21 @@ class FraimicOptionsFlow(OptionsFlow):
             # entry.data alongside width/height/host -- it's frame identity,
             # not a runtime preference.
             size = user_input.pop(CONF_RESOLUTION, "")
-            orientation = user_input.get(CONF_ORIENTATION, ORIENTATION_AUTO)
-
-            data = dict(self.config_entry.data)
             if size:
-                data[CONF_SIZE] = size
-
-            if orientation != ORIENTATION_AUTO:
-                curr_w = data.get(CONF_WIDTH, 1200)
-                curr_h = data.get(CONF_HEIGHT, 1600)
-                if orientation == ORIENTATION_PORTRAIT:
-                    data[CONF_WIDTH] = min(curr_w, curr_h)
-                    data[CONF_HEIGHT] = max(curr_w, curr_h)
-                elif orientation == ORIENTATION_LANDSCAPE:
-                    data[CONF_WIDTH] = max(curr_w, curr_h)
-                    data[CONF_HEIGHT] = min(curr_w, curr_h)
-
-            self.hass.config_entries.async_update_entry(
-                self.config_entry,
-                data=data,
-            )
-
-            # Sync in the background best-effort
-            self.hass.async_create_task(
-                self._async_sync_orientation_to_frame(
-                    orientation, data.get(CONF_WIDTH, 1200), data.get(CONF_HEIGHT, 1600)
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry,
+                    data={**self.config_entry.data, CONF_SIZE: size},
                 )
+
+            # The orientation lock isn't a field on this form (it's the
+            # per-frame Orientation select entity), but async_create_entry
+            # replaces options wholesale -- carry the stored value through so
+            # saving this form doesn't silently reset the lock to Auto.
+            orientation = self.config_entry.options.get(
+                CONF_ORIENTATION, ORIENTATION_AUTO
             )
+            if orientation != ORIENTATION_AUTO:
+                user_input[CONF_ORIENTATION] = orientation
 
             return self.async_create_entry(title="", data=user_input)
 
@@ -418,8 +407,8 @@ class FraimicOptionsFlow(OptionsFlow):
             CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
         )
         current_size: str | None = self.config_entry.data.get(CONF_SIZE)
-        current_orientation: str = self.config_entry.options.get(
-            CONF_ORIENTATION, ORIENTATION_AUTO
+        current_edge: str = self.config_entry.options.get(
+            CONF_ROTATION_EDGE, EDGE_LEFT
         )
         current_rotate_portrait: bool = self.config_entry.options.get(
             CONF_ROTATE_PORTRAIT_180, False
@@ -437,10 +426,14 @@ class FraimicOptionsFlow(OptionsFlow):
         )
         size_options.update({key: ft.display_name for key, ft in FRAME_TYPES.items()})
 
-        orientation_options = {
-            ORIENTATION_AUTO: "Auto-detect from frame",
-            ORIENTATION_PORTRAIT: "Force Portrait",
-            ORIENTATION_LANDSCAPE: "Force Landscape",
+        # Which panel edge points up when the frame is physically hung in its
+        # non-native orientation. Official Fraimic frames hang one specific
+        # way; clones can be mounted either way. Only matters when the
+        # Orientation select entity locks the frame to its non-native
+        # orientation -- if images then come out upside down, flip this.
+        edge_options = {
+            EDGE_LEFT: "Left edge up (Fraimic default)",
+            EDGE_RIGHT: "Right edge up",
         }
 
         schema = vol.Schema(
@@ -453,8 +446,8 @@ class FraimicOptionsFlow(OptionsFlow):
                     CONF_RESOLUTION, default=current_size or ""
                 ): vol.In(size_options),
                 vol.Optional(
-                    CONF_ORIENTATION, default=current_orientation
-                ): vol.In(orientation_options),
+                    CONF_ROTATION_EDGE, default=current_edge
+                ): vol.In(edge_options),
                 vol.Optional(
                     CONF_ROTATE_PORTRAIT_180, default=current_rotate_portrait
                 ): bool,
@@ -465,36 +458,3 @@ class FraimicOptionsFlow(OptionsFlow):
         )
 
         return self.async_show_form(step_id="init", data_schema=schema)
-
-    async def _async_sync_orientation_to_frame(
-        self, orientation: str, width: int, height: int
-    ) -> None:
-        """Attempt to push settings to the physical frame API (best-effort)."""
-        host = self.config_entry.data.get(CONF_HOST)
-        if not host:
-            return
-        import aiohttp
-        from homeassistant.helpers.aiohttp_client import async_get_clientsession
-
-        session = async_get_clientsession(self.hass)
-        payloads = [
-            {"orientation": orientation},
-            {"width": width, "height": height},
-        ]
-        for endpoint in ("/api/settings", "/api/orientation"):
-            for payload in payloads:
-                try:
-                    async with session.post(
-                        f"http://{host}{endpoint}",
-                        json=payload,
-                        timeout=aiohttp.ClientTimeout(total=5),
-                    ) as resp:
-                        if resp.status == 200:
-                            _LOGGER.debug(
-                                "Successfully synced orientation to %s: %s",
-                                endpoint,
-                                payload,
-                            )
-                            return
-                except Exception:  # noqa: BLE001
-                    pass

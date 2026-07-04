@@ -7,7 +7,7 @@
 (function () {
   'use strict';
 
-  const PANEL_VERSION = '0.9.0';
+  const PANEL_VERSION = '0.10.0';
 
   // Mirrors library.py's DEFAULT_ALBUM -- every photo belongs to this album
   // unless/until it's reorganized elsewhere; can't be renamed or deleted.
@@ -697,7 +697,7 @@
     }
     .scene-mapping-row select { flex: 1.4; min-width: 0; }
 
-    /* -- crop / size / orientation editor -------------------------------- */
+    /* -- crop editor (aspect follows the selected frame's orientation) ---- */
     .editor-overlay {
       position: fixed;
       inset: 0;
@@ -765,6 +765,11 @@
       border: 2px solid #fff;
       border-radius: 50%;
       touch-action: none;
+    }
+    .editor-hint {
+      font-size: 12px;
+      opacity: .65;
+      line-height: 1.4;
     }
     .crop-handle.tl { left: -9px; top: -9px; cursor: nwse-resize; }
     .crop-handle.tr { right: -9px; top: -9px; cursor: nesw-resize; }
@@ -875,7 +880,6 @@
       this._editorState = null;   // active crop-editor session, or null when closed
       this._editorDrag  = null;   // in-progress pointer drag, or null
       this._editorImgUrl = null;  // blob: URL for the editor's full-size image
-      this._availableSizes = {};  // size label → {width, height}, from configured frames
       this._onEditorPointerMove = this._onEditorPointerMove.bind(this);
       this._onEditorPointerUp   = this._onEditorPointerUp.bind(this);
     }
@@ -908,8 +912,6 @@
       await this._discoverFrames();
       this._renderFrames();
       this._handleDeepLink();
-      this._availableSizes = this._computeAvailableSizes();
-      this._renderEditorSizePills();
       await this._loadScenePacks();
       this._renderScenePacks();
       await this._loadBackendSettings();
@@ -1166,20 +1168,12 @@
             </div>
           </div>
           <div class="editor-controls">
-            <div class="editor-row">
-              <span class="editor-label">Frame size</span>
-              <div class="pill-group" id="editor-size-group"></div>
-            </div>
-            <div class="editor-row">
-              <span class="editor-label">Orientation</span>
-              <div class="pill-group" id="editor-orientation-group">
-                <button class="pill" data-orientation="portrait">Portrait</button>
-                <button class="pill" data-orientation="landscape">Landscape</button>
-              </div>
-            </div>
             <div class="editor-row" id="editor-frame-row">
               <span class="editor-label">Send to</span>
               <select id="editor-frame-select"></select>
+            </div>
+            <div class="editor-row">
+              <span class="editor-hint" id="editor-frame-hint"></span>
             </div>
             <div class="editor-actions">
               <button class="btn-primary" id="editor-send">⬆ Send to Canvas</button>
@@ -2174,61 +2168,28 @@
 
 
     // -----------------------------------------------------------------------
-    // Library: crop / size / orientation editor
+    // Library: crop editor (aspect dictated by the selected frame)
     // -----------------------------------------------------------------------
 
-    // Size key ('13.3' / '31.5' / ...) -> native {width, height}, built from
-    // whichever sizes are actually configured on a frame right now -- not a
-    // hardcoded catalog, so a newly-introduced physical size shows up here
-    // automatically as soon as one frame is set to it (see frame_types.py's
-    // FRAME_TYPES + config_flow.py's CONF_SIZE).
-    _computeAvailableSizes() {
-      const sizes = {};
-      for (const frame of this._frames) {
-        if (frame.size && !sizes[frame.size]) {
-          sizes[frame.size] = { width: frame.width, height: frame.height };
-        }
-      }
-      return sizes;
-    }
-
-    // Render the "Frame size" pills from this._availableSizes. Called once
-    // from _init(), after frame discovery, since (unlike Orientation) the
-    // set of sizes isn't known until then.
-    _renderEditorSizePills() {
-      const group = this.shadowRoot.getElementById('editor-size-group');
-      const sizeKeys = Object.keys(this._availableSizes).sort(
-        (a, b) => parseFloat(a) - parseFloat(b)
+    // Frames the crop editor can target: anything discovery found with
+    // usable render dimensions. width/height here are the frame's
+    // *effective* composition dimensions from /api/fraimic/frames -- they
+    // already reflect the frame's orientation lock, so the crop box aspect
+    // simply follows the selected frame. No free size/orientation choice:
+    // the frame dictates the shape (that's the whole point of the lock).
+    _editorFrames() {
+      return this._frames.filter(f =>
+        Number.isInteger(f.width) && Number.isInteger(f.height)
       );
-
-      if (!sizeKeys.length) {
-        group.innerHTML = `<p class="muted">Set a size on at least one frame
-          (via its integration options) to enable cropping.</p>`;
-        return;
-      }
-
-      group.innerHTML = sizeKeys.map(key =>
-        `<button class="pill" data-size="${this._esc(key)}">${this._esc(key)}"</button>`
-      ).join('');
-      group.querySelectorAll('.pill').forEach(btn => {
-        btn.addEventListener('click', () => {
-          this._editorSetSizeOrientation(btn.dataset.size, this._editorState.orientation);
-        });
-      });
     }
 
-    // Given a frame size key and an orientation ('portrait' / 'landscape'),
-    // return the target pixel dimensions to render at. The crop box's aspect
-    // ratio alone encodes the orientation choice -- the source image is
-    // never rotated, only the crop shape changes.
-    _editorTargetDims(sizeKey, orientation) {
-      const native = this._availableSizes[sizeKey];
-      const isNativePortrait = native.height >= native.width;
-      const wantPortrait = orientation === 'portrait';
-      if (isNativePortrait === wantPortrait) {
-        return { width: native.width, height: native.height };
-      }
-      return { width: native.height, height: native.width };
+    // Human summary of where a crop is headed, shown under the frame select.
+    _editorFrameLabel(frame) {
+      const portrait = frame.height >= frame.width;
+      const orient = portrait ? 'portrait' : 'landscape';
+      const locked = frame.orientation && frame.orientation !== 'auto';
+      const size = frame.size ? `${frame.size}" ` : '';
+      return `${size}${orient}${locked ? ' (locked)' : ''}`;
     }
 
     // Centered crop rectangle (normalized x0,y0,x1,y1) matching targetW:targetH,
@@ -2263,13 +2224,10 @@
       root.getElementById('editor-send').addEventListener('click', () => this._editorSendToCanvas());
       root.getElementById('editor-delete').addEventListener('click', () => this._editorDeleteImage());
 
-      // Size pills are rendered later, once configured frames (and their
-      // sizes) are known -- see _renderEditorSizePills(), called from _init()
-      // after _discoverFrames().
-      root.querySelectorAll('#editor-orientation-group .pill').forEach(btn => {
-        btn.addEventListener('click', () => {
-          this._editorSetSizeOrientation(this._editorState.sizeKey, btn.dataset.orientation);
-        });
+      // The frame select drives the crop aspect: picking a different frame
+      // reloads that frame's saved crop (or a centered cover box).
+      root.getElementById('editor-frame-select').addEventListener('change', (e) => {
+        if (this._editorState) this._editorSetFrame(e.target.value);
       });
 
       const cropEl = root.getElementById('editor-cropbox');
@@ -2284,19 +2242,24 @@
       });
     }
 
-    // Open the editor for a library image. Picks whichever Frame
-    // size/orientation combo already has a saved crop (if any), loads the
-    // full image, then renders.
+    // Open the editor for a library image. Defaults to whichever frame
+    // already has a saved crop for its effective resolution (if any), loads
+    // the full image, then renders.
     async _openEditor(image) {
-      const sizeKeys = Object.keys(this._availableSizes).sort(
-        (a, b) => parseFloat(a) - parseFloat(b)
-      );
-      const hasSizes = sizeKeys.length > 0;
+      const frames = this._editorFrames();
+      const hasFrames = frames.length > 0;
+
+      // Default to the first frame whose effective resolution already has a
+      // saved crop, so re-opening an image lands on the crop you last made.
+      let initial = frames[0] || null;
+      for (const frame of frames) {
+        const key = `${frame.width}x${frame.height}`;
+        if (image.crops && image.crops[key]) { initial = frame; break; }
+      }
 
       this._editorState = {
         image,
-        sizeKey: hasSizes ? sizeKeys[0] : null,
-        orientation: 'portrait',
+        frameEntityId: initial ? initial.entityId : null,
         targetWidth: 0,
         targetHeight: 0,
         naturalW: 0,
@@ -2305,37 +2268,25 @@
         cropIsSaved: false,
       };
 
-      if (hasSizes) {
-        outer:
-        for (const sizeKey of sizeKeys) {
-          for (const orientation of ['portrait', 'landscape']) {
-            const dims = this._editorTargetDims(sizeKey, orientation);
-            const key = `${dims.width}x${dims.height}`;
-            if (image.crops && image.crops[key]) {
-              this._editorState.sizeKey = sizeKey;
-              this._editorState.orientation = orientation;
-              break outer;
-            }
-          }
-        }
-      }
-
-      // Size-dependent controls are meaningless with no size configured on
-      // any frame yet -- disable them rather than crash on a null sizeKey.
-      this.shadowRoot.querySelectorAll('#editor-orientation-group .pill').forEach(btn => {
-        btn.disabled = !hasSizes;
-      });
-      this.shadowRoot.getElementById('editor-reset').disabled = !hasSizes;
-      this.shadowRoot.getElementById('editor-add-album').disabled = !hasSizes;
-      if (!hasSizes) {
-        const select = this.shadowRoot.getElementById('editor-frame-select');
-        select.innerHTML = '<option value="">No frame sizes configured</option>';
+      const select = this.shadowRoot.getElementById('editor-frame-select');
+      this.shadowRoot.getElementById('editor-reset').disabled = !hasFrames;
+      this.shadowRoot.getElementById('editor-add-album').disabled = false;
+      if (hasFrames) {
+        select.disabled = false;
+        select.innerHTML = frames.map(f =>
+          `<option value="${this._esc(f.entityId)}">${this._esc(f.title)} — ${this._esc(this._editorFrameLabel(f))}</option>`
+        ).join('');
+        select.value = this._editorState.frameEntityId;
+        this.shadowRoot.getElementById('editor-send').disabled = false;
+      } else {
+        select.innerHTML = '<option value="">No frames configured</option>';
         select.disabled = true;
         this.shadowRoot.getElementById('editor-send').disabled = true;
         // No cropBox will be computed this session -- hide the crop box
         // rather than leave it showing wherever a previous image's session
         // last positioned it.
         this.shadowRoot.getElementById('editor-cropbox').style.display = 'none';
+        this.shadowRoot.getElementById('editor-frame-hint').textContent = '';
       }
 
       const overlay = this.shadowRoot.getElementById('editor-overlay');
@@ -2363,10 +2314,10 @@
         return;
       }
 
-      if (hasSizes) {
-        this._editorSetSizeOrientation(this._editorState.sizeKey, this._editorState.orientation);
+      if (hasFrames) {
+        this._editorSetFrame(this._editorState.frameEntityId);
       } else {
-        this._editorShowFb('err', 'No frame sizes configured yet — set a size on at least one frame (via its integration options) to enable cropping.');
+        this._editorShowFb('err', 'No frames configured yet — add a Fraimic frame to enable cropping.');
       }
     }
 
@@ -2381,20 +2332,21 @@
       this._editorState = null;
     }
 
-    // Switch the Frame size and/or Orientation pill selection: recomputes
-    // the target render dimensions, loads any crop already saved for that
-    // exact resolution, or otherwise falls back to a centered cover-crop
-    // (re-centered on wherever the previous box was looking, so switching
-    // orientation doesn't make the crop jump to a random spot).
-    _editorSetSizeOrientation(sizeKey, orientation) {
+    // Switch the target frame: the frame's effective dimensions dictate the
+    // crop aspect. Loads any crop already saved for that exact resolution,
+    // or otherwise falls back to a centered cover-crop (re-centered on
+    // wherever the previous box was looking, so switching frames doesn't
+    // make the crop jump to a random spot).
+    _editorSetFrame(entityId) {
       const st = this._editorState;
-      st.sizeKey = sizeKey;
-      st.orientation = orientation;
-      const dims = this._editorTargetDims(sizeKey, orientation);
-      st.targetWidth = dims.width;
-      st.targetHeight = dims.height;
+      const frame = this._editorFrames().find(f => f.entityId === entityId)
+        || this._editorFrames()[0];
+      if (!frame) return;
+      st.frameEntityId = frame.entityId;
+      st.targetWidth = frame.width;
+      st.targetHeight = frame.height;
 
-      const key = `${dims.width}x${dims.height}`;
+      const key = `${frame.width}x${frame.height}`;
       const saved = st.image.crops && st.image.crops[key];
       if (saved) {
         st.cropBox = saved.slice();
@@ -2405,46 +2357,18 @@
           cx = (st.cropBox[0] + st.cropBox[2]) / 2;
           cy = (st.cropBox[1] + st.cropBox[3]) / 2;
         }
-        st.cropBox = this._editorComputeCoverBox(st.naturalW, st.naturalH, dims.width, dims.height, cx, cy);
+        st.cropBox = this._editorComputeCoverBox(st.naturalW, st.naturalH, frame.width, frame.height, cx, cy);
         st.cropIsSaved = false;
       }
 
-      this._editorUpdatePills();
-      this._editorUpdateFrameSelect();
+      const hint = this.shadowRoot.getElementById('editor-frame-hint');
+      const portrait = frame.height >= frame.width;
+      const locked = frame.orientation && frame.orientation !== 'auto';
+      hint.textContent = locked
+        ? `Frame is locked to ${frame.orientation} — adjust the ${portrait ? 'portrait' : 'landscape'} crop window below.`
+        : `Crop follows this frame's current ${portrait ? 'portrait' : 'landscape'} orientation.`;
+
       this._editorRenderCropBox();
-    }
-
-    _editorUpdatePills() {
-      const st = this._editorState;
-      this.shadowRoot.querySelectorAll('#editor-size-group .pill').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.size === st.sizeKey);
-      });
-      this.shadowRoot.querySelectorAll('#editor-orientation-group .pill').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.orientation === st.orientation);
-      });
-    }
-
-    // Only frames configured at exactly the current target resolution can
-    // receive this crop -- a different resolution would mean a different
-    // crop math, so the "Send to" list is filtered rather than showing
-    // every frame like the quick per-frame picker does.
-    _editorUpdateFrameSelect() {
-      const st = this._editorState;
-      const select = this.shadowRoot.getElementById('editor-frame-select');
-      const sendBtn = this.shadowRoot.getElementById('editor-send');
-      const matches = this._frames.filter(f => f.width === st.targetWidth && f.height === st.targetHeight);
-
-      if (!matches.length) {
-        select.innerHTML = '<option value="">No matching frame configured</option>';
-        select.disabled = true;
-        sendBtn.disabled = true;
-        return;
-      }
-      select.disabled = false;
-      sendBtn.disabled = false;
-      select.innerHTML = matches.map(f =>
-        `<option value="${this._esc(f.entityId)}">${this._esc(f.title)}</option>`
-      ).join('');
     }
 
     // The on-screen rect (in editor-stage-local pixels) that the image is
@@ -2611,7 +2535,7 @@
         st.cropBox = this._editorComputeCoverBox(st.naturalW, st.naturalH, st.targetWidth, st.targetHeight);
         st.cropIsSaved = false;
         this._editorRenderCropBox();
-        this._editorShowFb('ok', 'Reverted to the original framing for this size.');
+        this._editorShowFb('ok', 'Reverted to the automatic framing for this frame.');
       } catch (err) {
         this._editorShowFb('err', `Couldn't reset crop: ${err.message}`);
       }
@@ -3650,7 +3574,7 @@
       const select = this.shadowRoot.getElementById('editor-frame-select');
       const entityId = select && select.value;
       if (!entityId) {
-        this._editorShowFb('err', 'No frame configured for this size/orientation yet.');
+        this._editorShowFb('err', 'No frame selected yet.');
         return;
       }
 

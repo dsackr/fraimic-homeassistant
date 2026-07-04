@@ -1,4 +1,4 @@
-"""Shared network helpers for probing and scanning Fraimic frames."""
+"""Shared helpers: frame render-spec resolution plus network probing/scanning."""
 
 from __future__ import annotations
 
@@ -6,14 +6,110 @@ import asyncio
 import ipaddress
 import logging
 import re
-from typing import Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 
-from .const import API_INFO
+from .const import (
+    API_INFO,
+    CONF_HEIGHT,
+    CONF_ORIENTATION,
+    CONF_ROTATE_LANDSCAPE_180,
+    CONF_ROTATE_PORTRAIT_180,
+    CONF_ROTATION_EDGE,
+    CONF_WIDTH,
+    EDGE_LEFT,
+    ORIENTATION_AUTO,
+    ORIENTATION_LANDSCAPE,
+    ORIENTATION_PORTRAIT,
+)
 from .frame_types import FRAME_TYPES
 
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+
 _LOGGER = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Render spec: the single source of truth for "how does an image get
+# composed for this frame". Every send path (service call, direct upload,
+# library send, scenes, backfill) resolves a frame's config entry through
+# render_spec() instead of reading entry.data width/height directly.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RenderSpec:
+    """How to compose + rotate an image for one frame.
+
+    width/height are the *effective* composition dimensions (what the crop
+    editor's aspect ratio and the cover-crop math use). rotation is the final
+    canvas rotation (degrees CCW, 0/90/180/270) applied after composition to
+    land back on the panel's native buffer orientation. locked is True when
+    the user pinned an orientation -- mismatched images are then auto-cropped
+    upright instead of displayed sideways.
+    """
+
+    width: int
+    height: int
+    rotation: int
+    locked: bool
+
+    @property
+    def variant(self) -> str:
+        """Cache-key suffix distinguishing renders that share a resolution
+        but differ in rotation or locked-crop behaviour. Empty string is the
+        pre-existing default render (keeps old cached .bin files valid)."""
+        parts = ""
+        if self.rotation:
+            parts += f"_r{self.rotation}"
+        if self.locked:
+            parts += "_c"
+        return parts
+
+
+def render_spec_for_entry(entry: "ConfigEntry") -> RenderSpec:
+    """Resolve a frame config entry to its RenderSpec.
+
+    entry.data's width/height always hold the panel's native (frame-reported)
+    dimensions. The orientation lock and 180-degree flips live in
+    entry.options and are applied here, at render time.
+    """
+    native_w: int = entry.data[CONF_WIDTH]
+    native_h: int = entry.data[CONF_HEIGHT]
+
+    orientation: str = entry.options.get(CONF_ORIENTATION, ORIENTATION_AUTO)
+    edge: str = entry.options.get(CONF_ROTATION_EDGE, EDGE_LEFT)
+
+    eff_w, eff_h = native_w, native_h
+    rotation = 0
+    locked = orientation in (ORIENTATION_PORTRAIT, ORIENTATION_LANDSCAPE)
+
+    if locked:
+        want_portrait = orientation == ORIENTATION_PORTRAIT
+        native_portrait = native_h >= native_w
+        if want_portrait != native_portrait:
+            # Compose in the locked orientation, then rotate the finished
+            # canvas back onto the native buffer. "Left edge up" (the frame's
+            # native-left edge physically on top, i.e. the frame was turned
+            # clockwise -- how official Fraimic frames hang) needs a 90-degree
+            # CCW canvas rotation so composed-top lands on native-left;
+            # "right edge up" needs 270. If images come out upside down on a
+            # clone, the edge option is the thing to flip.
+            eff_w, eff_h = native_h, native_w
+            rotation = 90 if edge == EDGE_LEFT else 270
+
+    # 180-degree flip is keyed off the *effective* orientation the viewer
+    # sees, and composes with any lock rotation above.
+    eff_is_landscape = eff_w > eff_h
+    if eff_is_landscape and entry.options.get(CONF_ROTATE_LANDSCAPE_180):
+        rotation = (rotation + 180) % 360
+    elif not eff_is_landscape and entry.options.get(CONF_ROTATE_PORTRAIT_180):
+        rotation = (rotation + 180) % 360
+
+    return RenderSpec(width=eff_w, height=eff_h, rotation=rotation, locked=locked)
 
 _PROBE_TIMEOUT = aiohttp.ClientTimeout(total=5)
 _SCAN_TIMEOUT = aiohttp.ClientTimeout(total=0.5)
