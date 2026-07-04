@@ -378,7 +378,7 @@ def _open_as_rgb(source: "str | bytes") -> "Image.Image":
 # Public API
 # ---------------------------------------------------------------------------
 
-def convert_image(image_path: str, width: int, height: int) -> bytes:
+def convert_image(image_path: str, width: int, height: int, rotation: int = 0) -> bytes:
     """
     Convert an image file to the raw Spectra 6 binary format.
 
@@ -394,16 +394,17 @@ def convert_image(image_path: str, width: int, height: int) -> bytes:
     :param image_path: Path to the source image file.
     :param width: Target display width in pixels.
     :param height: Target display height in pixels.
+    :param rotation: Optional extra rotation in degrees (e.g. 180).
     :returns: Raw bytes in Spectra 6 ``.bin`` format, ready for the Fraimic
         API.  The length will be ``(width * height) // 2`` bytes.
     :raises FileNotFoundError: If *image_path* does not exist.
     :raises ImportError: If Pillow is not installed.
     """
     image = _open_as_rgb(image_path)
-    return _process(image, width, height)
+    return _process(image, width, height, rotation)
 
 
-def convert_image_bytes(image_data: bytes, width: int, height: int) -> bytes:
+def convert_image_bytes(image_data: bytes, width: int, height: int, rotation: int = 0) -> bytes:
     """
     Convert raw image bytes to the raw Spectra 6 binary format.
 
@@ -413,6 +414,7 @@ def convert_image_bytes(image_data: bytes, width: int, height: int) -> bytes:
     :param image_data: Raw bytes of the source image file.
     :param width: Target display width in pixels.
     :param height: Target display height in pixels.
+    :param rotation: Optional extra rotation in degrees (e.g. 180).
     :returns: Raw bytes in Spectra 6 ``.bin`` format, ready for the Fraimic
         API.  The length will be ``(width * height) // 2`` bytes.
     :raises ImportError: If Pillow is not installed.
@@ -420,13 +422,15 @@ def convert_image_bytes(image_data: bytes, width: int, height: int) -> bytes:
         image format.
     """
     image = _open_as_rgb(image_data)
-    return _process(image, width, height)
+    return _process(image, width, height, rotation)
 
 
-def _process(image: "Image.Image", width: int, height: int) -> bytes:
+def _process(image: "Image.Image", width: int, height: int, rotation: int = 0) -> bytes:
     """Shared implementation used by both public entry points."""
     image = _auto_rotate(image, width, height)
     image = _resize_with_letterbox(image, width, height)
+    if rotation:
+        image = image.rotate(rotation, expand=True)
     image = _quantize_to_spectra6(image)
     return _pack_to_spectra6_bin(image)
 
@@ -436,6 +440,7 @@ def convert_image_cropped(
     width: int,
     height: int,
     crop_box: "Tuple[float, float, float, float]",
+    rotation: int = 0,
 ) -> bytes:
     """
     Convert an image file to Spectra 6 binary using a manually-chosen crop
@@ -448,10 +453,11 @@ def convert_image_cropped(
         source image's full dimensions (post EXIF-orientation). The caller
         (the crop editor UI) is responsible for keeping this box's aspect
         ratio matched to width:height.
+    :param rotation: Optional extra rotation in degrees (e.g. 180).
     :returns: Raw bytes in Spectra 6 ``.bin`` format.
     """
     image = _open_as_rgb(image_path)
-    return _process_cropped(image, width, height, crop_box)
+    return _process_cropped(image, width, height, crop_box, rotation)
 
 
 def convert_image_bytes_cropped(
@@ -459,6 +465,7 @@ def convert_image_bytes_cropped(
     width: int,
     height: int,
     crop_box: "Tuple[float, float, float, float]",
+    rotation: int = 0,
 ) -> bytes:
     """
     Convert raw image bytes to Spectra 6 binary using a manually-chosen crop
@@ -466,7 +473,7 @@ def convert_image_bytes_cropped(
     :func:`convert_image_cropped` for parameter details.
     """
     image = _open_as_rgb(image_data)
-    return _process_cropped(image, width, height, crop_box)
+    return _process_cropped(image, width, height, crop_box, rotation)
 
 
 def _process_cropped(
@@ -474,6 +481,7 @@ def _process_cropped(
     width: int,
     height: int,
     crop_box: "Tuple[float, float, float, float]",
+    rotation: int = 0,
 ) -> bytes:
     """Shared implementation for the manual-crop public entry points.
 
@@ -484,5 +492,7 @@ def _process_cropped(
     """
     image = _crop_to_box(image, crop_box)
     image = image.resize((width, height), Image.LANCZOS)
+    if rotation:
+        image = image.rotate(rotation, expand=True)
     image = _quantize_to_spectra6(image)
     return _pack_to_spectra6_bin(image)

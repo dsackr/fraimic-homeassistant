@@ -10,7 +10,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
-from .const import CONF_HEIGHT, CONF_WIDTH, DOMAIN
+from .const import CONF_HEIGHT, CONF_WIDTH, DOMAIN, CONF_ROTATE_PORTRAIT_180, CONF_ROTATE_LANDSCAPE_180
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -102,13 +102,19 @@ class FraimicSendImageView(HomeAssistantView):
 
         width: int = entry.data[CONF_WIDTH]
         height: int = entry.data[CONF_HEIGHT]
+        rotation = 0
+        is_landscape = width > height
+        if is_landscape and entry.options.get(CONF_ROTATE_LANDSCAPE_180):
+            rotation = 180
+        elif not is_landscape and entry.options.get(CONF_ROTATE_PORTRAIT_180):
+            rotation = 180
 
         # Convert image in a thread-pool (CPU-bound Pillow work).
         from .image_converter import convert_image_bytes  # noqa: PLC0415
 
         try:
             bin_bytes: bytes = await hass.async_add_executor_job(
-                convert_image_bytes, raw_bytes, width, height
+                convert_image_bytes, raw_bytes, width, height, rotation
             )
         except Exception as err:  # noqa: BLE001
             _LOGGER.error("Image conversion failed for %s: %s", coordinator.host, err)

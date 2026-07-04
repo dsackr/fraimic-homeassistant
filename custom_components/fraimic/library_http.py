@@ -39,7 +39,7 @@ from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import CONF_HEIGHT, CONF_HOST, CONF_SIZE, CONF_WIDTH, DOMAIN
+from .const import CONF_HEIGHT, CONF_HOST, CONF_SIZE, CONF_WIDTH, DOMAIN, CONF_ROTATE_PORTRAIT_180, CONF_ROTATE_LANDSCAPE_180
 from .frame_types import FRAME_TYPES
 from .http_api import resolve_frame_by_entity
 
@@ -227,9 +227,15 @@ class FraimicLibrarySendView(HomeAssistantView):
 
         width: int = entry.data[CONF_WIDTH]
         height: int = entry.data[CONF_HEIGHT]
+        rotation = 0
+        is_landscape = width > height
+        if is_landscape and entry.options.get(CONF_ROTATE_LANDSCAPE_180):
+            rotation = 180
+        elif not is_landscape and entry.options.get(CONF_ROTATE_PORTRAIT_180):
+            rotation = 180
 
         try:
-            bin_bytes = await manager.async_get_bin_for_send(image_id, width, height)
+            bin_bytes = await manager.async_get_bin_for_send(image_id, width, height, rotation)
         except Exception as err:  # noqa: BLE001
             _LOGGER.error("Library send conversion failed: %s", err)
             return self.json_message(f"Conversion failed: {err}", status_code=500)
@@ -684,3 +690,29 @@ class FraimicLibraryGoogleOAuthCallbackView(HomeAssistantView):
             "</body></html>"
         )
         return web.Response(text=html, content_type="text/html", status=200 if ok else 400)
+
+
+class FraimicFrameReloadView(HomeAssistantView):
+    """Reload the config entry for a specific frame."""
+
+    url = "/api/fraimic/frame/reload"
+    name = "api:fraimic:frame:reload"
+    requires_auth = True
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass = request.app["hass"]
+        try:
+            data = await request.json()
+        except Exception as err:  # noqa: BLE001
+            return self.json_message(f"Invalid JSON: {err}", status_code=400)
+
+        entry_id = data.get("entry_id")
+        if not entry_id:
+            return self.json_message("entry_id is required", status_code=400)
+
+        entry = hass.config_entries.async_get_entry(entry_id)
+        if not entry:
+            return self.json_message("Frame entry not found", status_code=404)
+
+        result = await hass.config_entries.async_reload(entry_id)
+        return self.json({"success": result})

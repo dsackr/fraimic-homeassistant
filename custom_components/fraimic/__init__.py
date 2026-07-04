@@ -131,6 +131,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         FraimicLibrarySendView,
         FraimicLibrarySettingsView,
         FraimicLibraryUploadView,
+        FraimicFrameReloadView,
     )
 
     hass.http.register_view(FraimicLibraryListView())
@@ -147,6 +148,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.http.register_view(FraimicLibraryGoogleRedirectUriView())
     hass.http.register_view(FraimicLibraryGoogleOAuthStartView())
     hass.http.register_view(FraimicLibraryGoogleOAuthCallbackView())
+    hass.http.register_view(FraimicFrameReloadView())
 
     # Scenes: named (frame, image) assignment lists sendable all at once.
     # Pure local state -- config entry_ids are meaningless off this HA

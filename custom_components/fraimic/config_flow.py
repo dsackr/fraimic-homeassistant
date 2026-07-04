@@ -28,6 +28,8 @@ from .const import (
     ORIENTATION_AUTO,
     ORIENTATION_PORTRAIT,
     ORIENTATION_LANDSCAPE,
+    CONF_ROTATE_PORTRAIT_180,
+    CONF_ROTATE_LANDSCAPE_180,
 )
 from .frame_types import FRAME_TYPES
 from .helpers import (
@@ -419,6 +421,12 @@ class FraimicOptionsFlow(OptionsFlow):
         current_orientation: str = self.config_entry.options.get(
             CONF_ORIENTATION, ORIENTATION_AUTO
         )
+        current_rotate_portrait: bool = self.config_entry.options.get(
+            CONF_ROTATE_PORTRAIT_180, False
+        )
+        current_rotate_landscape: bool = self.config_entry.options.get(
+            CONF_ROTATE_LANDSCAPE_180, False
+        )
 
         # Entries created before CONF_SIZE existed have no size on file --
         # rather than guess one (ambiguous once multiple panels share a
@@ -447,6 +455,12 @@ class FraimicOptionsFlow(OptionsFlow):
                 vol.Optional(
                     CONF_ORIENTATION, default=current_orientation
                 ): vol.In(orientation_options),
+                vol.Optional(
+                    CONF_ROTATE_PORTRAIT_180, default=current_rotate_portrait
+                ): bool,
+                vol.Optional(
+                    CONF_ROTATE_LANDSCAPE_180, default=current_rotate_landscape
+                ): bool,
             }
         )
 

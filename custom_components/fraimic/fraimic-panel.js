@@ -119,6 +119,28 @@
       background: var(--secondary-background-color, #e2e8f0);
       color: var(--primary-text-color);
     }
+    .frame-action-btn {
+      flex: 0 0 auto;
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      color: var(--secondary-text-color);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+      transition: background .15s ease, color .15s ease;
+    }
+    .frame-action-btn:hover {
+      background: var(--secondary-background-color, #e2e8f0);
+      color: var(--primary-text-color);
+    }
+    .frame-action-btn.loading svg {
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
     .frame-meta { flex: 1; min-width: 0; }
     .frame-name {
       font-size: 13px;
@@ -929,6 +951,18 @@
       this.shadowRoot.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => this._setTab(btn.dataset.tab));
       });
+      const addBtn = this.shadowRoot.getElementById('frame-add-btn');
+      if (addBtn) {
+        addBtn.addEventListener('click', () => {
+          try {
+            window.parent.dispatchEvent(new CustomEvent('location-changed', {
+              detail: { replace: false, path: '/config/integrations/dashboard/add?domain=fraimic' }
+            }));
+          } catch (err) {
+            window.parent.location.href = '/config/integrations/dashboard/add?domain=fraimic';
+          }
+        });
+      }
       this._setTab('library');
     }
 
@@ -992,6 +1026,9 @@
         </div><!-- /tab-library -->
 
         <div class="tab-content" id="tab-frames">
+        <div class="lib-toolbar" style="justify-content:flex-end">
+          <button class="btn-primary" id="frame-add-btn" style="flex:0 0 auto">＋ Add Frame</button>
+        </div>
         <div class="grid" id="grid">
           <div class="empty">
             <div class="empty-icon">⋯</div>
@@ -1257,6 +1294,38 @@
         this._cards[frame.entityId] = card;
       }
 
+      // Wire reload buttons
+      grid.querySelectorAll('.btn-reload').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const entryId = btn.dataset.entryId;
+          btn.classList.add('loading');
+          btn.disabled = true;
+          try {
+            const resp = await fetch('/api/fraimic/frame/reload', {
+              method: 'POST',
+              headers: {
+                ...this._authHeaders(),
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ entry_id: entryId })
+            });
+            if (resp.ok) {
+              // Reloaded! Give HA a brief moment to re-initialize before refreshing view
+              setTimeout(() => this._loadFrames(), 2000);
+            } else {
+              alert('Failed to reload frame integration.');
+            }
+          } catch (err) {
+            console.error('Error reloading frame:', err);
+          } finally {
+            btn.classList.remove('loading');
+            btn.disabled = false;
+          }
+        });
+      });
+
       this._tickAllStatus();
     }
 
@@ -1276,6 +1345,13 @@
              </svg>
            </a>`
         : '';
+      const reloadBtn = frame.entryId
+        ? `<button class="frame-action-btn btn-reload" data-entry-id="${this._esc(frame.entryId)}" title="Reload Frame Integration">
+             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+               <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+             </svg>
+           </button>`
+        : '';
 
       el.innerHTML = `
         <div class="frame-row">
@@ -1291,7 +1367,10 @@
             ${sizeLabel ? `<div class="frame-status">${sizeLabel}</div>` : ''}
             ${originLabel ? `<div class="frame-origin-clone">${originLabel}</div>` : ''}
           </div>
-          ${hostLink}
+          <div style="display:flex;flex-direction:column;gap:6px;align-items:center;flex-shrink:0">
+            ${hostLink}
+            ${reloadBtn}
+          </div>
         </div>
       `;
 
