@@ -12,9 +12,13 @@ scene_packs/index.json.
 Usage:
     python3 scripts/build_scene_pack.py
 
-Add a new pack by adding an entry to PACKS below and re-running -- existing
-packs are rebuilt too (Commons occasionally reshuffles which scan is the
-"best" one for a search query), so review `git diff` before committing.
+Add a new pack by adding an entry to PACKS below and re-running. With no
+arguments, every pack in PACKS is rebuilt (Commons occasionally reshuffles
+which scan is the "best" one for a search query), so review `git diff`
+before committing. Pass one or more pack ids as arguments to rebuild only
+those packs and leave the rest of index.json untouched, e.g.:
+
+    python3 scripts/build_scene_pack.py christmas halloween
 """
 
 from __future__ import annotations
@@ -254,6 +258,7 @@ def build_pack(pack: dict) -> dict:
         "id": pack_id,
         "name": pack["name"],
         "description": pack["description"],
+        "category": pack["category"],
         "license": "Public domain (verified per-image via Wikimedia Commons)",
         "cover": images[0]["path"],
         "images": images,
@@ -265,6 +270,7 @@ PACKS = [
         "id": "monet",
         "name": "Claude Monet",
         "description": "Impressionist gardens, water lilies, and shifting light.",
+        "category": "art",
         "queries": [
             ("Claude Monet Impression Sunrise painting", "Impression, Sunrise", "Monet"),
             ("Claude Monet Water Lilies Google Art Project", "Water Lilies", "Monet"),
@@ -282,6 +288,7 @@ PACKS = [
         "id": "davinci",
         "name": "Leonardo da Vinci",
         "description": "Renaissance portraits, studies, and sacred scenes.",
+        "category": "art",
         "queries": [
             ("Leonardo da Vinci Mona Lisa painting", "Mona Lisa", "Vinci"),
             ("Leonardo da Vinci The Last Supper painting", "The Last Supper", "Vinci"),
@@ -297,6 +304,7 @@ PACKS = [
         "id": "van_gogh",
         "name": "Vincent van Gogh",
         "description": "Bold color and brushwork from Post-Impressionism's icon.",
+        "category": "art",
         "queries": [
             ("Vincent van Gogh Starry Night painting MoMA", "The Starry Night", "Gogh"),
             ("Vincent van Gogh Sunflowers painting National Gallery", "Sunflowers", "Gogh"),
@@ -313,6 +321,7 @@ PACKS = [
         "id": "classic_art",
         "name": "Classic Art",
         "description": "Famous public-domain masterworks spanning centuries and continents.",
+        "category": "art",
         "queries": [
             ("Johannes Vermeer Girl with a Pearl Earring painting", "Girl with a Pearl Earring", "Vermeer"),
             ("Katsushika Hokusai Great Wave off Kanagawa print", "The Great Wave off Kanagawa", "Hokusai"),
@@ -325,24 +334,152 @@ PACKS = [
             ("Katsushika Hokusai Fine Wind Clear Morning print", "Fine Wind, Clear Morning", "Hokusai"),
         ],
     },
+    {
+        "id": "christmas",
+        "name": "Christmas",
+        "description": "Nativity scenes, vintage Santa illustrations, and festive winter classics.",
+        "category": "seasonal",
+        "queries": [
+            ("Thomas Nast Merry Old Santa Claus", "Merry Old Santa Claus", "Nast"),
+            ("Thomas Nast Merry Christmas to All", "Merry Christmas to All", "Nast"),
+            ("Currier and Ives lithograph winter", "American Homestead, Winter", "Currier"),
+            ("Gerard van Honthorst Adoration of the Shepherds", "Adoration of the Shepherds (Honthorst)", "Honthorst"),
+            ("Correggio Holy Night", "The Holy Night", "Correggio"),
+            ("La Tour Adoration des bergers Louvre RF 2555", "Adoration of the Shepherds (La Tour)", "La Tour"),
+            ("El Greco Adoration of the Shepherds", "Adoration of the Shepherds (El Greco)", "Greco"),
+            ("Rembrandt Adoration of the Shepherds National Gallery", "The Adoration of the Shepherds, with the Lamp", "Rembrandt"),
+        ],
+    },
+    {
+        "id": "halloween",
+        "name": "Halloween",
+        "description": "Vintage jack-o'-lantern postcards, witches, and spooky Victorian-era ephemera.",
+        "category": "seasonal",
+        "queries": [
+            ("Halloween postcard jack-o-lantern devil demon", "Devil-Demon on a Jack-o'-Lantern", "Griggs"),
+            ("Halloween postcard jack-o-lantern driving a car", "You Auto Have a Happy Hallowe'en", "International Art Publishing"),
+            ("Halloween postcard black cat witch broomstick Raphael Tuck", "Witch on a Broomstick with a Black Cat", "Raphael Tuck"),
+            ("All Hallween Card 1911", "All Hallowe'en Card, 1911", "Winsch"),
+            ("Halloween postcard DPLA Toledo Lula Sweet", "Vintage Halloween Postcard", "Halloween postcard"),
+        ],
+    },
+    {
+        "id": "independence_day",
+        "name": "Independence Day",
+        "description": "Founding-era paintings and patriotic Americana for the Fourth of July.",
+        "category": "seasonal",
+        "queries": [
+            ("Trumbull Declaration of Independence", "Declaration of Independence", "Trumbull"),
+            ("Archibald Willard Spirit of 76", "The Spirit of '76", "Willard"),
+            ("Leutze Washington Crossing the Delaware", "Washington Crossing the Delaware", "Leutze"),
+            ("Moran Birth of Old Glory", "The Birth of Old Glory", "Moran"),
+            ("Currier Ives Declaration of Independence", "Declaration of Independence, July 4th 1776", "Currier"),
+            ("Winslow Homer Fourth of July Fireworks", "Fire-works on the Night of the Fourth of July", "Homer"),
+        ],
+    },
+    {
+        "id": "thanksgiving",
+        "name": "Thanksgiving",
+        "description": "First Thanksgiving history paintings and classic harvest still lifes.",
+        "category": "seasonal",
+        "queries": [
+            ("Brownscombe First Thanksgiving at Plymouth", "The First Thanksgiving at Plymouth", "Brownscombe"),
+            ("Ferris First Thanksgiving 1621", "The First Thanksgiving, 1621", "Ferris"),
+            ("Currier Ives Thanksgiving", "Home to Thanksgiving", "Durrie"),
+            ("Pieter Bruegel Harvesters", "The Harvesters", "Brueghel"),
+            ("Jan Davidsz de Heem fruit still life", "Fruit Still Life", "Heem"),
+            ("Balthasar van der Ast fruit still life", "Still Life of Fruit", "van der Ast"),
+            ("Arcimboldo Autumn", "Autumn", "Arcimboldo"),
+        ],
+    },
+    {
+        "id": "easter",
+        "name": "Easter",
+        "description": "Renaissance Resurrection paintings and vintage Easter postcards.",
+        "category": "seasonal",
+        "queries": [
+            ("Piero della Francesca Resurrection", "The Resurrection (Piero della Francesca)", "Piero"),
+            ("Raphael Resurrection of Christ", "Resurrection of Christ", "Raphael"),
+            ("Grunewald Resurrection Isenheim", "The Resurrection (Isenheim Altarpiece)", "Grunewald"),
+            ("El Greco Resurrection", "The Resurrection (El Greco)", "Greco"),
+            ("Söderberg Easter card", "Easter Card", "Soderberg"),
+            ("Easter lily postcard vintage", "Easter Cross and Lilies", "Tuck"),
+            ("Prang Easter card", "Easter Brings the Budding Spring", "Bridges"),
+        ],
+    },
+    {
+        "id": "new_years",
+        "name": "New Year's",
+        "description": "Whimsical Puck magazine covers ringing in the new year.",
+        "category": "seasonal",
+        "queries": [
+            ("Albert Levering Happy New Year Puck magazine cover", "Happy New Year!", "Levering"),
+            ("Puck magazine New Year Resolutions Till They Melt cover", "New Year Resolutions -- Till They Melt!", "Budd"),
+            ("Puck magazine Puck Pays His Compliments New Year cover", "Puck Pays His Compliments", "Keppler"),
+            ("Puck magazine Welcome Real Happy New Year cover 1895", "Welcome! And Let Us Hope You Will Be a Real Happy New Year", "Pughe"),
+            ("Puck magazine The New Girl New Year cover 1897", "The New Girl", "Pughe"),
+            ("Winslow Homer Seeing the Old Year Out Cleveland Museum", "Seeing the Old Year Out", "Homer"),
+        ],
+    },
+    {
+        "id": "valentines_day",
+        "name": "Valentine's Day",
+        "description": "Classic romantic paintings and sculptures, from Cupid and Psyche to The Kiss.",
+        "category": "seasonal",
+        "queries": [
+            ("Il Bacio Hayez", "The Kiss (Il Bacio)", "Hayez"),
+            ("The Swing Fragonard", "The Swing", "Fragonard"),
+            ("Bouguereau First Kiss Cupid Psyche children", "Cupid and Psyche", "Bouguereau"),
+            ("Psyche Revived by Cupid's Kiss Canova", "Psyche Revived by Cupid's Kiss", "Canova"),
+            ("Rodin The Kiss sculpture", "The Kiss (Rodin)", "Rodin"),
+            ("Pygmalion and Galatea Gerome", "Pygmalion and Galatea", "Gerome"),
+            ("Frances Brundage Valentine", "Cupid's Valentine", "Brundage"),
+        ],
+    },
 ]
 
 
 def main() -> None:
     os.makedirs(PACKS_DIR, exist_ok=True)
-    index_packs = []
-    for pack in PACKS:
+
+    requested_ids = sys.argv[1:]
+    known_ids = {p["id"] for p in PACKS}
+    unknown = set(requested_ids) - known_ids
+    if unknown:
+        raise SystemExit(f"Unknown pack id(s): {', '.join(sorted(unknown))}")
+
+    to_build = [p for p in PACKS if not requested_ids or p["id"] in requested_ids]
+
+    built_by_id: dict[str, dict] = {}
+    for pack in to_build:
         print(f"Building pack '{pack['id']}'...")
-        index_packs.append(build_pack(pack))
+        built_by_id[pack["id"]] = build_pack(pack)
 
     index_path = os.path.join(PACKS_DIR, "index.json")
+    existing_by_id: dict[str, dict] = {}
+    if requested_ids and os.path.exists(index_path):
+        # Only rebuilding a subset -- keep every other pack's existing
+        # entry untouched instead of dropping it from the catalog.
+        with open(index_path, encoding="utf-8") as f:
+            existing_by_id = {p["id"]: p for p in json.load(f).get("packs", [])}
+
+    index_packs = []
+    for pack in PACKS:
+        entry = built_by_id.get(pack["id"], existing_by_id.get(pack["id"]))
+        if entry is None:
+            raise SystemExit(
+                f"Pack '{pack['id']}' has no existing index.json entry and wasn't "
+                f"rebuilt this run -- pass it explicitly to build it."
+            )
+        index_packs.append(entry)
+
     with open(index_path, "w", encoding="utf-8") as f:
         json.dump({"packs": index_packs}, f, indent=2)
         f.write("\n")
     print(f"Wrote {index_path}")
 
     print("\nSanity check (flag anything worth a manual look):")
-    for pack in index_packs:
+    for pack in built_by_id.values():
         for image in pack["images"]:
             path = os.path.join(REPO_ROOT, image["path"])
             with Image.open(path) as img:

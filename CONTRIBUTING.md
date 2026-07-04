@@ -27,7 +27,9 @@ To add or refresh a pack, edit the `PACKS` list in `scripts/build_scene_pack.py`
 python3 scripts/build_scene_pack.py
 ```
 
-It searches Wikimedia Commons for each configured query, keeps only files whose license metadata explicitly says "public domain" *and* whose `Artist` metadata matches the expected artist (Commons full-text search can otherwise surface an unrelated painting for a loosely-worded query), downsizes them to a sane resolution, and rewrites `scene_packs/<pack_id>/` and `index.json`. Review `git diff` before committing — Commons occasionally reshuffles which scan ranks best for a given search.
+It searches Wikimedia Commons for each configured query, keeps only files whose license metadata explicitly says "public domain" *and* whose `Artist` metadata matches the expected artist (Commons full-text search can otherwise surface an unrelated painting for a loosely-worded query), downsizes them to a sane resolution, and rewrites `scene_packs/<pack_id>/` and `index.json`. Running it with no arguments rebuilds every pack in `PACKS` — review `git diff` before committing, since Commons occasionally reshuffles which scan ranks best for a given search. Pass one or more pack ids to rebuild only those and leave every other pack's existing `index.json` entry untouched, e.g. `python3 scripts/build_scene_pack.py christmas halloween`.
+
+Every pack has a `category` field (`"art"` or `"seasonal"`), shown in the panel as a top-level browsing tile before the user drills into a category's packs. Set it on the `PACKS` entry — it flows straight through to `index.json`.
 
 ## Dev environment
 

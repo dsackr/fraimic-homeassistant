@@ -18,6 +18,14 @@
   // a Fraimic endpoint.
   const SCENE_PACK_RAW_BASE = 'https://raw.githubusercontent.com/dsackr/fraimic-homeassistant/main';
 
+  // Mirrors the "category" values scripts/build_scene_pack.py writes into
+  // each pack's index.json entry -- the Add-ons tab browses packs grouped
+  // into these tiles before drilling into a flat pack grid.
+  const PACK_CATEGORIES = {
+    art: { label: 'Art' },
+    seasonal: { label: 'Seasonal & Holiday' },
+  };
+
   // -------------------------------------------------------------------------
   // Styles
   // -------------------------------------------------------------------------
@@ -530,6 +538,7 @@
       border-radius: 8px;
       margin-bottom: 10px;
       background: var(--secondary-background-color, #e2e8f0);
+      cursor: pointer;
     }
     .pack-desc {
       display: -webkit-box;
@@ -551,6 +560,90 @@
       font-size: 12px;
       font-weight: 600;
       white-space: nowrap;
+    }
+
+    /* ---- scene pack categories ---- */
+    .addons-crumb {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .addons-crumb-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--primary-text-color);
+    }
+    .category-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 20px;
+    }
+    .category-tile {
+      position: relative;
+      padding: 0;
+      overflow: hidden;
+      cursor: pointer;
+      aspect-ratio: 16 / 10;
+      transition: transform .15s ease, box-shadow .15s ease;
+    }
+    .category-tile:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0,0,0,.18);
+    }
+    .category-tile-cover {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .category-tile-overlay {
+      position: absolute;
+      inset: auto 0 0 0;
+      padding: 16px;
+      background: linear-gradient(transparent, rgba(0,0,0,.75));
+      color: #fff;
+    }
+    .category-tile-title {
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .category-tile-summary {
+      font-size: 12px;
+      opacity: .9;
+      margin-top: 2px;
+    }
+
+    /* ---- scene pack preview (read-only image gallery) ---- */
+    .pack-preview-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(255,255,255,.12);
+      color: #fff;
+      font-size: 24px;
+      cursor: pointer;
+      z-index: 1;
+    }
+    .pack-preview-nav:hover { background: rgba(255,255,255,.22); }
+    .pack-preview-prev { left: 8px; }
+    .pack-preview-next { right: 8px; }
+    .pack-preview-counter {
+      margin-left: auto;
+      font-size: 13px;
+      opacity: .75;
+      flex: 0 0 auto;
+    }
+    .pack-preview-caption {
+      padding: 10px 18px 18px;
+      font-size: 13px;
+      color: rgba(255,255,255,.85);
+      text-align: center;
+      flex: 0 0 auto;
     }
     .scene-mapping-row {
       display: flex;
@@ -750,8 +843,10 @@
       this._scenes        = [];       // [{ scene_id, name, mappings: { entry_id: image_id } }]
       this._sceneEditorId  = null;    // scene_id being edited, or null when creating a new one
 
-      this._scenePacks    = [];       // [{ id, name, description, license, cover, images, installed, scene_created }]
+      this._scenePacks    = [];       // [{ id, name, description, category, license, cover, images, installed, scene_created }]
       this._activeTab     = 'library'; // 'library' | 'frames' | 'scenes' | 'addons'
+      this._packCategory  = null;     // null = category-tile view; otherwise the category id being browsed
+      this._packPreview   = null;     // { pack, index } while the read-only image gallery is open, else null
 
       this._editorState = null;   // active crop-editor session, or null when closed
       this._editorDrag  = null;   // in-progress pointer drag, or null
@@ -780,6 +875,7 @@
       this._wireNav();
       this._wireLibraryToolbar();
       this._wireEditor();
+      this._wirePackPreview();
       this._wireUploadModal();
       this._wireAlbumPicker();
       this._wireAlbumCreate();
@@ -917,6 +1013,7 @@
 
         <div class="tab-content" id="tab-addons">
         <div class="feedback" id="pack-fb"></div>
+        <div class="addons-crumb" id="addons-crumb"></div>
         <div class="lib-grid" id="pack-grid">
           <div class="empty">
             <div class="empty-icon">⋯</div>
@@ -1050,6 +1147,20 @@
             </div>
             <div class="feedback" id="editor-fb"></div>
           </div>
+        </div>
+
+        <div class="editor-overlay" id="pack-preview-overlay">
+          <div class="editor-header">
+            <button class="editor-back" id="pack-preview-close" title="Close">←</button>
+            <div class="editor-title" id="pack-preview-title"></div>
+            <div class="pack-preview-counter" id="pack-preview-counter"></div>
+          </div>
+          <div class="editor-stage" id="pack-preview-stage">
+            <button class="pack-preview-nav pack-preview-prev" id="pack-preview-prev" title="Previous image">‹</button>
+            <img id="pack-preview-img" alt="">
+            <button class="pack-preview-nav pack-preview-next" id="pack-preview-next" title="Next image">›</button>
+          </div>
+          <div class="pack-preview-caption" id="pack-preview-caption"></div>
         </div>
       `;
     }
@@ -3028,10 +3139,16 @@
       }
     }
 
+    // Packs are browsed through a category tile view first (this._packCategory
+    // === null) and only fan out into a flat pack grid once a tile is clicked --
+    // avoids dumping every pack (art + seasonal) into one undifferentiated grid.
     _renderScenePacks() {
       const grid = this.shadowRoot.getElementById('pack-grid');
+      const crumb = this.shadowRoot.getElementById('addons-crumb');
 
       if (!this._scenePacks.length) {
+        crumb.style.display = 'none';
+        grid.className = 'lib-grid';
         grid.innerHTML = `
           <div class="empty">
             <div class="empty-icon">◈</div>
@@ -3043,10 +3160,57 @@
         return;
       }
 
+      if (!this._packCategory) {
+        crumb.style.display = 'none';
+        grid.className = 'category-grid';
+        grid.innerHTML = '';
+        for (const catId of Object.keys(PACK_CATEGORIES)) {
+          const packs = this._scenePacks.filter(p => (p.category || 'art') === catId);
+          if (!packs.length) continue;
+          grid.appendChild(this._buildCategoryTile(catId, packs));
+        }
+        return;
+      }
+
+      const catInfo = PACK_CATEGORIES[this._packCategory] || { label: this._packCategory };
+      crumb.style.display = 'flex';
+      crumb.innerHTML = `
+        <button class="btn-ghost" id="addons-crumb-back">← Categories</button>
+        <span class="addons-crumb-label">${this._esc(catInfo.label)}</span>
+      `;
+      crumb.querySelector('#addons-crumb-back').addEventListener('click', () => {
+        this._packCategory = null;
+        this._renderScenePacks();
+      });
+
+      grid.className = 'lib-grid';
       grid.innerHTML = '';
-      for (const pack of this._scenePacks) {
+      for (const pack of this._scenePacks.filter(p => (p.category || 'art') === this._packCategory)) {
         grid.appendChild(this._buildPackCard(pack));
       }
+    }
+
+    _buildCategoryTile(catId, packs) {
+      const info = PACK_CATEGORIES[catId] || { label: catId };
+      const installedCount = packs.filter(p => p.installed).length;
+      const coverUrl = `${SCENE_PACK_RAW_BASE}/${packs[0].cover}`;
+
+      const el = document.createElement('div');
+      el.className = 'card category-tile';
+      el.innerHTML = `
+        <img class="category-tile-cover" src="${this._esc(coverUrl)}" alt="${this._esc(info.label)}" loading="lazy">
+        <div class="category-tile-overlay">
+          <div class="category-tile-title">${this._esc(info.label)}</div>
+          <div class="category-tile-summary">
+            ${packs.length} pack${packs.length === 1 ? '' : 's'}${installedCount ? ` · ${installedCount} installed` : ''}
+          </div>
+        </div>
+      `;
+      el.addEventListener('click', () => {
+        this._packCategory = catId;
+        this._renderScenePacks();
+      });
+      return el;
     }
 
     _buildPackCard(pack) {
@@ -3073,7 +3237,7 @@
       }
 
       el.innerHTML = `
-        <img class="pack-cover" src="${this._esc(coverUrl)}" alt="${this._esc(pack.name)}" loading="lazy">
+        <img class="pack-cover" src="${this._esc(coverUrl)}" alt="${this._esc(pack.name)}" loading="lazy" title="Preview this pack">
         <div class="scene-card-title">${this._esc(pack.name)}</div>
         <div class="pack-desc">${this._esc(pack.description || '')}</div>
         <div class="scene-card-summary">${count} image${count === 1 ? '' : 's'} · ${this._esc(pack.license || '')}</div>
@@ -3081,6 +3245,8 @@
         ${badgeHtml}
         <div class="feedback" id="pack-card-fb-${sid}"></div>
       `;
+
+      el.querySelector('.pack-cover').addEventListener('click', () => this._openPackPreview(pack, 0));
 
       if (pack.installed) {
         el.querySelector(`#pack-sync-${sid}`)
@@ -3220,6 +3386,72 @@
         btn.disabled = false;
         btn.textContent = '🗑 Remove';
       }
+    }
+
+    // -----------------------------------------------------------------------
+    // Scene pack preview -- a read-only, album-style gallery over a pack's
+    // images. No send-to-frame here; it's just for browsing before installing.
+    // -----------------------------------------------------------------------
+
+    _wirePackPreview() {
+      const root = this.shadowRoot;
+      root.getElementById('pack-preview-close').addEventListener('click', () => this._closePackPreview());
+      root.getElementById('pack-preview-prev').addEventListener('click', () => this._packPreviewStep(-1));
+      root.getElementById('pack-preview-next').addEventListener('click', () => this._packPreviewStep(1));
+
+      // Bound at window, not shadowRoot -- keydown only bubbles to a
+      // shadowRoot listener if focus is already inside the shadow tree,
+      // which isn't guaranteed here (the pack cover that opened this modal
+      // doesn't take focus). Window-level catches the keypress regardless
+      // of where focus happens to be.
+      window.addEventListener('keydown', (e) => {
+        if (!this._packPreview) return;
+        if (e.key === 'Escape') this._closePackPreview();
+        else if (e.key === 'ArrowLeft') this._packPreviewStep(-1);
+        else if (e.key === 'ArrowRight') this._packPreviewStep(1);
+      });
+    }
+
+    _openPackPreview(pack, index) {
+      const images = pack.images || [];
+      if (!images.length) return;
+      this._packPreview = { pack, index };
+      this.shadowRoot.getElementById('pack-preview-overlay').style.display = 'flex';
+      this._renderPackPreview();
+    }
+
+    _closePackPreview() {
+      this.shadowRoot.getElementById('pack-preview-overlay').style.display = 'none';
+      this._packPreview = null;
+    }
+
+    _packPreviewStep(delta) {
+      if (!this._packPreview) return;
+      const { pack, index } = this._packPreview;
+      const total = pack.images.length;
+      this._packPreview.index = (index + delta + total) % total;
+      this._renderPackPreview();
+    }
+
+    _renderPackPreview() {
+      if (!this._packPreview) return;
+      const { pack, index } = this._packPreview;
+      const image = pack.images[index];
+      const root = this.shadowRoot;
+
+      root.getElementById('pack-preview-title').textContent = pack.name;
+      root.getElementById('pack-preview-counter').textContent = `${index + 1} / ${pack.images.length}`;
+      root.getElementById('pack-preview-img').src = `${SCENE_PACK_RAW_BASE}/${image.path}`;
+      root.getElementById('pack-preview-img').alt = image.title || pack.name;
+
+      const captionParts = [image.title, image.source].filter(Boolean);
+      root.getElementById('pack-preview-caption').textContent = captionParts.join(' · ');
+
+      // Prev/next wrap around rather than disabling at the ends -- a pack's
+      // image list is a loop to browse, not a bounded sequence.
+      const nav = pack.images.length > 1;
+      root.getElementById('pack-preview-prev').style.display = nav ? '' : 'none';
+      root.getElementById('pack-preview-next').style.display = nav ? '' : 'none';
     }
 
     async _editorSendToCanvas() {
