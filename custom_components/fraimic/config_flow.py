@@ -24,6 +24,10 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     KIND_SCENES_HUB,
+    CONF_ORIENTATION,
+    ORIENTATION_AUTO,
+    ORIENTATION_PORTRAIT,
+    ORIENTATION_LANDSCAPE,
 )
 from .frame_types import FRAME_TYPES
 from .helpers import (
@@ -377,11 +381,34 @@ class FraimicOptionsFlow(OptionsFlow):
             # entry.data alongside width/height/host -- it's frame identity,
             # not a runtime preference.
             size = user_input.pop(CONF_RESOLUTION, "")
+            orientation = user_input.get(CONF_ORIENTATION, ORIENTATION_AUTO)
+
+            data = dict(self.config_entry.data)
             if size:
-                self.hass.config_entries.async_update_entry(
-                    self.config_entry,
-                    data={**self.config_entry.data, CONF_SIZE: size},
+                data[CONF_SIZE] = size
+
+            if orientation != ORIENTATION_AUTO:
+                curr_w = data.get(CONF_WIDTH, 1200)
+                curr_h = data.get(CONF_HEIGHT, 1600)
+                if orientation == ORIENTATION_PORTRAIT:
+                    data[CONF_WIDTH] = min(curr_w, curr_h)
+                    data[CONF_HEIGHT] = max(curr_w, curr_h)
+                elif orientation == ORIENTATION_LANDSCAPE:
+                    data[CONF_WIDTH] = max(curr_w, curr_h)
+                    data[CONF_HEIGHT] = min(curr_w, curr_h)
+
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data=data,
+            )
+
+            # Sync in the background best-effort
+            self.hass.async_create_task(
+                self._async_sync_orientation_to_frame(
+                    orientation, data.get(CONF_WIDTH, 1200), data.get(CONF_HEIGHT, 1600)
                 )
+            )
+
             return self.async_create_entry(title="", data=user_input)
 
         current_name: str = self.config_entry.data.get(CONF_NAME, "")
@@ -389,6 +416,9 @@ class FraimicOptionsFlow(OptionsFlow):
             CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
         )
         current_size: str | None = self.config_entry.data.get(CONF_SIZE)
+        current_orientation: str = self.config_entry.options.get(
+            CONF_ORIENTATION, ORIENTATION_AUTO
+        )
 
         # Entries created before CONF_SIZE existed have no size on file --
         # rather than guess one (ambiguous once multiple panels share a
@@ -399,6 +429,12 @@ class FraimicOptionsFlow(OptionsFlow):
         )
         size_options.update({key: ft.display_name for key, ft in FRAME_TYPES.items()})
 
+        orientation_options = {
+            ORIENTATION_AUTO: "Auto-detect from frame",
+            ORIENTATION_PORTRAIT: "Force Portrait",
+            ORIENTATION_LANDSCAPE: "Force Landscape",
+        }
+
         schema = vol.Schema(
             {
                 vol.Optional(CONF_NAME, default=current_name): str,
@@ -408,7 +444,43 @@ class FraimicOptionsFlow(OptionsFlow):
                 vol.Optional(
                     CONF_RESOLUTION, default=current_size or ""
                 ): vol.In(size_options),
+                vol.Optional(
+                    CONF_ORIENTATION, default=current_orientation
+                ): vol.In(orientation_options),
             }
         )
 
         return self.async_show_form(step_id="init", data_schema=schema)
+
+    async def _async_sync_orientation_to_frame(
+        self, orientation: str, width: int, height: int
+    ) -> None:
+        """Attempt to push settings to the physical frame API (best-effort)."""
+        host = self.config_entry.data.get(CONF_HOST)
+        if not host:
+            return
+        import aiohttp
+        from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+        session = async_get_clientsession(self.hass)
+        payloads = [
+            {"orientation": orientation},
+            {"width": width, "height": height},
+        ]
+        for endpoint in ("/api/settings", "/api/orientation"):
+            for payload in payloads:
+                try:
+                    async with session.post(
+                        f"http://{host}{endpoint}",
+                        json=payload,
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as resp:
+                        if resp.status == 200:
+                            _LOGGER.debug(
+                                "Successfully synced orientation to %s: %s",
+                                endpoint,
+                                payload,
+                            )
+                            return
+                except Exception:  # noqa: BLE001
+                    pass

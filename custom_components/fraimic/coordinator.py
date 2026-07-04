@@ -19,6 +19,10 @@ from .const import (
     CONF_MAC,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    CONF_ORIENTATION,
+    CONF_WIDTH,
+    CONF_HEIGHT,
+    ORIENTATION_AUTO,
 )
 from .helpers import device_key_from_info, find_frame_by_device_key, mac_from_info
 
@@ -114,6 +118,27 @@ class FraimicCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Successful poll — reset failure counter and migrate fingerprint.
             self._consecutive_failures = 0
             self._maybe_persist_fingerprint(data)
+
+            # Auto-update orientation if set to auto-detect
+            orientation = self.config_entry.options.get(CONF_ORIENTATION, ORIENTATION_AUTO)
+            if orientation == ORIENTATION_AUTO:
+                width = data.get("width")
+                height = data.get("height")
+                if isinstance(width, int) and isinstance(height, int):
+                    curr_w = self.config_entry.data.get(CONF_WIDTH)
+                    curr_h = self.config_entry.data.get(CONF_HEIGHT)
+                    if width != curr_w or height != curr_h:
+                        self.hass.config_entries.async_update_entry(
+                            self.config_entry,
+                            data={**self.config_entry.data, CONF_WIDTH: width, CONF_HEIGHT: height}
+                        )
+                        _LOGGER.info(
+                            "Auto-detected frame orientation change for %s: %dx%d",
+                            self.host,
+                            width,
+                            height,
+                        )
+
             return data
 
         except (aiohttp.ClientConnectionError, TimeoutError) as err:

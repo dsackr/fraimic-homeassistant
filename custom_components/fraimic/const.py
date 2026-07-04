@@ -55,3 +55,9 @@ SCENE_PACK_RAW_BASE = (
     "https://raw.githubusercontent.com/dsackr/fraimic-homeassistant/main"
 )
 SCENE_PACK_INDEX_URL = f"{SCENE_PACK_RAW_BASE}/scene_packs/index.json"
+
+# Orientation config options
+CONF_ORIENTATION = "orientation"
+ORIENTATION_AUTO = "auto"
+ORIENTATION_PORTRAIT = "portrait"
+ORIENTATION_LANDSCAPE = "landscape"
