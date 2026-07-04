@@ -9,13 +9,25 @@ name: Bump version and release
 # run. release.yaml stays around only as a fallback for a manually pushed
 # tag (e.g. a hotfix pushed with a real user token).
 #
-# Default bump is patch. Put the literal token BUMPMINOR or BUMPMAJOR
-# (exact case, no punctuation) in a commit message to bump that part
-# instead. The action matches tokens as a bash `case` glob pattern, not a
-# literal substring or regex -- so avoid `#`, `[`, `]`, `*`, or `?` in
-# the token itself, since `[...]` is a glob character class that can
-# match nearly any text. Plain, all-caps, no-punctuation words avoid
-# that trap and are unlikely to appear by accident in ordinary prose.
+# Choosing the version -- two ways to override the default patch bump:
+#
+# 1. Commit-message tokens: put the literal token BUMPMINOR or BUMPMAJOR
+#    (exact case, no punctuation) in a commit message. The action matches
+#    tokens as a bash `case` glob pattern, not a literal substring or
+#    regex -- so avoid `#`, `[`, `]`, `*`, or `?` in the token itself,
+#    since `[...]` is a glob character class that can match nearly any
+#    text. Plain, all-caps, no-punctuation words avoid that trap and are
+#    unlikely to appear by accident in ordinary prose.
+#
+# 2. Raising manifest.json's version directly: if the pushed commit's
+#    custom_components/fraimic/manifest.json carries a version HIGHER than
+#    the tag-derived bump, that version wins. This exists because the
+#    tag-based action knows nothing about the manifest -- it used to
+#    silently stomp a hand-raised version back down to the next patch
+#    number (e.g. a commit setting 0.12.0 got released as 0.11.16). A
+#    manifest version lower than the computed bump is ignored (versions
+#    never move backwards), and one that's already tagged falls back to
+#    the computed bump rather than failing the tag push.
 
 on:
   push:
@@ -32,7 +44,7 @@ jobs:
         with:
           fetch-depth: '0'
 
-      - name: Compute next version
+      - name: Compute next version from tags
         id: next_version
         uses: anothrNick/github-tag-action@1.75.0
         env:
@@ -44,18 +56,49 @@ jobs:
           RELEASE_BRANCHES: main
           DRY_RUN: true
 
+      - name: Honor a hand-raised manifest.json version
+        id: final_version
+        env:
+          TAG_NEXT: ${{ steps.next_version.outputs.new_tag }}
+        run: |
+          set -euo pipefail
+          manifest_version=$(python3 -c "import json; print(json.load(open('custom_components/fraimic/manifest.json'))['version'])")
+          tag_version="${TAG_NEXT#v}"
+
+          # Highest of the two wins (sort -V is semver-aware enough for
+          # plain x.y.z versions, which is all this repo uses).
+          chosen=$(printf '%s\n%s\n' "$tag_version" "$manifest_version" | sort -V | tail -1)
+
+          # A manifest version that's already tagged (e.g. the same commit
+          # pushed twice, or a stale manifest edit) can't be released again
+          # -- fall back to the tag-derived bump instead of failing later.
+          if git rev-parse -q --verify "refs/tags/v${chosen}" >/dev/null; then
+            echo "v${chosen} already exists; falling back to ${TAG_NEXT}"
+            chosen="$tag_version"
+          fi
+
+          echo "chose v${chosen} (tag-derived: v${tag_version}, manifest: ${manifest_version})"
+          echo "new_tag=v${chosen}" >> "$GITHUB_OUTPUT"
+
       - name: Stamp manifest.json and tag
         env:
-          NEW_TAG: ${{ steps.next_version.outputs.new_tag }}
+          NEW_TAG: ${{ steps.final_version.outputs.new_tag }}
         run: |
+          set -euo pipefail
           version="${NEW_TAG#v}"
           sed -i "s/\"version\": \".*\"/\"version\": \"${version}\"/" custom_components/fraimic/manifest.json
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add custom_components/fraimic/manifest.json
-          git commit -m "Bump version to ${NEW_TAG} [skip ci]"
-          git push origin HEAD:main
+
+          # No stamp commit needed when the pushed commit already carries
+          # the chosen version (the manifest-override path) -- an empty
+          # commit here would fail the job.
+          if ! git diff --quiet custom_components/fraimic/manifest.json; then
+            git add custom_components/fraimic/manifest.json
+            git commit -m "Bump version to ${NEW_TAG} [skip ci]"
+            git push origin HEAD:main
+          fi
 
           git tag "${NEW_TAG}"
           git push origin "${NEW_TAG}"
@@ -63,5 +106,5 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.next_version.outputs.new_tag }}
+          tag_name: ${{ steps.final_version.outputs.new_tag }}
           generate_release_notes: true
