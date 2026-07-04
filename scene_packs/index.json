@@ -41,7 +41,7 @@
           "path": "scene_packs/monet/05_rouen_cathedral.jpg",
           "title": "Rouen Cathedral",
           "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Claude_Monet_-_Rouen_Cathedral,_West_Fa%C3%A7ade_-_Google_Art_Project.jpg"
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Claude_Monet,_Rouen_Cathedral,_West_Fa%C3%A7ade,_Sunlight,_1894,_NGA_46654.jpg"
         },
         {
           "filename": "06_the_magpie.jpg",
@@ -295,278 +295,250 @@
     {
       "id": "christmas",
       "name": "Christmas",
-      "description": "Nativity scenes, vintage Santa illustrations, and festive winter classics.",
+      "description": "Vibrant, high-contrast Christmas scenes optimized for Spectra 6 displays.",
       "category": "seasonal",
-      "license": "Public domain (verified per-image via Wikimedia Commons)",
-      "cover": "scene_packs/christmas/01_merry_old_santa_claus.jpg",
+      "license": "AI Generated artwork (Public Domain CC0 equivalent)",
+      "cover": "scene_packs/christmas/01_christmas_tree.jpg",
       "images": [
         {
-          "filename": "01_merry_old_santa_claus.jpg",
-          "path": "scene_packs/christmas/01_merry_old_santa_claus.jpg",
-          "title": "Merry Old Santa Claus",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Merry_Christmas_to_All,_by_Thomas_Nast.jpg"
+          "filename": "01_christmas_tree.jpg",
+          "path": "scene_packs/christmas/01_christmas_tree.jpg",
+          "title": "Christmas Tree",
+          "source": "AI Generated (Antigravity)",
+          "commons_url": null
         },
         {
-          "filename": "02_merry_christmas_to_all.jpg",
-          "path": "scene_packs/christmas/02_merry_christmas_to_all.jpg",
-          "title": "Merry Christmas to All",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:A_Merry_Christmas_Met_DP884633.jpg"
+          "filename": "02_santa_claus.jpg",
+          "path": "scene_packs/christmas/02_santa_claus.jpg",
+          "title": "Santa Claus",
+          "source": "AI Generated (Antigravity)",
+          "commons_url": null
         },
         {
-          "filename": "03_american_homestead_winter.jpg",
-          "path": "scene_packs/christmas/03_american_homestead_winter.jpg",
-          "title": "American Homestead, Winter",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:American_homestead_winter_LCCN90708553.jpg"
+          "filename": "03_snowman.jpg",
+          "path": "scene_packs/christmas/03_snowman.jpg",
+          "title": "Snowman",
+          "source": "AI Generated (Antigravity)",
+          "commons_url": null
         },
         {
-          "filename": "04_adoration_of_the_shepherds_honthorst.jpg",
-          "path": "scene_packs/christmas/04_adoration_of_the_shepherds_honthorst.jpg",
-          "title": "Adoration of the Shepherds (Honthorst)",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Adoration_of_the_shepherds,_by_Gerard_van_Honthorst.jpg"
+          "filename": "04_nativity_scene.jpg",
+          "path": "scene_packs/christmas/04_nativity_scene.jpg",
+          "title": "Nativity Scene",
+          "source": "AI Generated (Antigravity)",
+          "commons_url": null
         },
         {
-          "filename": "05_the_holy_night.jpg",
-          "path": "scene_packs/christmas/05_the_holy_night.jpg",
-          "title": "The Holy Night",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Correggio_-_The_Holy_Night_-_Google_Art_Project.jpg"
+          "filename": "05_gingerbread_house.jpg",
+          "path": "scene_packs/christmas/05_gingerbread_house.jpg",
+          "title": "Gingerbread House",
+          "source": "AI Generated (Antigravity)",
+          "commons_url": null
         },
         {
-          "filename": "06_adoration_of_the_shepherds_la_tour.jpg",
-          "path": "scene_packs/christmas/06_adoration_of_the_shepherds_la_tour.jpg",
-          "title": "Adoration of the Shepherds (La Tour)",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:L%27adoration_des_bergers_(La_Tour).jpg"
-        },
-        {
-          "filename": "07_adoration_of_the_shepherds_el_greco.jpg",
-          "path": "scene_packs/christmas/07_adoration_of_the_shepherds_el_greco.jpg",
-          "title": "Adoration of the Shepherds (El Greco)",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:El_Greco_(Domenikos_Theotokopoulos)_-_The_Adoration_of_the_Shepherds_(ca._1605%E2%80%9310)_-_Metropolitan_Museum_of_Art.jpg"
-        },
-        {
-          "filename": "08_the_adoration_of_the_shepherds_with_the_lamp.jpg",
-          "path": "scene_packs/christmas/08_the_adoration_of_the_shepherds_with_the_lamp.jpg",
-          "title": "The Adoration of the Shepherds, with the Lamp",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:The_Adoration_of_the_Shepherds,_with_the_lamp_MET_MM3296.jpg"
+          "filename": "06_christmas_wreath.jpg",
+          "path": "scene_packs/christmas/06_christmas_wreath.jpg",
+          "title": "Christmas Wreath",
+          "source": "AI Generated (Antigravity)",
+          "commons_url": null
         }
       ]
     },
     {
       "id": "halloween",
       "name": "Halloween",
-      "description": "Vintage jack-o'-lantern postcards, witches, and spooky Victorian-era ephemera.",
+      "description": "Spooky-cute, vibrant Halloween illustrations optimized for Spectra 6 displays.",
       "category": "seasonal",
-      "license": "Public domain (verified per-image via Wikimedia Commons)",
-      "cover": "scene_packs/halloween/01_devil_demon_on_a_jack_o_lantern.jpg",
+      "license": "AI Generated artwork (Public Domain CC0 equivalent)",
+      "cover": "scene_packs/halloween/01_jack_o_lanterns.jpg",
       "images": [
         {
-          "filename": "01_devil_demon_on_a_jack_o_lantern.jpg",
-          "path": "scene_packs/halloween/01_devil_demon_on_a_jack_o_lantern.jpg",
-          "title": "Devil-Demon on a Jack-o'-Lantern",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:%22Hallowe%27en.%22_(Devil-demon_seated_on_top_of_a_Jack-O-Lantern).jpg"
+          "filename": "01_jack_o_lanterns.jpg",
+          "path": "scene_packs/halloween/01_jack_o_lanterns.jpg",
+          "title": "Jack-o'-Lanterns",
+          "source": "AI Generated (Antigravity)",
+          "commons_url": null
         },
         {
-          "filename": "02_you_auto_have_a_happy_hallowe_en.jpg",
-          "path": "scene_packs/halloween/02_you_auto_have_a_happy_hallowe_en.jpg",
-          "title": "You Auto Have a Happy Hallowe'en",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:%22You_Auto_Have_a_Happy_Hallowe%27en.%22_(Jack-O-Lantern_driving_a_car).jpg"
+          "filename": "02_witch_flying_on_broomstick.jpg",
+          "path": "scene_packs/halloween/02_witch_flying_on_broomstick.jpg",
+          "title": "Witch flying on Broomstick",
+          "source": "AI Generated (Antigravity)",
+          "commons_url": null
         },
         {
-          "filename": "03_witch_on_a_broomstick_with_a_black_cat.jpg",
-          "path": "scene_packs/halloween/03_witch_on_a_broomstick_with_a_black_cat.jpg",
-          "title": "Witch on a Broomstick with a Black Cat",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:%22Hallowe%27en.%22_(A_Witch_riding_a_broomstick_with_a_black_cat).jpg"
+          "filename": "03_friendly_ghost.jpg",
+          "path": "scene_packs/halloween/03_friendly_ghost.jpg",
+          "title": "Friendly Ghost",
+          "source": "AI Generated (Antigravity)",
+          "commons_url": null
         },
         {
-          "filename": "04_all_hallowe_en_card_1911.jpg",
-          "path": "scene_packs/halloween/04_all_hallowe_en_card_1911.jpg",
-          "title": "All Hallowe'en Card, 1911",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:All_Hallween_Card_1911.jpg"
+          "filename": "04_haunted_house.jpg",
+          "path": "scene_packs/halloween/04_haunted_house.jpg",
+          "title": "Haunted House",
+          "source": "AI Generated (Antigravity)",
+          "commons_url": null
         },
         {
-          "filename": "05_vintage_halloween_postcard.jpg",
-          "path": "scene_packs/halloween/05_vintage_halloween_postcard.jpg",
-          "title": "Vintage Halloween Postcard",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Halloween_postcard_-_DPLA_-_f567189d6685266387a868a256399742_(page_1).jpg"
+          "filename": "05_black_cat_and_pumpkin.jpg",
+          "path": "scene_packs/halloween/05_black_cat_and_pumpkin.jpg",
+          "title": "Black Cat and Pumpkin",
+          "source": "AI Generated (Antigravity)",
+          "commons_url": null
+        },
+        {
+          "filename": "06_bats_flying_across_red_moon.jpg",
+          "path": "scene_packs/halloween/06_bats_flying_across_red_moon.jpg",
+          "title": "Bats flying across Red Moon",
+          "source": "AI Generated (Antigravity)",
+          "commons_url": null
         }
       ]
     },
     {
       "id": "independence_day",
       "name": "Independence Day",
-      "description": "Founding-era paintings and patriotic Americana for the Fourth of July.",
+      "description": "Patriotic Americana and vibrant July 4th displays optimized for Spectra 6 displays.",
       "category": "seasonal",
-      "license": "Public domain (verified per-image via Wikimedia Commons)",
-      "cover": "scene_packs/independence_day/01_declaration_of_independence.jpg",
+      "license": "AI Generated artwork (Public Domain CC0 equivalent)",
+      "cover": "scene_packs/independence_day/01_statue_of_liberty.jpg",
       "images": [
         {
-          "filename": "01_declaration_of_independence.jpg",
-          "path": "scene_packs/independence_day/01_declaration_of_independence.jpg",
-          "title": "Declaration of Independence",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Declaration_of_Independence_(1819),_by_John_Trumbull.jpg"
+          "filename": "01_statue_of_liberty.jpg",
+          "path": "scene_packs/independence_day/01_statue_of_liberty.jpg",
+          "title": "Statue of Liberty",
+          "source": "AI Generated (Antigravity)",
+          "commons_url": null
         },
         {
-          "filename": "02_the_spirit_of_76.jpg",
-          "path": "scene_packs/independence_day/02_the_spirit_of_76.jpg",
-          "title": "The Spirit of '76",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Spirit_of_76%27s_Marblehead_original_1895.jpg"
+          "filename": "02_bald_eagle_and_flag.jpg",
+          "path": "scene_packs/independence_day/02_bald_eagle_and_flag.jpg",
+          "title": "Bald Eagle and Flag",
+          "source": "AI Generated (Antigravity)",
+          "commons_url": null
         },
         {
-          "filename": "03_washington_crossing_the_delaware.jpg",
-          "path": "scene_packs/independence_day/03_washington_crossing_the_delaware.jpg",
-          "title": "Washington Crossing the Delaware",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Washington_Crossing_the_Delaware_by_Emanuel_Leutze,_MMA-NYC,_1851.jpg"
+          "filename": "03_independence_day_fireworks.jpg",
+          "path": "scene_packs/independence_day/03_independence_day_fireworks.jpg",
+          "title": "Independence Day Fireworks",
+          "source": "AI Generated (Antigravity)",
+          "commons_url": null
         },
         {
-          "filename": "04_the_birth_of_old_glory.jpg",
-          "path": "scene_packs/independence_day/04_the_birth_of_old_glory.jpg",
-          "title": "The Birth of Old Glory",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:RossBetsy.jpg"
+          "filename": "04_mount_rushmore.jpg",
+          "path": "scene_packs/independence_day/04_mount_rushmore.jpg",
+          "title": "Mount Rushmore",
+          "source": "AI Generated (Antigravity)",
+          "commons_url": null
         },
         {
-          "filename": "05_declaration_of_independence_july_4th_1776.jpg",
-          "path": "scene_packs/independence_day/05_declaration_of_independence_july_4th_1776.jpg",
-          "title": "Declaration of Independence, July 4th 1776",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Declaration_of_Independence-_July_4th_1776_LCCN91795009.jpg"
-        },
-        {
-          "filename": "06_fire_works_on_the_night_of_the_fourth_of_july.jpg",
-          "path": "scene_packs/independence_day/06_fire_works_on_the_night_of_the_fourth_of_july.jpg",
-          "title": "Fire-works on the Night of the Fourth of July",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Fire-works_on_the_night_of_the_Fourth_of_July_-_DPLA_-_208819c8934f64c99352e895e4915c59.jpg"
+          "filename": "05_uncle_sam_celebration.jpg",
+          "path": "scene_packs/independence_day/05_uncle_sam_celebration.jpg",
+          "title": "Uncle Sam's Celebration",
+          "source": "AI Generated (Antigravity)",
+          "commons_url": null
         }
       ]
     },
     {
       "id": "thanksgiving",
       "name": "Thanksgiving",
-      "description": "First Thanksgiving history paintings and classic harvest still lifes.",
+      "description": "Harvest abundance, fruit still lifes, and warm autumn scenes.",
       "category": "seasonal",
       "license": "Public domain (verified per-image via Wikimedia Commons)",
-      "cover": "scene_packs/thanksgiving/01_the_first_thanksgiving_at_plymouth.jpg",
+      "cover": "scene_packs/thanksgiving/01_home_to_thanksgiving_durrie.jpg",
       "images": [
         {
-          "filename": "01_the_first_thanksgiving_at_plymouth.jpg",
-          "path": "scene_packs/thanksgiving/01_the_first_thanksgiving_at_plymouth.jpg",
-          "title": "The First Thanksgiving at Plymouth",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Thanksgiving_at_Plymouth,_1925,_Brownscombe.jpg"
-        },
-        {
-          "filename": "02_the_first_thanksgiving_1621.jpg",
-          "path": "scene_packs/thanksgiving/02_the_first_thanksgiving_1621.jpg",
-          "title": "The First Thanksgiving, 1621",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:The_First_Thanksgiving_cph.3g04961FXD.jpg"
-        },
-        {
-          "filename": "03_home_to_thanksgiving.jpg",
-          "path": "scene_packs/thanksgiving/03_home_to_thanksgiving.jpg",
-          "title": "Home to Thanksgiving",
+          "filename": "01_home_to_thanksgiving_durrie.jpg",
+          "path": "scene_packs/thanksgiving/01_home_to_thanksgiving_durrie.jpg",
+          "title": "Home to Thanksgiving (Durrie)",
           "source": "Wikimedia Commons",
           "commons_url": "https://commons.wikimedia.org/wiki/File:Home_To_Thanksgiving,_Currier_and_Ives.jpg"
         },
         {
-          "filename": "04_the_harvesters.jpg",
-          "path": "scene_packs/thanksgiving/04_the_harvesters.jpg",
-          "title": "The Harvesters",
+          "filename": "02_the_harvesters_brueghel.jpg",
+          "path": "scene_packs/thanksgiving/02_the_harvesters_brueghel.jpg",
+          "title": "The Harvesters (Brueghel)",
           "source": "Wikimedia Commons",
           "commons_url": "https://commons.wikimedia.org/wiki/File:The_Harvesters.jpg"
         },
         {
-          "filename": "05_fruit_still_life.jpg",
-          "path": "scene_packs/thanksgiving/05_fruit_still_life.jpg",
-          "title": "Fruit Still Life",
+          "filename": "03_still_life_of_fruit_roesen.jpg",
+          "path": "scene_packs/thanksgiving/03_still_life_of_fruit_roesen.jpg",
+          "title": "Still Life of Fruit (Roesen)",
           "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Jan_Davidsz._de_Heem_-_Still_life_with_fruit_and_a_lobster.jpg"
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Severin_Roesen_-_Still_Life_with_Fruit_-_Google_Art_Project.jpg"
         },
         {
-          "filename": "06_still_life_of_fruit.jpg",
-          "path": "scene_packs/thanksgiving/06_still_life_of_fruit.jpg",
-          "title": "Still Life of Fruit",
+          "filename": "04_fruit_cornucopia_roesen.jpg",
+          "path": "scene_packs/thanksgiving/04_fruit_cornucopia_roesen.jpg",
+          "title": "Fruit Cornucopia (Roesen)",
           "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Balthasar_van_der_Ast_-_Fruit_Still_Life_with_Shells_and_Tulip_-_1066_-_Mauritshuis.jpg"
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Severin_Roesen_-_Two-Tiered_Still_Life_with_Fruit_and_Sunset_Landscape_-_Google_Art_Project.jpg"
         },
         {
-          "filename": "07_autumn.jpg",
-          "path": "scene_packs/thanksgiving/07_autumn.jpg",
-          "title": "Autumn",
+          "filename": "05_still_life_with_fruit_roesen.jpg",
+          "path": "scene_packs/thanksgiving/05_still_life_with_fruit_roesen.jpg",
+          "title": "Still Life with Fruit (Roesen)",
           "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Arcimboldo_Oto%C3%B1o.jpg"
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Severin_Roesen_-_Fruit_Still_Life_with_Champagne_Bottle_-_2000.363_-_Dallas_Museum_of_Art.jpg"
+        },
+        {
+          "filename": "06_vintage_thanksgiving_postcard.jpg",
+          "path": "scene_packs/thanksgiving/06_vintage_thanksgiving_postcard.jpg",
+          "title": "Vintage Thanksgiving Postcard",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Thanksgiving_day_-_DPLA_-_754f1711409e406676cf9febaf17862a_(page_1).jpg"
         }
       ]
     },
     {
       "id": "easter",
       "name": "Easter",
-      "description": "Renaissance Resurrection paintings and vintage Easter postcards.",
+      "description": "Renaissance masterworks and vibrant vintage spring postcards.",
       "category": "seasonal",
       "license": "Public domain (verified per-image via Wikimedia Commons)",
-      "cover": "scene_packs/easter/01_the_resurrection_piero_della_francesca.jpg",
+      "cover": "scene_packs/easter/01_resurrection_of_christ_raphael.jpg",
       "images": [
         {
-          "filename": "01_the_resurrection_piero_della_francesca.jpg",
-          "path": "scene_packs/easter/01_the_resurrection_piero_della_francesca.jpg",
+          "filename": "01_resurrection_of_christ_raphael.jpg",
+          "path": "scene_packs/easter/01_resurrection_of_christ_raphael.jpg",
+          "title": "Resurrection of Christ (Raphael)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Rafael_-_ressureicaocristo01.jpg"
+        },
+        {
+          "filename": "02_the_resurrection_fra_angelico.jpg",
+          "path": "scene_packs/easter/02_the_resurrection_fra_angelico.jpg",
+          "title": "The Resurrection (Fra Angelico)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Fra_Angelico_JungsteGericht_berlin.JPG"
+        },
+        {
+          "filename": "03_easter_cross_and_lilies.jpg",
+          "path": "scene_packs/easter/03_easter_cross_and_lilies.jpg",
+          "title": "Easter Cross and Lilies",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Easter_greetings_postcard.jpg"
+        },
+        {
+          "filename": "04_the_resurrection_piero_della_francesca.jpg",
+          "path": "scene_packs/easter/04_the_resurrection_piero_della_francesca.jpg",
           "title": "The Resurrection (Piero della Francesca)",
           "source": "Wikimedia Commons",
           "commons_url": "https://commons.wikimedia.org/wiki/File:Piero_della_Francesca_-_Resurrection_-_WGA17609.jpg"
         },
         {
-          "filename": "02_resurrection_of_christ.jpg",
-          "path": "scene_packs/easter/02_resurrection_of_christ.jpg",
-          "title": "Resurrection of Christ",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Rafael_-_ressureicaocristo01.jpg"
-        },
-        {
-          "filename": "03_the_resurrection_isenheim_altarpiece.jpg",
-          "path": "scene_packs/easter/03_the_resurrection_isenheim_altarpiece.jpg",
-          "title": "The Resurrection (Isenheim Altarpiece)",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Grunewald_Resurrection_Isenheim.jpg"
-        },
-        {
-          "filename": "04_the_resurrection_el_greco.jpg",
-          "path": "scene_packs/easter/04_the_resurrection_el_greco.jpg",
-          "title": "The Resurrection (El Greco)",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Resurreccion_El_Greco_Domingo_el_Antiguo.jpg"
-        },
-        {
-          "filename": "05_easter_card.jpg",
-          "path": "scene_packs/easter/05_easter_card.jpg",
-          "title": "Easter Card",
+          "filename": "05_easter_card_soderberg.jpg",
+          "path": "scene_packs/easter/05_easter_card_soderberg.jpg",
+          "title": "Easter Card (Soderberg)",
           "source": "Wikimedia Commons",
           "commons_url": "https://commons.wikimedia.org/wiki/File:Ad%C3%A8le_S%C3%B6derberg_-_Easter_card.jpg"
         },
         {
-          "filename": "06_easter_cross_and_lilies.jpg",
-          "path": "scene_packs/easter/06_easter_cross_and_lilies.jpg",
-          "title": "Easter Cross and Lilies",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Vintage_Easter_postcard_of_a_cross_and_lilies.jpg"
-        },
-        {
-          "filename": "07_easter_brings_the_budding_spring.jpg",
-          "path": "scene_packs/easter/07_easter_brings_the_budding_spring.jpg",
+          "filename": "06_easter_brings_the_budding_spring.jpg",
+          "path": "scene_packs/easter/06_easter_brings_the_budding_spring.jpg",
           "title": "Easter Brings the Budding Spring",
           "source": "Wikimedia Commons",
           "commons_url": "https://commons.wikimedia.org/wiki/File:Easter_card_-_Easter_brings_the_budding_spring_-_DPLA_-_beda615ebbddf6a8cf74d60fbd56b960.jpg"
@@ -576,109 +548,102 @@
     {
       "id": "new_years",
       "name": "New Year's",
-      "description": "Whimsical Puck magazine covers ringing in the new year.",
+      "description": "Celebratory retro postcards, magazine covers, and prints welcoming the new year.",
       "category": "seasonal",
       "license": "Public domain (verified per-image via Wikimedia Commons)",
-      "cover": "scene_packs/new_years/01_happy_new_year.jpg",
+      "cover": "scene_packs/new_years/01_new_year_s_baby_leyendecker.jpg",
       "images": [
         {
-          "filename": "01_happy_new_year.jpg",
-          "path": "scene_packs/new_years/01_happy_new_year.jpg",
-          "title": "Happy New Year!",
+          "filename": "01_new_year_s_baby_leyendecker.jpg",
+          "path": "scene_packs/new_years/01_new_year_s_baby_leyendecker.jpg",
+          "title": "New Year's Baby (Leyendecker)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Saturday_Evening_Post_Baby_New_Year_1930.jpg"
+        },
+        {
+          "filename": "02_happy_new_year_puck.jpg",
+          "path": "scene_packs/new_years/02_happy_new_year_puck.jpg",
+          "title": "Happy New Year! (Puck)",
           "source": "Wikimedia Commons",
           "commons_url": "https://commons.wikimedia.org/wiki/File:Happy_new_year!_-_Albert_Levering._LCCN2011647381.jpg"
         },
         {
-          "filename": "02_new_year_resolutions_till_they_melt.jpg",
-          "path": "scene_packs/new_years/02_new_year_resolutions_till_they_melt.jpg",
+          "filename": "03_new_year_resolutions_till_they_melt.jpg",
+          "path": "scene_packs/new_years/03_new_year_resolutions_till_they_melt.jpg",
           "title": "New Year Resolutions -- Till They Melt!",
           "source": "Wikimedia Commons",
           "commons_url": "https://commons.wikimedia.org/wiki/File:New_Year_resolutions_-_till_they_melt!_-_Leighton_Budd._LCCN2011649414.jpg"
         },
         {
-          "filename": "03_puck_pays_his_compliments.jpg",
-          "path": "scene_packs/new_years/03_puck_pays_his_compliments.jpg",
+          "filename": "04_puck_pays_his_compliments.jpg",
+          "path": "scene_packs/new_years/04_puck_pays_his_compliments.jpg",
           "title": "Puck Pays His Compliments",
           "source": "Wikimedia Commons",
           "commons_url": "https://commons.wikimedia.org/wiki/File:Puck_pays_his_compliments_-_Keppler._LCCN2012647452.jpg"
         },
         {
-          "filename": "04_welcome_and_let_us_hope_you_will_be_a_real_happy_new_year.jpg",
-          "path": "scene_packs/new_years/04_welcome_and_let_us_hope_you_will_be_a_real_happy_new_year.jpg",
-          "title": "Welcome! And Let Us Hope You Will Be a Real Happy New Year",
+          "filename": "05_welcome_puck.jpg",
+          "path": "scene_packs/new_years/05_welcome_puck.jpg",
+          "title": "Welcome! (Puck)",
           "source": "Wikimedia Commons",
           "commons_url": "https://commons.wikimedia.org/wiki/File:Welcome!_And_let_us_hope_you_will_be_a_real_happy_new_year_-_J.S._Pughe._LCCN2012648685.jpg"
         },
         {
-          "filename": "05_the_new_girl.jpg",
-          "path": "scene_packs/new_years/05_the_new_girl.jpg",
-          "title": "The New Girl",
+          "filename": "06_new_year_s_eve_foxfires_hiroshige.jpg",
+          "path": "scene_packs/new_years/06_new_year_s_eve_foxfires_hiroshige.jpg",
+          "title": "New Year's Eve Foxfires (Hiroshige)",
           "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:The_new_girl_-_J.S._Pughe._LCCN2012648450.jpg"
-        },
-        {
-          "filename": "06_seeing_the_old_year_out.jpg",
-          "path": "scene_packs/new_years/06_seeing_the_old_year_out.jpg",
-          "title": "Seeing the Old Year Out",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Winslow_Homer_-_Seeing_the_Old_Year_Out_-_1942.1237_-_Cleveland_Museum_of_Art.jpg"
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Hiroshige,_New_Year%27s_Eve_foxfires_at_the_changing_tree,_Oji,_1857.jpg"
         }
       ]
     },
     {
       "id": "valentines_day",
       "name": "Valentine's Day",
-      "description": "Classic romantic paintings and sculptures, from Cupid and Psyche to The Kiss.",
+      "description": "Iconic romantic masterworks and classic Cupid and heart illustrations.",
       "category": "seasonal",
       "license": "Public domain (verified per-image via Wikimedia Commons)",
-      "cover": "scene_packs/valentines_day/01_the_kiss_il_bacio.jpg",
+      "cover": "scene_packs/valentines_day/01_pygmalion_and_galatea_gerome.jpg",
       "images": [
         {
-          "filename": "01_the_kiss_il_bacio.jpg",
-          "path": "scene_packs/valentines_day/01_the_kiss_il_bacio.jpg",
+          "filename": "01_pygmalion_and_galatea_gerome.jpg",
+          "path": "scene_packs/valentines_day/01_pygmalion_and_galatea_gerome.jpg",
+          "title": "Pygmalion and Galatea (Gerome)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Jean-Leon_Gerome_-_Pygmalion_and_Galatea.png"
+        },
+        {
+          "filename": "02_the_storm_cot.jpg",
+          "path": "scene_packs/valentines_day/02_the_storm_cot.jpg",
+          "title": "The Storm (Cot)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:1880_Pierre_Auguste_Cot_-_The_StormFXD.jpg"
+        },
+        {
+          "filename": "03_the_kiss_il_bacio.jpg",
+          "path": "scene_packs/valentines_day/03_the_kiss_il_bacio.jpg",
           "title": "The Kiss (Il Bacio)",
           "source": "Wikimedia Commons",
           "commons_url": "https://commons.wikimedia.org/wiki/File:El_Beso_(Pinacoteca_de_Brera,_Mil%C3%A1n,_1859).jpg"
         },
         {
-          "filename": "02_the_swing.jpg",
-          "path": "scene_packs/valentines_day/02_the_swing.jpg",
-          "title": "The Swing",
+          "filename": "04_the_swing_fragonard.jpg",
+          "path": "scene_packs/valentines_day/04_the_swing_fragonard.jpg",
+          "title": "The Swing (Fragonard)",
           "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Fragonard,_The_Swing.jpg"
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Joean_Honor%C3%A9_Fragonard_-_The_Swing.jpg"
         },
         {
-          "filename": "03_cupid_and_psyche.jpg",
-          "path": "scene_packs/valentines_day/03_cupid_and_psyche.jpg",
-          "title": "Cupid and Psyche",
+          "filename": "05_vintage_valentine_clapsaddle.jpg",
+          "path": "scene_packs/valentines_day/05_vintage_valentine_clapsaddle.jpg",
+          "title": "Vintage Valentine (Clapsaddle)",
           "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Bouguereau_first_kiss.jpg"
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Valentine_Met_DP886048.jpg"
         },
         {
-          "filename": "04_psyche_revived_by_cupid_s_kiss.jpg",
-          "path": "scene_packs/valentines_day/04_psyche_revived_by_cupid_s_kiss.jpg",
-          "title": "Psyche Revived by Cupid's Kiss",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Psych%C3%A9_ranim%C3%A9e_par_le_baiser_de_l%27Amour,_Louvre.jpg"
-        },
-        {
-          "filename": "05_the_kiss_rodin.jpg",
-          "path": "scene_packs/valentines_day/05_the_kiss_rodin.jpg",
-          "title": "The Kiss (Rodin)",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Rodin_The_Kiss_01.jpg"
-        },
-        {
-          "filename": "06_pygmalion_and_galatea.jpg",
-          "path": "scene_packs/valentines_day/06_pygmalion_and_galatea.jpg",
-          "title": "Pygmalion and Galatea",
-          "source": "Wikimedia Commons",
-          "commons_url": "https://commons.wikimedia.org/wiki/File:Jean-Leon_Gerome_-_Pygmalion_and_Galatea.png"
-        },
-        {
-          "filename": "07_cupid_s_valentine.jpg",
-          "path": "scene_packs/valentines_day/07_cupid_s_valentine.jpg",
-          "title": "Cupid's Valentine",
+          "filename": "06_cupid_s_valentine_brundage.jpg",
+          "path": "scene_packs/valentines_day/06_cupid_s_valentine_brundage.jpg",
+          "title": "Cupid's Valentine (Brundage)",
           "source": "Wikimedia Commons",
           "commons_url": "https://commons.wikimedia.org/wiki/File:Frances_Brundage_-_Little_Hunter_Cupid_with_Rifle.jpg"
         }

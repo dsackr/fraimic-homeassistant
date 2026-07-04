@@ -215,6 +215,29 @@ def build_pack(pack: dict) -> dict:
     out_dir = os.path.join(PACKS_DIR, pack_id)
     os.makedirs(out_dir, exist_ok=True)
 
+    if "local_images" in pack:
+        images = []
+        for img in pack["local_images"]:
+            filename = img["filename"]
+            images.append(
+                {
+                    "filename": filename,
+                    "path": f"scene_packs/{pack_id}/{filename}",
+                    "title": img["title"],
+                    "source": img.get("source", "AI Generated (Antigravity)"),
+                    "commons_url": img.get("commons_url"),
+                }
+            )
+        return {
+            "id": pack_id,
+            "name": pack["name"],
+            "description": pack["description"],
+            "category": pack["category"],
+            "license": pack.get("license", "AI Generated artwork (Public Domain CC0 equivalent)"),
+            "cover": images[0]["path"],
+            "images": images,
+        }
+
     images = []
     seen_urls: set[str] = set()
 
@@ -337,103 +360,101 @@ PACKS = [
     {
         "id": "christmas",
         "name": "Christmas",
-        "description": "Nativity scenes, vintage Santa illustrations, and festive winter classics.",
+        "description": "Vibrant, high-contrast Christmas scenes optimized for Spectra 6 displays.",
         "category": "seasonal",
-        "queries": [
-            ("Thomas Nast Merry Old Santa Claus", "Merry Old Santa Claus", "Nast"),
-            ("Thomas Nast Merry Christmas to All", "Merry Christmas to All", "Nast"),
-            ("Currier and Ives lithograph winter", "American Homestead, Winter", "Currier"),
-            ("Gerard van Honthorst Adoration of the Shepherds", "Adoration of the Shepherds (Honthorst)", "Honthorst"),
-            ("Correggio Holy Night", "The Holy Night", "Correggio"),
-            ("La Tour Adoration des bergers Louvre RF 2555", "Adoration of the Shepherds (La Tour)", "La Tour"),
-            ("El Greco Adoration of the Shepherds", "Adoration of the Shepherds (El Greco)", "Greco"),
-            ("Rembrandt Adoration of the Shepherds National Gallery", "The Adoration of the Shepherds, with the Lamp", "Rembrandt"),
+        "license": "AI Generated artwork (Public Domain CC0 equivalent)",
+        "local_images": [
+            {"filename": "01_christmas_tree.jpg", "title": "Christmas Tree"},
+            {"filename": "02_santa_claus.jpg", "title": "Santa Claus"},
+            {"filename": "03_snowman.jpg", "title": "Snowman"},
+            {"filename": "04_nativity_scene.jpg", "title": "Nativity Scene"},
+            {"filename": "05_gingerbread_house.jpg", "title": "Gingerbread House"},
+            {"filename": "06_christmas_wreath.jpg", "title": "Christmas Wreath"},
         ],
     },
     {
         "id": "halloween",
         "name": "Halloween",
-        "description": "Vintage jack-o'-lantern postcards, witches, and spooky Victorian-era ephemera.",
+        "description": "Spooky-cute, vibrant Halloween illustrations optimized for Spectra 6 displays.",
         "category": "seasonal",
-        "queries": [
-            ("Halloween postcard jack-o-lantern devil demon", "Devil-Demon on a Jack-o'-Lantern", "Griggs"),
-            ("Halloween postcard jack-o-lantern driving a car", "You Auto Have a Happy Hallowe'en", "International Art Publishing"),
-            ("Halloween postcard black cat witch broomstick Raphael Tuck", "Witch on a Broomstick with a Black Cat", "Raphael Tuck"),
-            ("All Hallween Card 1911", "All Hallowe'en Card, 1911", "Winsch"),
-            ("Halloween postcard DPLA Toledo Lula Sweet", "Vintage Halloween Postcard", "Halloween postcard"),
+        "license": "AI Generated artwork (Public Domain CC0 equivalent)",
+        "local_images": [
+            {"filename": "01_jack_o_lanterns.jpg", "title": "Jack-o'-Lanterns"},
+            {"filename": "02_witch_flying_on_broomstick.jpg", "title": "Witch flying on Broomstick"},
+            {"filename": "03_friendly_ghost.jpg", "title": "Friendly Ghost"},
+            {"filename": "04_haunted_house.jpg", "title": "Haunted House"},
+            {"filename": "05_black_cat_and_pumpkin.jpg", "title": "Black Cat and Pumpkin"},
+            {"filename": "06_bats_flying_across_red_moon.jpg", "title": "Bats flying across Red Moon"},
         ],
     },
     {
         "id": "independence_day",
         "name": "Independence Day",
-        "description": "Founding-era paintings and patriotic Americana for the Fourth of July.",
+        "description": "Patriotic Americana and vibrant July 4th displays optimized for Spectra 6 displays.",
         "category": "seasonal",
-        "queries": [
-            ("Trumbull Declaration of Independence", "Declaration of Independence", "Trumbull"),
-            ("Archibald Willard Spirit of 76", "The Spirit of '76", "Willard"),
-            ("Leutze Washington Crossing the Delaware", "Washington Crossing the Delaware", "Leutze"),
-            ("Moran Birth of Old Glory", "The Birth of Old Glory", "Moran"),
-            ("Currier Ives Declaration of Independence", "Declaration of Independence, July 4th 1776", "Currier"),
-            ("Winslow Homer Fourth of July Fireworks", "Fire-works on the Night of the Fourth of July", "Homer"),
+        "license": "AI Generated artwork (Public Domain CC0 equivalent)",
+        "local_images": [
+            {"filename": "01_statue_of_liberty.jpg", "title": "Statue of Liberty"},
+            {"filename": "02_bald_eagle_and_flag.jpg", "title": "Bald Eagle and Flag"},
+            {"filename": "03_independence_day_fireworks.jpg", "title": "Independence Day Fireworks"},
+            {"filename": "04_mount_rushmore.jpg", "title": "Mount Rushmore"},
+            {"filename": "05_uncle_sam_celebration.jpg", "title": "Uncle Sam's Celebration"},
         ],
     },
     {
         "id": "thanksgiving",
         "name": "Thanksgiving",
-        "description": "First Thanksgiving history paintings and classic harvest still lifes.",
+        "description": "Harvest abundance, fruit still lifes, and warm autumn scenes.",
         "category": "seasonal",
         "queries": [
-            ("Brownscombe First Thanksgiving at Plymouth", "The First Thanksgiving at Plymouth", "Brownscombe"),
-            ("Ferris First Thanksgiving 1621", "The First Thanksgiving, 1621", "Ferris"),
-            ("Currier Ives Thanksgiving", "Home to Thanksgiving", "Durrie"),
-            ("Pieter Bruegel Harvesters", "The Harvesters", "Brueghel"),
-            ("Jan Davidsz de Heem fruit still life", "Fruit Still Life", "Heem"),
-            ("Balthasar van der Ast fruit still life", "Still Life of Fruit", "van der Ast"),
-            ("Arcimboldo Autumn", "Autumn", "Arcimboldo"),
+            ("George Henry Durrie Home to Thanksgiving", "Home to Thanksgiving (Durrie)", "Durrie"),
+            ("File:The Harvesters.jpg", "The Harvesters (Brueghel)", "brueghel"),
+            ("Severin Roesen - Still Life, Fruit", "Still Life of Fruit (Roesen)", "Roesen"),
+            ("Severin Roesen - Two-Tiered Still Life with Fruit and Sunset Landscape - Google Art Project", "Fruit Cornucopia (Roesen)", "Roesen"),
+            ("Fruit Still Life by Severin Roesen", "Still Life with Fruit (Roesen)", "Roesen"),
+            ("Thanksgiving day - DPLA - 754f1711409e406676cf9febaf17862a", "Vintage Thanksgiving Postcard", "Thanksgiving"),
         ],
     },
     {
         "id": "easter",
         "name": "Easter",
-        "description": "Renaissance Resurrection paintings and vintage Easter postcards.",
+        "description": "Renaissance masterworks and vibrant vintage spring postcards.",
         "category": "seasonal",
         "queries": [
-            ("Piero della Francesca Resurrection", "The Resurrection (Piero della Francesca)", "Piero"),
-            ("Raphael Resurrection of Christ", "Resurrection of Christ", "Raphael"),
-            ("Grunewald Resurrection Isenheim", "The Resurrection (Isenheim Altarpiece)", "Grunewald"),
-            ("El Greco Resurrection", "The Resurrection (El Greco)", "Greco"),
-            ("Söderberg Easter card", "Easter Card", "Soderberg"),
-            ("Easter lily postcard vintage", "Easter Cross and Lilies", "Tuck"),
-            ("Prang Easter card", "Easter Brings the Budding Spring", "Bridges"),
+            ("Raphael Sao Paulo Museum Resurrection of Christ", "Resurrection of Christ (Raphael)", "Raphael"),
+            ("Fra Angelico 009", "The Resurrection (Fra Angelico)", "Angelico"),
+            ("Vintage Easter postcard of a cross and lilies", "Easter Cross and Lilies", "postcard"),
+            ("Piero della Francesca - Resurrection - WGA17609", "The Resurrection (Piero della Francesca)", "Piero"),
+            ("Adèle Söderberg - Easter card", "Easter Card (Soderberg)", "Soderberg"),
+            ("Easter card - Easter brings the budding spring - DPLA - beda615ebbddf6a8cf74d60fbd56b960", "Easter Brings the Budding Spring", "Bridges"),
         ],
     },
     {
         "id": "new_years",
         "name": "New Year's",
-        "description": "Whimsical Puck magazine covers ringing in the new year.",
+        "description": "Celebratory retro postcards, magazine covers, and prints welcoming the new year.",
         "category": "seasonal",
         "queries": [
-            ("Albert Levering Happy New Year Puck magazine cover", "Happy New Year!", "Levering"),
+            ("Saturday Evening Post Baby New Year 1930", "New Year's Baby (Leyendecker)", "Leyendecker"),
+            ("Albert Levering Happy New Year Puck magazine cover", "Happy New Year! (Puck)", "Levering"),
             ("Puck magazine New Year Resolutions Till They Melt cover", "New Year Resolutions -- Till They Melt!", "Budd"),
             ("Puck magazine Puck Pays His Compliments New Year cover", "Puck Pays His Compliments", "Keppler"),
-            ("Puck magazine Welcome Real Happy New Year cover 1895", "Welcome! And Let Us Hope You Will Be a Real Happy New Year", "Pughe"),
-            ("Puck magazine The New Girl New Year cover 1897", "The New Girl", "Pughe"),
-            ("Winslow Homer Seeing the Old Year Out Cleveland Museum", "Seeing the Old Year Out", "Homer"),
+            ("Puck magazine Welcome Real Happy New Year cover 1895", "Welcome! (Puck)", "Pughe"),
+            ("Hiroshige, New Year's Eve Foxfires at the Changing Tree, Oji, 1857", "New Year's Eve Foxfires (Hiroshige)", "Hiroshige"),
         ],
     },
     {
         "id": "valentines_day",
         "name": "Valentine's Day",
-        "description": "Classic romantic paintings and sculptures, from Cupid and Psyche to The Kiss.",
+        "description": "Iconic romantic masterworks and classic Cupid and heart illustrations.",
         "category": "seasonal",
         "queries": [
-            ("Il Bacio Hayez", "The Kiss (Il Bacio)", "Hayez"),
-            ("The Swing Fragonard", "The Swing", "Fragonard"),
-            ("Bouguereau First Kiss Cupid Psyche children", "Cupid and Psyche", "Bouguereau"),
-            ("Psyche Revived by Cupid's Kiss Canova", "Psyche Revived by Cupid's Kiss", "Canova"),
-            ("Rodin The Kiss sculpture", "The Kiss (Rodin)", "Rodin"),
-            ("Pygmalion and Galatea Gerome", "Pygmalion and Galatea", "Gerome"),
-            ("Frances Brundage Valentine", "Cupid's Valentine", "Brundage"),
+            ("Jean-Leon Gerome - Pygmalion and Galatea", "Pygmalion and Galatea (Gerome)", "Gerome"),
+            ("1880 Pierre Auguste Cot - The Storm", "The Storm (Cot)", "Cot"),
+            ("El Beso (Pinacoteca de Brera, Milán, 1859)", "The Kiss (Il Bacio)", "Hayez"),
+            ("Joean Honoré Fragonard - The Swing", "The Swing (Fragonard)", "Fragonard"),
+            ("Valentine Met DP886048", "Vintage Valentine (Clapsaddle)", "Clapsaddle"),
+            ("Frances Brundage Valentine", "Cupid's Valentine (Brundage)", "Brundage"),
         ],
     },
 ]
