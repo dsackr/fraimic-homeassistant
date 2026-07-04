@@ -297,7 +297,7 @@
       "name": "Christmas",
       "description": "Vibrant, high-contrast Christmas scenes optimized for Spectra 6 displays.",
       "category": "seasonal",
-      "license": "AI Generated artwork (Public Domain CC0 equivalent)",
+      "license": "AI Generated / Public Domain",
       "cover": "scene_packs/christmas/01_christmas_tree.jpg",
       "images": [
         {
@@ -341,6 +341,34 @@
           "title": "Christmas Wreath",
           "source": "AI Generated (Antigravity)",
           "commons_url": null
+        },
+        {
+          "filename": "07_decorating_the_christmas_tree.jpg",
+          "path": "scene_packs/christmas/07_decorating_the_christmas_tree.jpg",
+          "title": "Decorating the Christmas Tree",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Knud_Larsen_Decorating_the_Christmas_tree_1897.jpg"
+        },
+        {
+          "filename": "08_victorian_christmas_postcard.jpg",
+          "path": "scene_packs/christmas/08_victorian_christmas_postcard.jpg",
+          "title": "Victorian Christmas Postcard",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Victorian_Christmas_postcard_by_Raphael_Tuck_%26_Sons.jpg"
+        },
+        {
+          "filename": "09_christmas_tree_by_aleksey_korin.jpg",
+          "path": "scene_packs/christmas/09_christmas_tree_by_aleksey_korin.jpg",
+          "title": "Christmas Tree (Korin)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Christmas_Tree_by_Aleksey_Korin_%281910%29.jpg"
+        },
+        {
+          "filename": "10_christmas_postcard_bowley.jpg",
+          "path": "scene_packs/christmas/10_christmas_postcard_bowley.jpg",
+          "title": "Christmas Postcard (Bowley)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Raphael_Tuck_%26_Sons_Christmas_Postcard_-_A.L._Bowley_-_circa_1909.jpg"
         }
       ]
     },
@@ -349,7 +377,7 @@
       "name": "Halloween",
       "description": "Spooky-cute, vibrant Halloween illustrations optimized for Spectra 6 displays.",
       "category": "seasonal",
-      "license": "AI Generated artwork (Public Domain CC0 equivalent)",
+      "license": "AI Generated / Public Domain",
       "cover": "scene_packs/halloween/01_jack_o_lanterns.jpg",
       "images": [
         {
@@ -393,6 +421,34 @@
           "title": "Bats flying across Red Moon",
           "source": "AI Generated (Antigravity)",
           "commons_url": null
+        },
+        {
+          "filename": "07_examination_of_a_witch.jpg",
+          "path": "scene_packs/halloween/07_examination_of_a_witch.jpg",
+          "title": "Examination of a Witch (Matteson)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Examination_of_a_Witch_-_Tompkins_Matteson.jpg"
+        },
+        {
+          "filename": "08_winslow_homer_pumpkin_patch.jpg",
+          "path": "scene_packs/halloween/08_winslow_homer_pumpkin_patch.jpg",
+          "title": "The Pumpkin Patch (Homer)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Winslow_Homer_-_The_Pumpkin_Patch_%281878%29.jpg"
+        },
+        {
+          "filename": "09_takiyasha_the_witch_skeleton.jpg",
+          "path": "scene_packs/halloween/09_takiyasha_the_witch_skeleton.jpg",
+          "title": "Takiyasha the Witch (Kuniyoshi)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Takiyasha_the_Witch_and_the_Skeleton_Spectre_3.jpg"
+        },
+        {
+          "filename": "10_woman_with_a_pumpkin.jpg",
+          "path": "scene_packs/halloween/10_woman_with_a_pumpkin.jpg",
+          "title": "Woman with a Pumpkin (Kishida)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Kishida_Ryusei_-_Woman_with_a_Pumpkin_-_Google_Art_Project.jpg"
         }
       ]
     },
@@ -401,7 +457,7 @@
       "name": "Independence Day",
       "description": "Patriotic Americana and vibrant July 4th displays optimized for Spectra 6 displays.",
       "category": "seasonal",
-      "license": "AI Generated artwork (Public Domain CC0 equivalent)",
+      "license": "AI Generated / Public Domain",
       "cover": "scene_packs/independence_day/01_statue_of_liberty.jpg",
       "images": [
         {
@@ -438,6 +494,41 @@
           "title": "Uncle Sam's Celebration",
           "source": "AI Generated (Antigravity)",
           "commons_url": null
+        },
+        {
+          "filename": "06_sailboat_and_fireworks.jpg",
+          "path": "scene_packs/independence_day/06_sailboat_and_fireworks.jpg",
+          "title": "Sailboat and Fireworks (Homer)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Winslow_Homer_-_Sailboat_and_Fourth_of_July_Fireworks.jpg"
+        },
+        {
+          "filename": "07_fourth_of_july_picnic.jpg",
+          "path": "scene_packs/independence_day/07_fourth_of_july_picnic.jpg",
+          "title": "Fourth of July Picnic (Spencer)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Lily_Martin_Spencer_-_The_Artist_and_Her_Family_on_a_Fourth_of_July_Picnic.JPG"
+        },
+        {
+          "filename": "08_unveiling_statue_of_liberty.jpg",
+          "path": "scene_packs/independence_day/08_unveiling_statue_of_liberty.jpg",
+          "title": "Unveiling the Statue of Liberty (Moran)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:EdwardMoran-UnveilingTheStatueofLiberty1886Large.jpg"
+        },
+        {
+          "filename": "09_uncle_sam_postcard_hurrah.jpg",
+          "path": "scene_packs/independence_day/09_uncle_sam_postcard_hurrah.jpg",
+          "title": "Uncle Sam Postcard (Hurrah!)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Hurrah%21_For_the_Fourth_of_July_Hurrah%21_-_Uncle_Sam_postcard.jpg"
+        },
+        {
+          "filename": "10_uncle_sam_postcard_going_off.jpg",
+          "path": "scene_packs/independence_day/10_uncle_sam_postcard_going_off.jpg",
+          "title": "Uncle Sam Postcard (Going Off)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:We%27re_Going_Off_on_the_4th_-_Uncle_Sam_postcard.jpg"
         }
       ]
     },
@@ -490,6 +581,41 @@
           "title": "Vintage Thanksgiving Postcard",
           "source": "Wikimedia Commons",
           "commons_url": "https://commons.wikimedia.org/wiki/File:Thanksgiving_day_-_DPLA_-_754f1711409e406676cf9febaf17862a_(page_1).jpg"
+        },
+        {
+          "filename": "07_thanksgiving_glackens.jpg",
+          "path": "scene_packs/thanksgiving/07_thanksgiving_glackens.jpg",
+          "title": "Thanksgiving (Glackens)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Puck_Thanksgiving_1903_-_L.M._Glackens._LCCN2010652321.jpg"
+        },
+        {
+          "filename": "08_thanksgiving_day_ways_and_means.jpg",
+          "path": "scene_packs/thanksgiving/08_thanksgiving_day_ways_and_means.jpg",
+          "title": "Thanksgiving Day -- Ways and Means",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Thanksgiving_Day_%E2%80%93_Ways_and_Means_(Harper%27s_Weekly,_Vol._II)_MET_DP875137.jpg"
+        },
+        {
+          "filename": "09_hearty_thanksgiving_greeting_winsch.jpg",
+          "path": "scene_packs/thanksgiving/09_hearty_thanksgiving_greeting_winsch.jpg",
+          "title": "Hearty Thanksgiving Greeting (Winsch)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:%22Hearty_Thanksgiving_Greeting.%22.jpg"
+        },
+        {
+          "filename": "10_the_thanksgiving_turkey_campbell.jpg",
+          "path": "scene_packs/thanksgiving/10_the_thanksgiving_turkey_campbell.jpg",
+          "title": "The Thanksgiving Turkey (Campbell)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:The_Thanksgiving_turkey_-_Alfcamp,_Elizabeth,_N.J._LCCN90710727.jpg"
+        },
+        {
+          "filename": "11_thanksgiving_dinner_hotel_marlborough.jpg",
+          "path": "scene_packs/thanksgiving/11_thanksgiving_dinner_hotel_marlborough.jpg",
+          "title": "Thanksgiving Dinner (Hotel Marlborough)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:THANKSGIVING_DAY_DINNER_(held_by)_HOTEL_MARLBOROUGH_(at)_NY_(HOTEL)_(NYPL_Hades-270314-474964).jpg"
         }
       ]
     },
@@ -542,6 +668,34 @@
           "title": "Easter Brings the Budding Spring",
           "source": "Wikimedia Commons",
           "commons_url": "https://commons.wikimedia.org/wiki/File:Easter_card_-_Easter_brings_the_budding_spring_-_DPLA_-_beda615ebbddf6a8cf74d60fbd56b960.jpg"
+        },
+        {
+          "filename": "07_spring_landscape_doughty.jpg",
+          "path": "scene_packs/easter/07_spring_landscape_doughty.jpg",
+          "title": "Spring Landscape (Doughty)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Spring_Landscape_MET_ap17.66.jpg"
+        },
+        {
+          "filename": "08_spring_landscape_daubigny.jpg",
+          "path": "scene_packs/easter/08_spring_landscape_daubigny.jpg",
+          "title": "Spring Landscape (Daubigny)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Alte_Nationalgalerie-Daubigny-Spring_Landscape_DSC8098.jpg"
+        },
+        {
+          "filename": "09_spring_landscape_munch.jpg",
+          "path": "scene_packs/easter/09_spring_landscape_munch.jpg",
+          "title": "Spring Landscape (Munch)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Munch_-_V%C3%85RLANDSKAP_(SPRING_LANDSCAPE),_circa_1923-24,_Lot_136.jpg"
+        },
+        {
+          "filename": "10_spring_landscape_thorma.jpg",
+          "path": "scene_packs/easter/10_spring_landscape_thorma.jpg",
+          "title": "Spring Landscape (Thorma)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Thorma_Spring_Landscape_1932.jpg"
         }
       ]
     },
@@ -594,6 +748,41 @@
           "title": "New Year's Eve Foxfires (Hiroshige)",
           "source": "Wikimedia Commons",
           "commons_url": "https://commons.wikimedia.org/wiki/File:Hiroshige,_New_Year%27s_Eve_foxfires_at_the_changing_tree,_Oji,_1857.jpg"
+        },
+        {
+          "filename": "07_new_year_s_day_boughton.jpg",
+          "path": "scene_packs/new_years/07_new_year_s_day_boughton.jpg",
+          "title": "New Year's Day (Boughton)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Party_For_New_Year%27s_Day_In_New_Amsterdam_1636_by_George_Henry_Boughton.jpg"
+        },
+        {
+          "filename": "08_a_new_year_on_the_cimarron.jpg",
+          "path": "scene_packs/new_years/08_a_new_year_on_the_cimarron.jpg",
+          "title": "A New Year on the Cimarron",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Frederic_Remington_-_A_New_Year_on_the_Cimarron_-_Google_Art_Project.jpg"
+        },
+        {
+          "filename": "09_new_year_celebrations_shinsai.jpg",
+          "path": "scene_packs/new_years/09_new_year_celebrations_shinsai.jpg",
+          "title": "New Year Celebrations (Shinsai)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:%E3%80%8E%E6%98%A5%E9%9B%A8%E9%9B%86%E3%80%8F_%E6%91%BA%E7%89%A9%E5%B8%96%E6%9F%B3%E3%80%85%E5%B1%85%E8%BE%B0%E6%96%8E%E7%94%BB_%E8%8B%A5%E6%9D%BE-Spring_Rain_Collection_(Harusame_sh%C5%AB),_vol._2-_Pine_Shoots_and_Accoutrements_for_New_Year%E2%80%99s_Celebrations_MET_DP138359.jpg"
+        },
+        {
+          "filename": "10_celebrating_the_new_year_yoshitoshi.jpg",
+          "path": "scene_packs/new_years/10_celebrating_the_new_year_yoshitoshi.jpg",
+          "title": "Celebrating the New Year (Yoshitoshi)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:January-_Celebrating_the_New_Year_LACMA_M.84.31.540.jpg"
+        },
+        {
+          "filename": "11_wishing_you_a_happy_new_year_wall.jpg",
+          "path": "scene_packs/new_years/11_wishing_you_a_happy_new_year_wall.jpg",
+          "title": "Wishing You a Happy New Year (Wall)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:%22Wishing_You_a_Happy_New_Year.%22.jpg"
         }
       ]
     },
@@ -646,6 +835,41 @@
           "title": "Cupid's Valentine (Brundage)",
           "source": "Wikimedia Commons",
           "commons_url": "https://commons.wikimedia.org/wiki/File:Frances_Brundage_-_Little_Hunter_Cupid_with_Rifle.jpg"
+        },
+        {
+          "filename": "07_venus_and_cupid_ricci.jpg",
+          "path": "scene_packs/valentines_day/07_venus_and_cupid_ricci.jpg",
+          "title": "Venus and Cupid (Ricci)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Venus_and_Cupid_(c.1700)_-_Sebastiano_Ricci.jpg"
+        },
+        {
+          "filename": "08_cupid_and_doves_leighton.jpg",
+          "path": "scene_packs/valentines_day/08_cupid_and_doves_leighton.jpg",
+          "title": "Cupid and Doves (Leighton)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Cupid_and_Doves_-_Frederic_Leighton.jpg"
+        },
+        {
+          "filename": "09_cupid_and_psyche_picot.jpg",
+          "path": "scene_packs/valentines_day/09_cupid_and_psyche_picot.jpg",
+          "title": "Cupid and Psyche (Picot)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Cupid_and_Psyche_by_Fran%C3%A7ois-%C3%89douard_Picot.jpg"
+        },
+        {
+          "filename": "10_the_love_of_paris_and_helen.jpg",
+          "path": "scene_packs/valentines_day/10_the_love_of_paris_and_helen.jpg",
+          "title": "The Love of Paris and Helen",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Les_amours_de_P%C3%A2ris_et_d%27H%C3%A9l%C3%A8ne_-_Jacques-Louis_David_-_Mus%C3%A9e_du_Louvre_Peintures_INV_3696_;_MR_1439.jpg"
+        },
+        {
+          "filename": "11_cupid_and_psyche_troy.jpg",
+          "path": "scene_packs/valentines_day/11_cupid_and_psyche_troy.jpg",
+          "title": "Cupid and Psyche (Troy)",
+          "source": "Wikimedia Commons",
+          "commons_url": "https://commons.wikimedia.org/wiki/File:Cupid_and_Psyche_by_Jean-Fran%C3%A7ois_de_Troy.jpg"
         }
       ]
     }
