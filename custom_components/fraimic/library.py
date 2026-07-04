@@ -242,6 +242,13 @@ class LocalLibraryBackend(LibraryBackend):
         self.settings: dict[str, Any] = {"backend": BACKEND_LOCAL}
         self._root = hass.config.path("fraimic_library")
         self._manifest_path = os.path.join(self._root, "manifest.json")
+        # Guards every manifest read-modify-write below: each one runs as
+        # its own executor job, and the background backfill worker can have
+        # one in flight at the same time as a fresh upload's -- without
+        # this, whichever finishes last wins and silently clobbers the
+        # other's change (e.g. a scene pack install racing its own
+        # backfill and losing images it just added).
+        self._manifest_lock = asyncio.Lock()
 
     async def async_setup(self) -> None:
         await self.hass.async_add_executor_job(self._ensure_dirs)
@@ -404,21 +411,24 @@ class LocalLibraryBackend(LibraryBackend):
     async def async_save_bin(
         self, image_id: str, width: int, height: int, data: bytes
     ) -> None:
-        await self.hass.async_add_executor_job(
-            self._save_bin_sync, image_id, width, height, data
-        )
+        async with self._manifest_lock:
+            await self.hass.async_add_executor_job(
+                self._save_bin_sync, image_id, width, height, data
+            )
 
     async def async_update_image_fields(self, image_id: str, **fields: Any) -> None:
-        await self.hass.async_add_executor_job(
-            self._update_image_fields_sync, image_id, fields
-        )
+        async with self._manifest_lock:
+            await self.hass.async_add_executor_job(
+                self._update_image_fields_sync, image_id, fields
+            )
 
     async def async_bulk_update_image_fields(
         self, updates: dict[str, dict[str, Any]]
     ) -> None:
-        await self.hass.async_add_executor_job(
-            self._bulk_update_image_fields_sync, updates
-        )
+        async with self._manifest_lock:
+            await self.hass.async_add_executor_job(
+                self._bulk_update_image_fields_sync, updates
+            )
 
     async def async_delete_bin(self, image_id: str, width: int, height: int) -> None:
         await self.hass.async_add_executor_job(
@@ -428,12 +438,14 @@ class LocalLibraryBackend(LibraryBackend):
     async def async_upload_original(
         self, filename: str, raw_bytes: bytes, content_type: str, albums: list[str]
     ) -> LibraryImage:
-        return await self.hass.async_add_executor_job(
-            self._upload_original_sync, filename, raw_bytes, content_type, albums
-        )
+        async with self._manifest_lock:
+            return await self.hass.async_add_executor_job(
+                self._upload_original_sync, filename, raw_bytes, content_type, albums
+            )
 
     async def async_delete_image(self, image_id: str) -> None:
-        await self.hass.async_add_executor_job(self._delete_image_sync, image_id)
+        async with self._manifest_lock:
+            await self.hass.async_add_executor_job(self._delete_image_sync, image_id)
 
 
 # ---------------------------------------------------------------------------
@@ -465,6 +477,9 @@ class DropboxLibraryBackend(LibraryBackend):
         self.hass = hass
         self.settings = dict(settings)
         self._access_token = (self.settings.get("access_token") or "").strip()
+        # See LocalLibraryBackend._manifest_lock -- same read-modify-write
+        # race, just over the Dropbox API instead of a local file.
+        self._manifest_lock = asyncio.Lock()
 
     def _headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
         headers = {"Authorization": f"Bearer {self._access_token}"}
@@ -590,9 +605,10 @@ class DropboxLibraryBackend(LibraryBackend):
             resolutions=[],
             albums=_normalize_albums(albums),
         )
-        manifest = await self._read_manifest() or {"images": []}
-        manifest.setdefault("images", []).append(record.to_dict())
-        await self._write_manifest(manifest)
+        async with self._manifest_lock:
+            manifest = await self._read_manifest() or {"images": []}
+            manifest.setdefault("images", []).append(record.to_dict())
+            await self._write_manifest(manifest)
         return record
 
     async def async_get_original(self, image_id: str) -> tuple[bytes, str]:
@@ -646,32 +662,35 @@ class DropboxLibraryBackend(LibraryBackend):
             text = await resp.text()
             raise LibraryBackendError(f"Dropbox bin upload failed ({resp.status}): {text[:200]}")
 
-        manifest = await self._read_manifest() or {"images": []}
-        for d in manifest.get("images", []):
-            if d["image_id"] == image_id:
-                resolutions = d.setdefault("resolutions", [])
-                if [width, height] not in resolutions:
-                    resolutions.append([width, height])
-                break
-        await self._write_manifest(manifest)
+        async with self._manifest_lock:
+            manifest = await self._read_manifest() or {"images": []}
+            for d in manifest.get("images", []):
+                if d["image_id"] == image_id:
+                    resolutions = d.setdefault("resolutions", [])
+                    if [width, height] not in resolutions:
+                        resolutions.append([width, height])
+                    break
+            await self._write_manifest(manifest)
 
     async def async_update_image_fields(self, image_id: str, **fields: Any) -> None:
-        manifest = await self._read_manifest() or {"images": []}
-        for d in manifest.get("images", []):
-            if d["image_id"] == image_id:
-                d.update(fields)
-                break
-        await self._write_manifest(manifest)
+        async with self._manifest_lock:
+            manifest = await self._read_manifest() or {"images": []}
+            for d in manifest.get("images", []):
+                if d["image_id"] == image_id:
+                    d.update(fields)
+                    break
+            await self._write_manifest(manifest)
 
     async def async_bulk_update_image_fields(
         self, updates: dict[str, dict[str, Any]]
     ) -> None:
-        manifest = await self._read_manifest() or {"images": []}
-        for d in manifest.get("images", []):
-            fields = updates.get(d["image_id"])
-            if fields:
-                d.update(fields)
-        await self._write_manifest(manifest)
+        async with self._manifest_lock:
+            manifest = await self._read_manifest() or {"images": []}
+            for d in manifest.get("images", []):
+                fields = updates.get(d["image_id"])
+                if fields:
+                    d.update(fields)
+            await self._write_manifest(manifest)
 
     async def async_delete_bin(self, image_id: str, width: int, height: int) -> None:
         session = async_get_clientsession(self.hass)
@@ -709,11 +728,12 @@ class DropboxLibraryBackend(LibraryBackend):
                         json={"path": entry["path_lower"]},
                     )
 
-        manifest = await self._read_manifest() or {"images": []}
-        manifest["images"] = [
-            d for d in manifest.get("images", []) if d["image_id"] != image_id
-        ]
-        await self._write_manifest(manifest)
+        async with self._manifest_lock:
+            manifest = await self._read_manifest() or {"images": []}
+            manifest["images"] = [
+                d for d in manifest.get("images", []) if d["image_id"] != image_id
+            ]
+            await self._write_manifest(manifest)
 
     async def async_discover_new_files(self) -> list[LibraryImage]:
         """Adopt any files sitting in /fraimic_library/inbox -- dropped
@@ -815,6 +835,9 @@ class GoogleDriveLibraryBackend(LibraryBackend):
         self.settings = dict(settings)
         self._access_token: str | None = None
         self._access_token_expires: float = 0.0
+        # See LocalLibraryBackend._manifest_lock -- same read-modify-write
+        # race, just over the Drive API instead of a local file.
+        self._manifest_lock = asyncio.Lock()
 
     async def async_setup(self) -> None:
         required = ("client_id", "client_secret", "refresh_token")
@@ -949,7 +972,6 @@ class GoogleDriveLibraryBackend(LibraryBackend):
         file_id = await self._create_file(
             f"{image_id}_{_safe_filename(filename)}", raw_bytes, content_type
         )
-        manifest = await self._read_manifest()
         record_dict = {
             "image_id": image_id,
             "filename": filename,
@@ -960,8 +982,10 @@ class GoogleDriveLibraryBackend(LibraryBackend):
             "drive_file_id": file_id,
             "bin_file_ids": {},
         }
-        manifest.setdefault("images", []).append(record_dict)
-        await self._write_manifest(manifest)
+        async with self._manifest_lock:
+            manifest = await self._read_manifest()
+            manifest.setdefault("images", []).append(record_dict)
+            await self._write_manifest(manifest)
         return LibraryImage.from_dict(record_dict)
 
     def _find_entry(self, manifest: dict[str, Any], image_id: str) -> dict[str, Any]:
@@ -999,60 +1023,65 @@ class GoogleDriveLibraryBackend(LibraryBackend):
     async def async_save_bin(
         self, image_id: str, width: int, height: int, data: bytes
     ) -> None:
-        manifest = await self._read_manifest()
-        entry = self._find_entry(manifest, image_id)
-        res_key = f"{width}x{height}"
-        existing_id = entry.get("bin_file_ids", {}).get(res_key)
-        if existing_id:
-            await self._upload_content(existing_id, data, "application/octet-stream")
-            return
-        file_id = await self._create_file(f"{image_id}_{res_key}.bin", data, "application/octet-stream")
-        entry.setdefault("bin_file_ids", {})[res_key] = file_id
-        if [width, height] not in entry.setdefault("resolutions", []):
-            entry["resolutions"].append([width, height])
-        await self._write_manifest(manifest)
+        async with self._manifest_lock:
+            manifest = await self._read_manifest()
+            entry = self._find_entry(manifest, image_id)
+            res_key = f"{width}x{height}"
+            existing_id = entry.get("bin_file_ids", {}).get(res_key)
+            if existing_id:
+                await self._upload_content(existing_id, data, "application/octet-stream")
+                return
+            file_id = await self._create_file(f"{image_id}_{res_key}.bin", data, "application/octet-stream")
+            entry.setdefault("bin_file_ids", {})[res_key] = file_id
+            if [width, height] not in entry.setdefault("resolutions", []):
+                entry["resolutions"].append([width, height])
+            await self._write_manifest(manifest)
 
     async def async_update_image_fields(self, image_id: str, **fields: Any) -> None:
-        manifest = await self._read_manifest()
-        entry = self._find_entry(manifest, image_id)
-        entry.update(fields)
-        await self._write_manifest(manifest)
+        async with self._manifest_lock:
+            manifest = await self._read_manifest()
+            entry = self._find_entry(manifest, image_id)
+            entry.update(fields)
+            await self._write_manifest(manifest)
 
     async def async_bulk_update_image_fields(
         self, updates: dict[str, dict[str, Any]]
     ) -> None:
-        manifest = await self._read_manifest()
-        for d in manifest.get("images", []):
-            fields = updates.get(d["image_id"])
-            if fields:
-                d.update(fields)
-        await self._write_manifest(manifest)
-
-    async def async_delete_bin(self, image_id: str, width: int, height: int) -> None:
-        manifest = await self._read_manifest()
-        entry = self._find_entry(manifest, image_id)
-        res_key = f"{width}x{height}"
-        bin_file_id = entry.get("bin_file_ids", {}).pop(res_key, None)
-        if bin_file_id:
-            await self._delete_file(bin_file_id)
+        async with self._manifest_lock:
+            manifest = await self._read_manifest()
+            for d in manifest.get("images", []):
+                fields = updates.get(d["image_id"])
+                if fields:
+                    d.update(fields)
             await self._write_manifest(manifest)
 
+    async def async_delete_bin(self, image_id: str, width: int, height: int) -> None:
+        async with self._manifest_lock:
+            manifest = await self._read_manifest()
+            entry = self._find_entry(manifest, image_id)
+            res_key = f"{width}x{height}"
+            bin_file_id = entry.get("bin_file_ids", {}).pop(res_key, None)
+            if bin_file_id:
+                await self._delete_file(bin_file_id)
+                await self._write_manifest(manifest)
+
     async def async_delete_image(self, image_id: str) -> None:
-        manifest = await self._read_manifest()
-        entry = next(
-            (d for d in manifest.get("images", []) if d["image_id"] == image_id),
-            None,
-        )
-        if entry is None:
-            return
-        if entry.get("drive_file_id"):
-            await self._delete_file(entry["drive_file_id"])
-        for bin_file_id in entry.get("bin_file_ids", {}).values():
-            await self._delete_file(bin_file_id)
-        manifest["images"] = [
-            d for d in manifest.get("images", []) if d["image_id"] != image_id
-        ]
-        await self._write_manifest(manifest)
+        async with self._manifest_lock:
+            manifest = await self._read_manifest()
+            entry = next(
+                (d for d in manifest.get("images", []) if d["image_id"] == image_id),
+                None,
+            )
+            if entry is None:
+                return
+            if entry.get("drive_file_id"):
+                await self._delete_file(entry["drive_file_id"])
+            for bin_file_id in entry.get("bin_file_ids", {}).values():
+                await self._delete_file(bin_file_id)
+            manifest["images"] = [
+                d for d in manifest.get("images", []) if d["image_id"] != image_id
+            ]
+            await self._write_manifest(manifest)
 
 
 # ---------------------------------------------------------------------------
