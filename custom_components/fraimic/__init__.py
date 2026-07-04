@@ -176,6 +176,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     await scene_pack_manager.async_load()
     hass.data.setdefault(DOMAIN, {})["_scene_packs"] = scene_pack_manager
 
+    # Backfill provenance on scenes from packs installed before Scene.source
+    # existed -- otherwise they'd show up as "User Generated" instead of
+    # "Add-on" in the panel after upgrading. No-ops once every scene is tagged.
+    for scene_id in scene_pack_manager.installed_scene_ids():
+        await scene_manager.async_mark_scene_source(scene_id, "addon")
+
     from .scene_packs_http import (  # noqa: PLC0415
         FraimicScenePackInstallView,
         FraimicScenePacksView,

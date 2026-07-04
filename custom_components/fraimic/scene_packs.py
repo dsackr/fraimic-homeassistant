@@ -113,6 +113,16 @@ class ScenePackManager:
         stored = await self._store.async_load()
         self._installed = dict((stored or {}).get("installed") or {})
 
+    def installed_scene_ids(self) -> set[str]:
+        """Scene ids created by any currently-installed pack -- used to
+        backfill Scene.source for scenes from packs installed before that
+        field existed (see SceneManager.async_mark_scene_source)."""
+        return {
+            installed["scene_id"]
+            for installed in self._installed.values()
+            if installed.get("scene_id")
+        }
+
     async def _async_persist(self) -> None:
         await self._store.async_save({"installed": self._installed})
 
@@ -261,7 +271,7 @@ class ScenePackManager:
             mappings = _assign_images_to_frames(frames, uploaded)
             if mappings:
                 scene = await self._scenes.async_save_scene(
-                    name=pack["name"], mappings=mappings, album=album
+                    name=pack["name"], mappings=mappings, album=album, source="addon"
                 )
                 scene_id = scene["scene_id"]
 

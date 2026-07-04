@@ -840,8 +840,10 @@
       this._librarySelectMode = false;  // true = photo grid is in multi-select-for-delete mode
       this._librarySelected   = new Set();  // image_ids selected while in that mode
 
-      this._scenes        = [];       // [{ scene_id, name, mappings: { entry_id: image_id } }]
+      this._scenes        = [];       // [{ scene_id, name, mappings: { entry_id: image_id }, source }]
       this._sceneEditorId  = null;    // scene_id being edited, or null when creating a new one
+      this._sceneThumbUrls = {};      // image_id → blob: URL, for scene cards/group tiles
+      this._sceneGroup     = null;    // null = group tiles view; 'user' | 'addon' = drilled into that group
 
       this._scenePacks    = [];       // [{ id, name, description, category, license, cover, images, installed, scene_created }]
       this._activeTab     = 'library'; // 'library' | 'frames' | 'scenes' | 'addons'
@@ -999,6 +1001,10 @@
         </div><!-- /tab-frames -->
 
         <div class="tab-content" id="tab-scenes">
+        <div class="lib-breadcrumb" id="scene-breadcrumb">
+          <button id="scene-back-btn">← Scenes</button>
+          <span class="lib-breadcrumb-title" id="scene-breadcrumb-title"></span>
+        </div>
         <div class="lib-toolbar" style="justify-content:flex-end">
           <button class="btn-primary" id="scene-new-btn" style="flex:0 0 auto">＋ New Scene</button>
         </div>
@@ -1878,13 +1884,14 @@
       return el;
     }
 
-    async _loadThumbnail(imageId, container) {
+    async _loadThumbnail(imageId, container, cache) {
+      cache = cache || this._libThumbUrls;
       try {
         const resp = await fetch(`/api/fraimic/library/image/${imageId}`, { headers: this._authHeaders() });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const blob = await resp.blob();
         const url  = URL.createObjectURL(blob);
-        this._libThumbUrls[imageId] = url;
+        cache[imageId] = url;
         container.innerHTML = `<img src="${url}" alt="">`;
       } catch (err) {
         console.warn('[fraimic-panel] thumbnail load failed:', err);
@@ -2819,6 +2826,7 @@
 
     _wireSceneToolbar() {
       this.shadowRoot.getElementById('scene-new-btn').addEventListener('click', () => this._openSceneEditor());
+      this.shadowRoot.getElementById('scene-back-btn').addEventListener('click', () => this._backToSceneGroups());
     }
 
     async _loadScenes() {
@@ -2832,8 +2840,52 @@
       }
     }
 
+    _clearSceneThumbCache() {
+      for (const url of Object.values(this._sceneThumbUrls)) URL.revokeObjectURL(url);
+      this._sceneThumbUrls = {};
+    }
+
+    // A scene from a scene pack install carries source: 'addon'; anything
+    // else (including scenes saved before that field existed) is 'user'.
+    _scenesInGroup(key) {
+      return this._scenes.filter(scene =>
+        key === 'addon' ? scene.source === 'addon' : scene.source !== 'addon'
+      );
+    }
+
+    _openSceneGroup(key) {
+      this._sceneGroup = key;
+      this._renderScenes();
+    }
+
+    _backToSceneGroups() {
+      this._sceneGroup = null;
+      this._renderScenes();
+    }
+
     _renderScenes() {
+      const breadcrumb = this.shadowRoot.getElementById('scene-breadcrumb');
+      const title      = this.shadowRoot.getElementById('scene-breadcrumb-title');
+      const newBtn     = this.shadowRoot.getElementById('scene-new-btn');
+
+      if (this._sceneGroup === null) {
+        breadcrumb.style.display = 'none';
+        newBtn.style.display = 'none';
+        this._renderSceneGroups();
+        return;
+      }
+
+      breadcrumb.style.display = 'flex';
+      // Add-on scenes come from installing a scene pack (Add-ons tab), not
+      // from this editor, so "New Scene" only makes sense in the user group.
+      newBtn.style.display = this._sceneGroup === 'user' ? '' : 'none';
+      title.textContent = this._sceneGroup === 'addon' ? '🧩 Add-on Scenes' : '👤 User Generated Scenes';
+      this._renderSceneGrid();
+    }
+
+    _renderSceneGroups() {
       const grid = this.shadowRoot.getElementById('scene-grid');
+      this._clearSceneThumbCache();
 
       if (!this._scenes.length) {
         grid.innerHTML = `
@@ -2848,7 +2900,59 @@
       }
 
       grid.innerHTML = '';
-      for (const scene of this._scenes) {
+      grid.appendChild(this._buildSceneGroupTile('user', '👤', 'User Generated Scenes'));
+      grid.appendChild(this._buildSceneGroupTile('addon', '🧩', 'Add-on Scenes'));
+    }
+
+    _buildSceneGroupTile(key, icon, label) {
+      const el = document.createElement('div');
+      el.className = 'card album-tile';
+      const scenes = this._scenesInGroup(key);
+      const coverImageId = scenes.length ? Object.values(scenes[0].mappings || {})[0] : null;
+
+      el.innerHTML = `
+        <div class="lib-thumb" id="scene-group-thumb-${key}">
+          <div style="font-size:32px;text-align:center;padding:30px 0">${icon}</div>
+        </div>
+        <div class="album-name">${this._esc(label)}</div>
+        <div class="album-count">${scenes.length} scene${scenes.length === 1 ? '' : 's'}</div>
+      `;
+
+      if (coverImageId) {
+        this._loadThumbnail(coverImageId, el.querySelector(`#scene-group-thumb-${key}`), this._sceneThumbUrls);
+      }
+
+      el.addEventListener('click', () => this._openSceneGroup(key));
+      return el;
+    }
+
+    _renderSceneGrid() {
+      const grid = this.shadowRoot.getElementById('scene-grid');
+      this._clearSceneThumbCache();
+
+      const scenes = this._scenesInGroup(this._sceneGroup);
+      if (!scenes.length) {
+        grid.innerHTML = this._sceneGroup === 'addon'
+          ? `
+            <div class="empty">
+              <div class="empty-icon">🧩</div>
+              <h2>No Add-on scenes yet</h2>
+              <p>Install a scene pack from the Add-ons tab to get one automatically.</p>
+            </div>
+          `
+          : `
+            <div class="empty">
+              <div class="empty-icon">▶</div>
+              <h2>No user-generated scenes yet</h2>
+              <p>Pick an album, match its photos to frames, then send them all to
+                 your wall at once — e.g. four frames showing "1", "2", "3", "4" in order.</p>
+            </div>
+          `;
+        return;
+      }
+
+      grid.innerHTML = '';
+      for (const scene of scenes) {
         grid.appendChild(this._buildSceneCard(scene));
       }
     }
@@ -2859,8 +2963,12 @@
       const sid = this._sid(scene.scene_id);
       const count = Object.keys(scene.mappings || {}).length;
       const albumNote = scene.album ? `${this._esc(scene.album)} · ` : '';
+      const coverImageId = Object.values(scene.mappings || {})[0];
 
       el.innerHTML = `
+        <div class="lib-thumb" id="scene-thumb-${sid}">
+          <div style="font-size:32px;text-align:center;padding:30px 0">🖼</div>
+        </div>
         <div class="scene-card-title">${this._esc(scene.name)}</div>
         <div class="scene-card-summary">${albumNote}${count} frame${count === 1 ? '' : 's'}</div>
         <div class="btns" style="margin-top:10px">
@@ -2870,6 +2978,10 @@
         </div>
         <div class="feedback" id="scene-card-fb-${sid}"></div>
       `;
+
+      if (coverImageId) {
+        this._loadThumbnail(coverImageId, el.querySelector(`#scene-thumb-${sid}`), this._sceneThumbUrls);
+      }
 
       el.querySelector(`#scene-send-${sid}`).addEventListener('click', () => this._sendScene(scene, el, sid));
       el.querySelector(`#scene-edit-${sid}`).addEventListener('click', () => this._openSceneEditor(scene));

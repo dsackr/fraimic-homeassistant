@@ -44,6 +44,10 @@ class Scene:
     # a UI convenience for reopening the editor pre-scoped -- sending a scene
     # never consults this, since mappings already carry the resolved image_ids.
     album: str | None = None
+    # "user" (built by hand in the editor) or "addon" (auto-created by a
+    # scene pack install, see scene_packs.py). Purely descriptive -- the
+    # Scenes tab uses it to group cards, sending never consults it.
+    source: str = "user"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -52,6 +56,7 @@ class Scene:
             "mappings": self.mappings,
             "created_at": self.created_at,
             "album": self.album,
+            "source": self.source,
         }
 
     @classmethod
@@ -62,6 +67,7 @@ class Scene:
             mappings=dict(data.get("mappings") or {}),
             created_at=data.get("created_at", 0.0),
             album=data.get("album"),
+            source=data.get("source") or "user",
         )
 
 
@@ -108,6 +114,7 @@ class SceneManager:
         mappings: dict[str, str],
         scene_id: str | None = None,
         album: str | None = None,
+        source: str = "user",
     ) -> dict[str, Any]:
         """Create a new scene (scene_id=None) or update an existing one."""
         name = (name or "").strip()
@@ -137,6 +144,8 @@ class SceneManager:
             scene.name = name
             scene.mappings = mappings
             scene.album = album
+            # source deliberately untouched -- editing a scene shouldn't
+            # reclassify a pack-created scene as user-made or vice versa.
         else:
             scene = Scene(
                 scene_id=uuid.uuid4().hex[:12],
@@ -144,6 +153,7 @@ class SceneManager:
                 mappings=mappings,
                 created_at=time.time(),
                 album=album,
+                source=source,
             )
             self._scenes[scene.scene_id] = scene
 
@@ -156,6 +166,16 @@ class SceneManager:
             del self._scenes[scene_id]
             await self._async_persist()
             async_dispatcher_send(self.hass, SIGNAL_SCENES_UPDATED)
+
+    async def async_mark_scene_source(self, scene_id: str, source: str) -> None:
+        """Backfill a scene's provenance without touching its content or
+        firing SIGNAL_SCENES_UPDATED -- used only for the startup migration
+        that reclassifies scenes from packs installed before Scene.source
+        existed (see ScenePackManager.installed_scene_ids)."""
+        scene = self._scenes.get(scene_id)
+        if scene is not None and scene.source != source:
+            scene.source = source
+            await self._async_persist()
 
     async def async_send_scene(
         self, hass: "HomeAssistant", scene_id: str
