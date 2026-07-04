@@ -3,6 +3,7 @@
 Endpoints:
     GET    /api/fraimic/scene_packs                  list available packs + install state
     POST   /api/fraimic/scene_packs/{pack_id}/install install a pack
+    POST   /api/fraimic/scene_packs/{pack_id}/sync    re-fetch missing/new images for an installed pack
     DELETE /api/fraimic/scene_packs/{pack_id}         uninstall a pack
 """
 
@@ -71,6 +72,32 @@ class FraimicScenePackInstallView(HomeAssistantView):
         except Exception as err:  # noqa: BLE001
             _LOGGER.error("Failed to install scene pack '%s': %s", pack_id, err)
             return self.json_message(f"Failed to install pack: {err}", status_code=500)
+
+        return self.json(result)
+
+
+class FraimicScenePackSyncView(HomeAssistantView):
+    """Re-fetch whatever images an installed pack's catalog entry has that
+    this install is missing -- repairs a broken/partial install and picks
+    up new images a pack has grown since it was installed."""
+
+    url = "/api/fraimic/scene_packs/{pack_id}/sync"
+    name = "api:fraimic:scene_packs:sync"
+    requires_auth = True
+
+    async def post(self, request: web.Request, pack_id: str) -> web.Response:
+        hass = request.app["hass"]
+        manager = _get_manager(hass)
+
+        from .scene_packs import ScenePackError  # noqa: PLC0415
+
+        try:
+            result = await manager.async_sync_pack(pack_id)
+        except ScenePackError as err:
+            return self.json_message(str(err), status_code=400)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Failed to sync scene pack '%s': %s", pack_id, err)
+            return self.json_message(f"Failed to sync pack: {err}", status_code=500)
 
         return self.json(result)
 

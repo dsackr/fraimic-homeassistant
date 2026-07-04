@@ -2970,6 +2970,7 @@
       let statusHtml;
       if (pack.installed) {
         statusHtml = `
+          <button class="btn-ghost" id="pack-sync-${sid}" title="Re-check for missing or newly added images">🔄 Sync</button>
           <button class="btn-ghost" id="pack-remove-${sid}">🗑 Remove</button>
           <span class="scene-card-summary">${pack.scene_created ? '✓ Installed · scene created' : '✓ Installed'}</span>
         `;
@@ -2987,6 +2988,8 @@
       `;
 
       if (pack.installed) {
+        el.querySelector(`#pack-sync-${sid}`)
+          .addEventListener('click', () => this._syncPack(pack, el, sid));
         el.querySelector(`#pack-remove-${sid}`)
           .addEventListener('click', () => this._uninstallPack(pack, el, sid));
       } else {
@@ -3039,6 +3042,53 @@
       } catch (err) {
         fb.className = 'feedback err';
         fb.textContent = `Install failed: ${err.message}`;
+        fb.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = prevText;
+      }
+    }
+
+    async _syncPack(pack, el, sid) {
+      const btn = el.querySelector(`#pack-sync-${sid}`);
+      const fb  = el.querySelector(`#pack-card-fb-${sid}`);
+      const prevText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '⏳ Syncing…';
+
+      try {
+        const resp = await fetch(`/api/fraimic/scene_packs/${pack.id}/sync`, {
+          method: 'POST', headers: this._authHeaders(),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+
+        await this._loadAlbums();
+        this._renderLibrary();
+        await this._loadScenePacks();
+        this._renderScenePacks();
+
+        // _renderScenePacks() just tore down the card this callback's `fb`
+        // reference pointed at, same as _installPack -- use the page-level
+        // banner instead.
+        const pageFb = this.shadowRoot.getElementById('pack-fb');
+        if (result.errors && result.errors.length) {
+          pageFb.className = 'feedback err';
+          pageFb.textContent = `"${pack.name}" sync added ${result.images_added} image(s), but `
+            + `failed: ${result.errors.map(e => e.filename).join(', ')}. Try syncing again later.`;
+        } else if (result.images_added > 0) {
+          pageFb.className = 'feedback ok';
+          pageFb.textContent = `"${pack.name}": added ${result.images_added} missing/new image(s) `
+            + `to the album. The scene wasn't changed -- edit it manually if you want them in rotation.`;
+        } else {
+          pageFb.className = 'feedback ok';
+          pageFb.textContent = `"${pack.name}" is already up to date.`;
+        }
+        pageFb.style.display = 'block';
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Sync failed: ${err.message}`;
         fb.style.display = 'block';
         btn.disabled = false;
         btn.textContent = prevText;

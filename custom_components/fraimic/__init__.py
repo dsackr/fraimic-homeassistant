@@ -179,11 +179,13 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     from .scene_packs_http import (  # noqa: PLC0415
         FraimicScenePackInstallView,
         FraimicScenePacksView,
+        FraimicScenePackSyncView,
         FraimicScenePackUninstallView,
     )
 
     hass.http.register_view(FraimicScenePacksView())
     hass.http.register_view(FraimicScenePackInstallView())
+    hass.http.register_view(FraimicScenePackSyncView())
     hass.http.register_view(FraimicScenePackUninstallView())
 
     # Auto-create the device-less "scenes hub" entry (hosts scene.* entities

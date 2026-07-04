@@ -167,6 +167,31 @@ class ScenePackManager:
                 return pack
         raise ScenePackError(f"Scene pack '{pack_id}' not found")
 
+    async def _async_import_image(
+        self, session: aiohttp.ClientSession, pack_id: str, image_spec: dict[str, Any], album: str
+    ) -> tuple[str, bool]:
+        """Fetch one pack image from GitHub and upload it into the album.
+        Returns (image_id, is_landscape). Raises on any failure -- callers
+        catch per-image so one broken URL or decode failure doesn't strand
+        the rest of the pack, same philosophy as the multi-file library
+        upload endpoint."""
+        from PIL import Image  # noqa: PLC0415
+
+        def _dimensions(raw_bytes: bytes) -> tuple[int, int]:
+            with Image.open(io.BytesIO(raw_bytes)) as img:
+                return img.size
+
+        filename = image_spec.get("filename") or "image.jpg"
+        path = image_spec.get("path")
+        url = f"{SCENE_PACK_RAW_BASE}/{path}"
+        async with session.get(url, timeout=_DOWNLOAD_TIMEOUT) as resp:
+            if resp.status != 200:
+                raise ScenePackError(f"HTTP {resp.status} fetching {filename}")
+            raw_bytes = await resp.read()
+        width, height = await self.hass.async_add_executor_job(_dimensions, raw_bytes)
+        record = await self._library.async_upload(filename, raw_bytes, [album])
+        return record["image_id"], width > height
+
     async def async_install_pack(self, pack_id: str) -> dict[str, Any]:
         if pack_id in self._installed:
             raise ScenePackError(
@@ -179,12 +204,6 @@ class ScenePackManager:
         album = pack["name"]
         session = async_get_clientsession(self.hass)
 
-        from PIL import Image  # noqa: PLC0415
-
-        def _dimensions(raw_bytes: bytes) -> tuple[int, int]:
-            with Image.open(io.BytesIO(raw_bytes)) as img:
-                return img.size
-
         # Each image is fetched/uploaded independently -- one broken URL or
         # decode failure shouldn't strand the rest of the pack, same
         # philosophy as the multi-file library upload endpoint.
@@ -195,24 +214,15 @@ class ScenePackManager:
         try:
             for image_spec in pack.get("images", []):
                 filename = image_spec.get("filename") or "image.jpg"
-                path = image_spec.get("path")
-                url = f"{SCENE_PACK_RAW_BASE}/{path}"
                 try:
-                    async with session.get(url, timeout=_DOWNLOAD_TIMEOUT) as resp:
-                        if resp.status != 200:
-                            raise ScenePackError(f"HTTP {resp.status} fetching {filename}")
-                        raw_bytes = await resp.read()
-                    width, height = await self.hass.async_add_executor_job(
-                        _dimensions, raw_bytes
+                    uploaded.append(
+                        await self._async_import_image(session, pack_id, image_spec, album)
                     )
-                    record = await self._library.async_upload(filename, raw_bytes, [album])
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.error(
                         "Scene pack '%s': failed to import '%s': %s", pack_id, filename, err
                     )
                     errors.append({"filename": filename, "message": str(err)})
-                    continue
-                uploaded.append((record["image_id"], width > height))
         finally:
             self._installing.discard(pack_id)
             # However this exits -- including cancellation from a client
@@ -268,6 +278,73 @@ class ScenePackManager:
             "pack_id": pack_id,
             "images_added": len(uploaded),
             "scene_created": scene_id is not None,
+            "errors": errors,
+        }
+
+    async def async_sync_pack(self, pack_id: str) -> dict[str, Any]:
+        """Re-fetch whatever a pack's catalog entry has that this install
+        is missing -- covers both a broken install (an image that failed
+        to land, or was later lost to something like the manifest race
+        _async_install_pack's `uploaded` list guards against) and a pack
+        that's grown new images since it was installed. Matches by
+        filename against the pack's current image list rather than trusting
+        the stored image_ids alone, since those can point at images that
+        no longer exist. Never touches the scene mapping -- a user may have
+        hand-edited it, so newly recovered images just land in the album."""
+        installed = self._installed.get(pack_id)
+        if installed is None:
+            raise ScenePackError(f"Pack '{pack_id}' is not installed")
+        if pack_id in self._installing:
+            raise ScenePackError(f"Pack '{pack_id}' is already being installed")
+
+        pack = await self._async_get_pack(pack_id)
+        album = installed.get("album", pack["name"])
+        session = async_get_clientsession(self.hass)
+
+        library_images = await self._library.async_list_images()
+        existing_ids = {img["image_id"] for img in library_images}
+        tracked_ids = set(installed.get("image_ids", []))
+        present_filenames = {
+            img["filename"] for img in library_images if img["image_id"] in tracked_ids
+        }
+
+        missing_specs = [
+            spec for spec in pack.get("images", [])
+            if (spec.get("filename") or "image.jpg") not in present_filenames
+        ]
+
+        added: list[tuple[str, bool]] = []
+        errors: list[dict[str, str]] = []
+
+        self._installing.add(pack_id)
+        try:
+            for image_spec in missing_specs:
+                filename = image_spec.get("filename") or "image.jpg"
+                try:
+                    added.append(
+                        await self._async_import_image(session, pack_id, image_spec, album)
+                    )
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.error(
+                        "Scene pack '%s': sync failed to import '%s': %s", pack_id, filename, err
+                    )
+                    errors.append({"filename": filename, "message": str(err)})
+        finally:
+            self._installing.discard(pack_id)
+            # Drop any tracked id that no longer resolves to a real image
+            # (that's exactly what made it "missing" above) and add
+            # whatever was freshly recovered -- even on a mid-sync
+            # disconnect, so a cancelled sync doesn't lose already-added
+            # images the same way an uninterrupted one wouldn't.
+            surviving_ids = [iid for iid in installed.get("image_ids", []) if iid in existing_ids]
+            installed["image_ids"] = surviving_ids + [image_id for image_id, _ in added]
+            await self._async_persist()
+
+        return {
+            "success": True,
+            "pack_id": pack_id,
+            "images_added": len(added),
+            "already_ok": len(pack.get("images", [])) - len(missing_specs),
             "errors": errors,
         }
 
