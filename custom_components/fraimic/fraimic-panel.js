@@ -7,7 +7,7 @@
 (function () {
   'use strict';
 
-  const PANEL_VERSION = '0.10.0';
+  const PANEL_VERSION = '0.10.1';
 
   // Mirrors library.py's DEFAULT_ALBUM -- every photo belongs to this album
   // unless/until it's reorganized elsewhere; can't be renamed or deleted.
@@ -1075,8 +1075,11 @@
             <h3>Upload to Library</h3>
             <div class="modal-row">
               <label>Photos</label>
-              <input type="file" id="upload-modal-files" multiple
-                accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,image/tiff,image/*">
+              <!-- accept is deliberately just "image/*": the HA companion
+                   apps' WebView file choosers are unreliable with
+                   comma-separated multi-MIME accept lists (files select but
+                   never attach), and image/* covers every type anyway. -->
+              <input type="file" id="upload-modal-files" multiple accept="image/*">
               <div class="modal-file-summary" id="upload-modal-file-summary">No files selected</div>
             </div>
             <div class="modal-row">
@@ -2007,10 +2010,27 @@
       const albumSelect = this.shadowRoot.getElementById('upload-modal-album');
       const newAlbumRow = this.shadowRoot.getElementById('upload-modal-new-album-row');
 
-      filesInput.addEventListener('change', () => {
-        const n = filesInput.files ? filesInput.files.length : 0;
+      // Mobile WebViews (HA companion apps especially) are unreliable about
+      // file inputs: some fire 'input' but not 'change', and some clear
+      // input.files after the app returns from the photo picker. So the
+      // selection is captured into this._uploadPendingFiles the moment any
+      // event reports it, and _submitUpload() trusts that copy first.
+      this._uploadPendingFiles = [];
+      const captureFiles = () => {
+        if (filesInput.files && filesInput.files.length) {
+          this._uploadPendingFiles = Array.from(filesInput.files);
+        }
+        const n = this._uploadPendingFiles.length;
         this.shadowRoot.getElementById('upload-modal-file-summary').textContent =
           n ? `${n} file${n === 1 ? '' : 's'} selected` : 'No files selected';
+      };
+      filesInput.addEventListener('change', captureFiles);
+      filesInput.addEventListener('input', captureFiles);
+      // Last-resort sweep for WebViews that fire neither event on return
+      // from the picker: re-check the input whenever the page regains focus.
+      window.addEventListener('focus', () => {
+        const overlay = this.shadowRoot.getElementById('upload-modal-overlay');
+        if (overlay && overlay.style.display !== 'none' && overlay.style.display !== '') captureFiles();
       });
 
       albumSelect.addEventListener('change', () => {
@@ -2030,6 +2050,7 @@
       const fb            = this.shadowRoot.getElementById('upload-modal-fb');
 
       filesInput.value = '';
+      this._uploadPendingFiles = [];
       this.shadowRoot.getElementById('upload-modal-file-summary').textContent = 'No files selected';
       newAlbumInput.value = '';
       fb.style.display = 'none';
@@ -2053,6 +2074,7 @@
 
     _closeUploadModal() {
       this.shadowRoot.getElementById('upload-modal-overlay').style.display = 'none';
+      this._uploadPendingFiles = [];
     }
 
     async _submitUpload() {
@@ -2062,7 +2084,12 @@
       const fb            = this.shadowRoot.getElementById('upload-modal-fb');
       const submitBtn     = this.shadowRoot.getElementById('upload-modal-submit');
 
-      const files = filesInput.files ? Array.from(filesInput.files) : [];
+      // Prefer the selection captured at pick time (see _wireUploadModal --
+      // some mobile WebViews clear input.files by the time Upload is hit),
+      // falling back to whatever the input holds right now.
+      let files = this._uploadPendingFiles && this._uploadPendingFiles.length
+        ? this._uploadPendingFiles
+        : (filesInput.files ? Array.from(filesInput.files) : []);
       if (!files.length) {
         fb.className = 'feedback err';
         fb.textContent = 'Choose at least one photo.';
@@ -2108,6 +2135,7 @@
           this._closeUploadModal();
         } else if (uploaded) {
           filesInput.value = '';
+          this._uploadPendingFiles = [];
           fb.className = 'feedback err';
           fb.textContent = `Uploaded ${uploaded} of ${uploaded + errors.length} — `
             + `failed: ${errors.map(e => e.filename).join(', ')}`;
