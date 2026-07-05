@@ -1071,6 +1071,25 @@
       this._thumbUrls    = {};
       this._thumbFetches = {};        // image_id → in-flight fetch promise (dedupes concurrent tiles)
 
+      // Uncached thumbnails load lazily: tiles register with this observer
+      // and only fetch once they scroll near the viewport, through a small
+      // concurrency-capped queue -- so a big grid doesn't fire one fetch
+      // per photo up front, and grids in hidden tabs (display:none never
+      // intersects) cost nothing until the tab is opened. Cache hits skip
+      // all of this and paint synchronously (see _loadThumbnail).
+      this._thumbQueue  = [];   // [{ imageId, container }] waiting for a fetch slot
+      this._thumbActive = 0;    // thumbnail fetches currently in flight
+      this._thumbObserver = (typeof IntersectionObserver !== 'undefined')
+        ? new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+              if (!entry.isIntersecting) continue;
+              this._thumbObserver.unobserve(entry.target);
+              const imageId = entry.target._fraimicThumbId;
+              if (imageId) this._enqueueThumbFetch(imageId, entry.target);
+            }
+          }, { rootMargin: '200px' })
+        : null;
+
       this._albums        = [];       // [{ name, count, cover_image_id }]
       this._currentAlbum  = null;     // null = album folder view; a name = viewing that album
       this._albumPickerImage = null;  // image currently open in the "Add to Album" picker
@@ -2485,16 +2504,49 @@
       return el;
     }
 
-    // Fetches the small server-side thumbnail (?thumb=) once per image_id
-    // and paints it into `container`. Cached hits paint synchronously;
-    // concurrent requests for the same image share one fetch.
-    async _loadThumbnail(imageId, container) {
+    // Paints the small server-side thumbnail (?thumb=) into `container`.
+    // Cached hits paint synchronously -- callers (and the wall regression
+    // test) rely on an unchanged tile keeping its blob URL across renders.
+    // Uncached tiles are handed to the IntersectionObserver and only fetch
+    // once they come near the viewport, via the concurrency-capped queue.
+    _loadThumbnail(imageId, container) {
       const cached = this._thumbUrls[imageId];
       if (cached) {
         container.innerHTML = `<img src="${cached}" alt="">`;
         return;
       }
+      container._fraimicThumbId = imageId;
+      if (this._thumbObserver) {
+        this._thumbObserver.observe(container);
+      } else {
+        // No IntersectionObserver (ancient WebView) -- load eagerly.
+        this._enqueueThumbFetch(imageId, container);
+      }
+    }
+
+    _enqueueThumbFetch(imageId, container) {
+      this._thumbQueue.push({ imageId, container });
+      this._pumpThumbQueue();
+    }
+
+    _pumpThumbQueue() {
+      const MAX_CONCURRENT = 6;
+      while (this._thumbActive < MAX_CONCURRENT && this._thumbQueue.length) {
+        const { imageId, container } = this._thumbQueue.shift();
+        this._thumbActive++;
+        this._fetchThumb(imageId, container);
+      }
+    }
+
+    async _fetchThumb(imageId, container) {
       try {
+        // May have landed while this tile sat in the queue (same image on
+        // another tile, or the grid re-rendered a cached image).
+        const cached = this._thumbUrls[imageId];
+        if (cached) {
+          container.innerHTML = `<img src="${cached}" alt="">`;
+          return;
+        }
         if (!this._thumbFetches[imageId]) {
           this._thumbFetches[imageId] = (async () => {
             const resp = await fetch(`/api/fraimic/library/image/${imageId}?thumb=480`, { headers: this._authHeaders() });
@@ -2510,6 +2562,9 @@
       } catch (err) {
         delete this._thumbFetches[imageId]; // allow a later retry
         console.warn('[fraimic-panel] thumbnail load failed:', err);
+      } finally {
+        this._thumbActive--;
+        this._pumpThumbQueue();
       }
     }
 
