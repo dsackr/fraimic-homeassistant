@@ -7,7 +7,7 @@
 (function () {
   'use strict';
 
-  const PANEL_VERSION = '0.10.1';
+  const PANEL_VERSION = '0.10.2';
 
   // Mirrors library.py's DEFAULT_ALBUM -- every photo belongs to this album
   // unless/until it's reorganized elsewhere; can't be renamed or deleted.
@@ -1095,6 +1095,10 @@
               <button class="btn-primary" id="upload-modal-submit">⬆ Upload</button>
               <button class="btn-ghost" id="upload-modal-cancel">Cancel</button>
             </div>
+            <!-- Deploy-verification breadcrumb: mobile WebViews have no
+                 devtools console, so surface the running JS version where a
+                 phone user can actually see it. -->
+            <div class="modal-file-summary">panel v${PANEL_VERSION}</div>
           </div>
         </div>
 
@@ -2010,27 +2014,48 @@
       const albumSelect = this.shadowRoot.getElementById('upload-modal-album');
       const newAlbumRow = this.shadowRoot.getElementById('upload-modal-new-album-row');
 
-      // Mobile WebViews (HA companion apps especially) are unreliable about
-      // file inputs: some fire 'input' but not 'change', and some clear
-      // input.files after the app returns from the photo picker. So the
-      // selection is captured into this._uploadPendingFiles the moment any
-      // event reports it, and _submitUpload() trusts that copy first.
+      // Root cause of "files select but never attach" in the HA Android
+      // companion app: Android WebView's stock file-chooser result parsing
+      // (FileChooserParams.parseResult) returns null for picker results
+      // delivered via clipData -- and multi-select pickers reply via
+      // clipData even when the user picks a SINGLE photo. With `multiple`
+      // set, the page therefore never receives any files at all. Mobile
+      // Chrome parses clipData fine (uploads work in a phone browser), so
+      // only the companion app's WebView needs single-select mode. Picks
+      // accumulate in _uploadPendingFiles instead, so multi-photo uploads
+      // still work -- tap the picker once per photo.
+      const ua = navigator.userAgent || '';
+      this._singleFilePicks = ua.includes('Home Assistant') && ua.includes('Android');
+      if (this._singleFilePicks) filesInput.removeAttribute('multiple');
+
       this._uploadPendingFiles = [];
       const captureFiles = () => {
         if (filesInput.files && filesInput.files.length) {
-          this._uploadPendingFiles = Array.from(filesInput.files);
+          for (const f of Array.from(filesInput.files)) {
+            const dup = this._uploadPendingFiles.some(p =>
+              p.name === f.name && p.size === f.size && p.lastModified === f.lastModified);
+            if (!dup) this._uploadPendingFiles.push(f);
+          }
+          // Clear the native input so picking again (even the same photo)
+          // fires a fresh change event -- the File objects captured above
+          // stay alive in _uploadPendingFiles regardless.
+          filesInput.value = '';
         }
-        const n = this._uploadPendingFiles.length;
-        this.shadowRoot.getElementById('upload-modal-file-summary').textContent =
-          n ? `${n} file${n === 1 ? '' : 's'} selected` : 'No files selected';
+        this._renderUploadFileSummary();
       };
       filesInput.addEventListener('change', captureFiles);
       filesInput.addEventListener('input', captureFiles);
       // Last-resort sweep for WebViews that fire neither event on return
-      // from the picker: re-check the input whenever the page regains focus.
-      window.addEventListener('focus', () => {
+      // from the picker: re-check the input whenever the page regains focus
+      // or becomes visible again (Android fires visibilitychange, not
+      // window focus, when returning from the picker activity).
+      const sweepIfOpen = () => {
         const overlay = this.shadowRoot.getElementById('upload-modal-overlay');
         if (overlay && overlay.style.display !== 'none' && overlay.style.display !== '') captureFiles();
+      };
+      window.addEventListener('focus', sweepIfOpen);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) sweepIfOpen();
       });
 
       albumSelect.addEventListener('change', () => {
@@ -2039,6 +2064,25 @@
 
       this.shadowRoot.getElementById('upload-modal-cancel').addEventListener('click', () => this._closeUploadModal());
       this.shadowRoot.getElementById('upload-modal-submit').addEventListener('click', () => this._submitUpload());
+    }
+
+    _renderUploadFileSummary() {
+      const el = this.shadowRoot.getElementById('upload-modal-file-summary');
+      const n = (this._uploadPendingFiles || []).length;
+      if (!n) {
+        el.textContent = 'No files selected';
+        return;
+      }
+      // Filenames are user data -- keep them out of innerHTML entirely.
+      const hint = this._singleFilePicks ? ' · pick again to add more' : '';
+      el.innerHTML = `<span></span>${hint} · <a href="#" id="upload-modal-clear-files">clear</a>`;
+      el.querySelector('span').textContent = `${n} file${n === 1 ? '' : 's'} selected`;
+      el.querySelector('#upload-modal-clear-files').addEventListener('click', (e) => {
+        e.preventDefault();
+        this._uploadPendingFiles = [];
+        this.shadowRoot.getElementById('upload-modal-files').value = '';
+        this._renderUploadFileSummary();
+      });
     }
 
     _openUploadModal() {
@@ -2051,7 +2095,7 @@
 
       filesInput.value = '';
       this._uploadPendingFiles = [];
-      this.shadowRoot.getElementById('upload-modal-file-summary').textContent = 'No files selected';
+      this._renderUploadFileSummary();
       newAlbumInput.value = '';
       fb.style.display = 'none';
 
@@ -2136,6 +2180,7 @@
         } else if (uploaded) {
           filesInput.value = '';
           this._uploadPendingFiles = [];
+          this._renderUploadFileSummary();
           fb.className = 'feedback err';
           fb.textContent = `Uploaded ${uploaded} of ${uploaded + errors.length} — `
             + `failed: ${errors.map(e => e.filename).join(', ')}`;
