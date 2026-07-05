@@ -202,7 +202,7 @@ class SceneManager:
         if library_manager is None:
             raise SceneError("Library manager not initialised")
 
-        prepared: dict[str, tuple[Any, bytes]] = {}
+        prepared: dict[str, tuple[Any, bytes, str]] = {}
         results: list[dict[str, Any]] = []
 
         for entry_id, image_id in scene.mappings.items():
@@ -231,13 +231,16 @@ class SceneManager:
             except Exception as err:  # noqa: BLE001
                 results.append({"entry_id": entry_id, "success": False, "message": str(err)})
                 continue
-            prepared[entry_id] = (coordinator, bin_bytes)
+            prepared[entry_id] = (coordinator, bin_bytes, image_id)
 
         async def _send_one(coordinator: Any, bin_bytes: bytes) -> None:
             await coordinator.async_send_image(bin_bytes)
 
         sent = await asyncio.gather(
-            *(_send_one(coordinator, bin_bytes) for coordinator, bin_bytes in prepared.values()),
+            *(
+                _send_one(coordinator, bin_bytes)
+                for coordinator, bin_bytes, _image_id in prepared.values()
+            ),
             return_exceptions=True,
         )
         for entry_id, outcome in zip(prepared.keys(), sent):
@@ -245,5 +248,6 @@ class SceneManager:
                 results.append({"entry_id": entry_id, "success": False, "message": str(outcome)})
             else:
                 results.append({"entry_id": entry_id, "success": True})
+                prepared[entry_id][0].last_image_id = prepared[entry_id][2]
 
         return {"results": results}

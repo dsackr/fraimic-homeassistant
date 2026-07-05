@@ -1,59 +1,32 @@
 # Fraimic for Home Assistant
 
-Local Home Assistant integration for Fraimic e-ink canvas frames. Controls your frames directly over WiFi — no cloud, no account required.
+Turn your Fraimic e-ink frames into a photo wall that Home Assistant actually controls — no app, no cloud, no account. Point it at your frames and start sending photos in minutes.
 
-## Features
+## Why you'll want this
 
-- **Auto-discovery** — finds Fraimic frames on your local network automatically
-- **Sensors** — battery level, WiFi signal strength, firmware version
-- **Send any image** — push PNG or JPG files to a frame; images are auto-converted to Spectra 6 format on the fly
-- **Controls** — refresh display, put frame to sleep, restart frame
-- **Daily agenda mode** — pulls calendar events and renders them as an image for the frame
-- **Shared photo library with albums** — upload one or many photos at once into a new or existing album; a photo can belong to multiple albums with no duplication, and albums show up as folders in the panel
-- **Scenes** — pick an album and match its photos to frames (e.g. four frames on a wall each showing a different photo), then send the whole layout at once from the panel, via the `fraimic.send_scene` service, or by voice — every scene is also a native `scene.*` entity, so once exposed to your voice assistant, "Alexa, activate Countdown Wall" or "Hey Google, activate Countdown Wall" works out of the box
-- **Scene packs** — install a curated, public-domain art collection (Monet, da Vinci, van Gogh, Classic Art) straight from the panel with one click; images are imported into your library and auto-matched to your frames by orientation, with a ready-to-send scene built automatically — no manual setup
-- **Photo rotation mode** — cycles through albums from Google Photos or iCloud
+- **No cloud in the loop.** Everything talks to your frames over your own WiFi. No account to create, no vendor server between you and your photos.
+- **One tap turns a wall into a scene.** Match photos to frames — say, four frames each showing a different shot — and flip the whole wall at once from a dashboard, a voice command, or an automation.
+- **Your library, not a photo dump.** Upload once, organize into albums, reuse the same photo across frames and scenes without duplicating files.
+- **A gallery wall out of the box.** Install a curated public-domain art pack (Monet, da Vinci, van Gogh, and more) with one click — Home Assistant imports it, matches pieces to your frames by orientation, and builds a ready-to-send scene automatically.
+- **Set it and forget it.** Daily agenda mode turns your calendar into a frame display; rotation mode cycles albums from Google Photos or iCloud. Once configured, it just runs.
+- **Works with the community, not just Fraimic hardware.** Built-in support for popular community clone builds alongside official Fraimic panels.
 
-## Installation
+## Quick start
 
-### Via HACS (recommended)
+1. Install through HACS: add `https://github.com/dsackr/fraimic-homeassistant` as a custom repository (category: Integration), then install **Fraimic**.
+2. Restart Home Assistant.
+3. Go to **Settings → Integrations → Add Integration**, search **Fraimic**, and follow the prompts. Wake your frame first so it's discoverable.
 
-1. In Home Assistant, go to **Settings → Integrations → HACS**
-2. Click the three-dot menu → **Custom repositories**
-3. Paste `https://github.com/dsackr/fraimic-homeassistant` and set category to **Integration**
-4. Click **Add**, then find **Fraimic** in HACS and install it
-5. Restart Home Assistant
+That's it — your frame shows up as a device, ready to receive photos.
 
-### Manual
+Manual install, troubleshooting, and full hardware requirements: see [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
-Copy the `custom_components/fraimic/` directory into your Home Assistant config folder under `custom_components/`.
+## License
 
-```
-config/
-└── custom_components/
-    └── fraimic/
-```
+MIT — see [LICENSE](LICENSE).
 
-Restart Home Assistant.
+## Get involved
 
-## Setup
-
-Frames must be awake to be discovered — tap the frame to wake it if needed.
-
-1. Go to **Settings → Integrations → Add Integration**
-2. Search for **Fraimic**
-3. Follow the prompts; discovered frames will appear automatically
-
-## Requirements
-
-- Fraimic frames on the same WiFi network as Home Assistant
-- Home Assistant 2024.1 or newer
-- [Pillow](https://pillow.readthedocs.io/) Python library (installed automatically)
-
-## Image Format Note
-
-Images are converted to Spectra 6 raw `.bin` format before being sent to frames. This format is community-validated, but e-ink panels can vary — test with your frame and [open an issue](https://github.com/dsackr/fraimic-homeassistant/issues) if the display looks wrong.
-
-## Issues & Support
-
-[https://github.com/dsackr/fraimic-homeassistant/issues](https://github.com/dsackr/fraimic-homeassistant/issues)
+- ⭐ Star the repo if this is useful to you
+- 🐛 [Report an issue](https://github.com/dsackr/fraimic-homeassistant/issues) if a frame misbehaves
+- 🤝 Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md)

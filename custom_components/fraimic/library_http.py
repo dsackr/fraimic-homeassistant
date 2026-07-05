@@ -250,6 +250,8 @@ class FraimicLibrarySendView(HomeAssistantView):
             )
             return self.json_message(f"Failed to send to frame: {err}", status_code=502)
 
+        coordinator.last_image_id = image_id
+
         return self.json({"success": True, "bytes_sent": len(bin_bytes)})
 
 
@@ -465,6 +467,7 @@ class FraimicFramesView(HomeAssistantView):
             if isinstance(width, int) and isinstance(height, int):
                 frame_type = FRAME_TYPES.get(entry.data.get(CONF_SIZE))
                 spec = render_spec_for_entry(entry)
+                coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
                 frames.append(
                     {
                         "entry_id": entry.entry_id,
@@ -484,6 +487,12 @@ class FraimicFramesView(HomeAssistantView):
                         "host": entry.data.get(CONF_HOST),
                         "origin": frame_type.origin if frame_type else None,
                         "platform": frame_type.platform if frame_type else None,
+                        # Library image_id of the last Library/Scene send to
+                        # this frame -- UI-only preview hint, not persisted
+                        # (see FraimicCoordinator.last_image_id). None until
+                        # the first send of this HA session, or if the last
+                        # send came from the raw-upload card path.
+                        "last_image_id": getattr(coordinator, "last_image_id", None),
                     }
                 )
         return self.json({"frames": frames})

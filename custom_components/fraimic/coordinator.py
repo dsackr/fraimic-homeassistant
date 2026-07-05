@@ -59,6 +59,18 @@ class FraimicCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._consecutive_failures: int = 0
         self._rescan_in_progress: bool = False
 
+        # Library image_id of the last successful send (Library "Send to
+        # Canvas" or a Scene push -- both know the image_id up front). Not
+        # persisted to entry.options: it's a UI-only preview hint for the
+        # Frames dashboard card, and writing to options would trigger an
+        # entry reload on every single send (see FraimicOrientationSelect
+        # for why that reload is fine there but not here). Resets to None
+        # on restart, which just falls back to the generic frame icon until
+        # the next send. Not set by the raw-upload HTTP view or the
+        # send_image service, since those resolve a media_content_id rather
+        # than a library image_id.
+        self.last_image_id: str | None = None
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

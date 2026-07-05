@@ -105,6 +105,21 @@
       color: #fff;
       display: flex; align-items: center; justify-content: center;
       flex-shrink: 0;
+      overflow: hidden;
+    }
+    .frame-icon img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+    }
+    .frame-orientation-select {
+      flex: 0 0 auto;
+      max-width: 88px;
+      font-size: 10px;
+      color: var(--secondary-text-color);
+      background: var(--card-background-color, #fff);
+      border: 1px solid var(--divider-color, #e2e8f0);
+      border-radius: 6px;
+      padding: 2px 4px;
     }
     .frame-host-link {
       flex: 0 0 auto;
@@ -949,6 +964,22 @@
     // Tab bar: Library / Frames / Scenes / Add-ons
     // -----------------------------------------------------------------------
 
+    // Mirrors HA frontend's own navigate() helper: history.pushState must
+    // happen BEFORE firing 'location-changed', since the app-router re-reads
+    // window.location to decide what to render. Firing the event alone
+    // (the old bug here) leaves the URL unchanged, so the router sees no
+    // difference and does nothing.
+    _navigate(path) {
+      try {
+        window.parent.history.pushState(null, '', path);
+        window.parent.dispatchEvent(new CustomEvent('location-changed', {
+          detail: { replace: false },
+        }));
+      } catch (err) {
+        window.parent.location.href = path;
+      }
+    }
+
     _wireNav() {
       this.shadowRoot.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => this._setTab(btn.dataset.tab));
@@ -956,13 +987,7 @@
       const addBtn = this.shadowRoot.getElementById('frame-add-btn');
       if (addBtn) {
         addBtn.addEventListener('click', () => {
-          try {
-            window.parent.dispatchEvent(new CustomEvent('location-changed', {
-              detail: { replace: false, path: '/config/integrations/dashboard/add?domain=fraimic' }
-            }));
-          } catch (err) {
-            window.parent.location.href = '/config/integrations/dashboard/add?domain=fraimic';
-          }
+          this._navigate('/config/integrations/dashboard/add?domain=fraimic');
         });
       }
       this._setTab('library');
@@ -1229,9 +1254,14 @@
             device && e.device_id === device.id &&
             (e.unique_id || '').endsWith('_battery')
           );
+          const orientationEntity = entities.find(e =>
+            device && e.device_id === device.id &&
+            (e.unique_id || '').endsWith('_orientation')
+          );
           return {
             title:    entry.title,
             entityId: batteryEntity ? batteryEntity.entity_id : null,
+            orientationEntityId: orientationEntity ? orientationEntity.entity_id : null,
             deviceId: device ? device.id : null,
             entryId:  entry.entry_id,
           };
@@ -1259,6 +1289,8 @@
               frame.host     = match.host;
               frame.origin   = match.origin;
               frame.platform = match.platform;
+              frame.orientation  = match.orientation;
+              frame.lastImageId  = match.last_image_id;
             }
           }
         }
@@ -1327,6 +1359,40 @@
         });
       });
 
+      // Wire the Options button: no documented URL opens the options dialog
+      // for one specific entry directly, so this lands on the integration's
+      // page (same place "Add entry" lives) where the kebab menu on this
+      // frame's row opens Options -- reliable, uses the same navigate()
+      // path as the Add Frame button above.
+      grid.querySelectorAll('.btn-options').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this._navigate('/config/integrations/integration/fraimic');
+        });
+      });
+
+      // Wire orientation selects
+      grid.querySelectorAll('.frame-orientation-select').forEach(select => {
+        select.addEventListener('click', (e) => e.stopPropagation());
+        select.addEventListener('change', async (e) => {
+          const entityId = select.dataset.entityId;
+          const option = e.target.value;
+          select.disabled = true;
+          try {
+            await this._hass.callService('select', 'select_option', {
+              entity_id: entityId,
+              option,
+            });
+          } catch (err) {
+            console.error('[fraimic-panel] failed to set orientation:', err);
+            alert('Failed to change orientation.');
+          } finally {
+            select.disabled = false;
+          }
+        });
+      });
+
       this._tickAllStatus();
     }
 
@@ -1353,24 +1419,51 @@
              </svg>
            </button>`
         : '';
+      const optionsBtn = frame.entryId
+        ? `<button class="frame-action-btn btn-options" data-entry-id="${this._esc(frame.entryId)}" title="Frame Options">
+             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+               <circle cx="12" cy="12" r="3"/>
+               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+             </svg>
+           </button>`
+        : '';
+
+      // Orientation select: options/labels are read live off the entity's own
+      // state rather than hardcoded, so this stays correct if the labels in
+      // select.py ever change -- see FraimicOrientationSelect.
+      let orientationSelect = '';
+      if (frame.orientationEntityId) {
+        const state = this._hass.states[frame.orientationEntityId];
+        const opts = (state && state.attributes && state.attributes.options) || [];
+        if (opts.length) {
+          orientationSelect = `
+            <select class="frame-orientation-select" data-entity-id="${this._esc(frame.orientationEntityId)}" title="Orientation lock">
+              ${opts.map(o => `<option value="${this._esc(o)}" ${state.state === o ? 'selected' : ''}>${this._esc(o)}</option>`).join('')}
+            </select>`;
+        }
+      }
+
+      const thumbIcon = frame.lastImageId
+        ? `<img src="/api/fraimic/library/image/${this._esc(frame.lastImageId)}" alt="">`
+        : `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+             <rect x="3" y="3" width="18" height="18" rx="2"/>
+             <rect x="7" y="7" width="10" height="10" rx="1"/>
+           </svg>`;
 
       el.innerHTML = `
         <div class="frame-row">
-          <div class="frame-icon">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="18" height="18" rx="2"/>
-              <rect x="7" y="7" width="10" height="10" rx="1"/>
-            </svg>
-          </div>
+          <div class="frame-icon">${thumbIcon}</div>
           <div class="frame-meta">
             <div class="frame-name">${this._esc(frame.title)}</div>
             <div class="frame-status" id="status-${sid}"></div>
             ${sizeLabel ? `<div class="frame-status">${sizeLabel}</div>` : ''}
             ${originLabel ? `<div class="frame-origin-clone">${originLabel}</div>` : ''}
+            ${orientationSelect}
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;align-items:center;flex-shrink:0">
             ${hostLink}
             ${reloadBtn}
+            ${optionsBtn}
           </div>
         </div>
       `;
@@ -3260,6 +3353,20 @@
         const ok = results.filter(r => r.success).length;
         const failed = results.filter(r => !r.success);
 
+        if (ok) {
+          let changed = false;
+          for (const r of results) {
+            if (!r.success) continue;
+            const imageId = scene.mappings[r.entry_id];
+            const frame = this._frames.find(f => f.entryId === r.entry_id);
+            if (frame && imageId) {
+              frame.lastImageId = imageId;
+              changed = true;
+            }
+          }
+          if (changed) this._renderFrames();
+        }
+
         if (resp.ok && ok === results.length && results.length) {
           fb.className = 'feedback ok';
           fb.textContent = `✓ Sent to ${ok} frame${ok === 1 ? '' : 's'}`;
@@ -3667,6 +3774,11 @@
         const result = await resp.json().catch(() => ({}));
         if (!resp.ok || !result.success) {
           throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+        const sentFrame = this._frames.find(f => f.entityId === entityId);
+        if (sentFrame) {
+          sentFrame.lastImageId = st.image.image_id;
+          this._renderFrames();
         }
         this._editorShowFb('ok', '✓ Sent!');
         setTimeout(() => this._closeEditor(), 1200);
