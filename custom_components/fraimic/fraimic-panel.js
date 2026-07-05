@@ -1124,6 +1124,21 @@
     // -----------------------------------------------------------------------
 
     async _init() {
+      // Hidden A/B test switch: open the panel as /fraimic?packer=fast (or
+      // ?packer=legacy) and every Library "Send" carries that packing-method
+      // override -- the backend then bypasses the .bin cache and converts
+      // fresh with the requested packer, so the same image can be sent to
+      // two frames (one per method) and compared on the physical panels.
+      try {
+        const packer = new URLSearchParams(window.location.search).get('packer');
+        this._packerOverride = (packer === 'fast' || packer === 'legacy') ? packer : null;
+      } catch (err) {
+        this._packerOverride = null;
+      }
+      if (this._packerOverride) {
+        console.info(`[fraimic-panel] packer override active: ${this._packerOverride} (bin cache bypassed for library sends)`);
+      }
+
       this._buildShell();
       this._wireNav();
       this._wireLibraryToolbar();
@@ -2694,6 +2709,7 @@
       const form = new FormData();
       form.append('entity_id', entityId);
       form.append('image_id', imageId);
+      if (this._packerOverride) form.append('packer', this._packerOverride);
 
       try {
         const resp = await fetch('/api/fraimic/library/send', {
@@ -2703,7 +2719,7 @@
 
         if (resp.ok && result.success) {
           fb.className = 'feedback ok';
-          fb.textContent = '✓ Sent!';
+          fb.textContent = result.packer ? `✓ Sent! (packer: ${result.packer})` : '✓ Sent!';
         } else {
           fb.className = 'feedback err';
           fb.textContent = `Failed: ${result.message || resp.statusText || resp.status}`;
@@ -4811,6 +4827,7 @@
         const form = new FormData();
         form.append('entity_id', entityId);
         form.append('image_id', st.image.image_id);
+        if (this._packerOverride) form.append('packer', this._packerOverride);
         const resp = await fetch('/api/fraimic/library/send', {
           method: 'POST', headers: this._authHeaders(), body: form,
         });
@@ -4823,7 +4840,7 @@
           sentFrame.lastImageId = st.image.image_id;
           this._renderFrames();
         }
-        this._editorShowFb('ok', '✓ Sent!');
+        this._editorShowFb('ok', result.packer ? `✓ Sent! (packer: ${result.packer})` : '✓ Sent!');
         setTimeout(() => this._closeEditor(), 1200);
       } catch (err) {
         this._editorShowFb('err', `Failed: ${err.message}`);

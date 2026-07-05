@@ -72,6 +72,11 @@ except ImportError as exc:  # pragma: no cover
         "Install it with: pip install Pillow"
     ) from exc
 
+try:  # Optional: makes the "fast" packer fully vectorized. Not required.
+    import numpy as _np
+except ImportError:  # pragma: no cover
+    _np = None
+
 from .frame_types import LAYOUT_SPLIT_HALF, byte_layout_for_resolution
 
 
@@ -350,6 +355,89 @@ def _pack_sequential(quantized_image: "Image.Image") -> bytes:
     return bytes(out)
 
 
+# ---------------------------------------------------------------------------
+# Fast packing path (pack_method="fast")
+#
+# Same output bytes as the legacy per-pixel path above, produced from
+# quantize()'s palette-index image directly instead of the RGB round-trip:
+# bytes.translate() maps palette indices to hardware nibbles in C, and pair
+# packing is vectorized (numpy when available, a slicing zip loop otherwise).
+# The legacy path does ~10M Python-level operations for a 1200x1600 panel
+# (a .load()[x, y] call plus a linear tuple .index() per pixel); this path
+# does a handful. Byte-identity between the two is asserted by
+# scripts/verify_packing.py -- run it after touching either path.
+# ---------------------------------------------------------------------------
+
+# P-mode palette index → hardware nibble. quantize() indices 0-5 are the six
+# colours in SPECTRA6_REAL_WORLD_RGB order; indices 6-255 are the black
+# padding entries from _build_palette_image, which the legacy RGB round-trip
+# collapses to black (tuple.index returns the first match), so they map to
+# black's nibble here too.
+_P_INDEX_TO_NIBBLE = bytes(
+    list(SPECTRA6_NIBBLE_VALUES)
+    + [SPECTRA6_NIBBLE_VALUES[0]] * (256 - len(SPECTRA6_NIBBLE_VALUES))
+)
+
+# White pads the missing partner pixel of an odd-width (half-)row -- mirrors
+# the hardcoded (232, 232, 232) lookup in _pack_row_half.
+_WHITE_NIBBLE = SPECTRA6_NIBBLE_VALUES[SPECTRA6_REAL_WORLD_RGB.index((232, 232, 232))]
+
+
+def _pack_nibble_pairs(nibbles: bytes) -> bytes:
+    """Pack an even-length sequence of nibble values two-per-byte
+    (high nibble = first of the pair)."""
+    if _np is not None:
+        arr = _np.frombuffer(nibbles, dtype=_np.uint8)
+        return ((arr[0::2] << 4) | arr[1::2]).tobytes()
+    return bytes(
+        (nibbles[i] << 4) | nibbles[i + 1] for i in range(0, len(nibbles), 2)
+    )
+
+
+def _pack_segments_fast(
+    nibbles: bytes, width: int, height: int, start_x: int, end_x: int
+) -> bytes:
+    """Fast equivalent of running _pack_row_half over every row for columns
+    [start_x, end_x): rows are sliced out of the row-major nibble buffer,
+    odd-width segments padded with white, then pair-packed in one pass."""
+    seg_w = end_x - start_x
+    if seg_w == width and seg_w % 2 == 0:
+        # Full-width, even: the buffer is already one contiguous even run.
+        return _pack_nibble_pairs(nibbles)
+    pad = bytes([_WHITE_NIBBLE]) if seg_w % 2 else b""
+    rows = [
+        nibbles[y * width + start_x : y * width + end_x] + pad
+        for y in range(height)
+    ]
+    return _pack_nibble_pairs(b"".join(rows))
+
+
+def _pack_p_image_fast(p_image: "Image.Image") -> bytes:
+    """Pack a P-mode quantized image (palette indices, straight from
+    quantize()) into the Spectra 6 binary format. Layout dispatch mirrors
+    _pack_to_spectra6_bin."""
+    width, height = p_image.size
+    nibbles = p_image.tobytes().translate(_P_INDEX_TO_NIBBLE)
+    layout = byte_layout_for_resolution(width, height)
+    if layout == LAYOUT_SPLIT_HALF:
+        half = width // 2
+        return (
+            _pack_segments_fast(nibbles, width, height, 0, half)
+            + _pack_segments_fast(nibbles, width, height, half, width)
+        )
+    return _pack_segments_fast(nibbles, width, height, 0, width)
+
+
+def _quantize_to_spectra6_p(image: "Image.Image") -> "Image.Image":
+    """Identical quantization to _quantize_to_spectra6 but returns the
+    P-mode (palette-index) image the fast packer consumes, instead of
+    converting back to RGB."""
+    return image.quantize(
+        dither=Image.Dither.FLOYDSTEINBERG,
+        palette=_build_palette_image(),
+    )
+
+
 def _open_as_rgb(source: "str | bytes") -> "Image.Image":
     """
     Open an image from a file path or raw bytes and return it in RGB mode.
@@ -454,15 +542,19 @@ def convert_image_bytes(
     height: int,
     rotation: int = 0,
     locked: bool = False,
+    pack_method: str = "legacy",
 ) -> bytes:
     """
     Convert raw image bytes to the raw Spectra 6 binary format.
 
     Accepts any image format that Pillow can decode (JPEG, PNG, WebP, GIF,
-    BMP, TIFF, …). See :func:`convert_image` for parameter details.
+    BMP, TIFF, …). See :func:`convert_image` for parameter details and
+    :func:`_process` for *pack_method*.
     """
     image = _open_as_rgb(image_data)
-    bin_bytes, _quantized = _process(image, width, height, rotation, locked)
+    bin_bytes, _quantized = _process(
+        image, width, height, rotation, locked, pack_method
+    )
     return bin_bytes
 
 
@@ -521,10 +613,16 @@ def _process(
     height: int,
     rotation: int = 0,
     locked: bool = False,
+    pack_method: str = "legacy",
 ) -> "Tuple[bytes, Image.Image]":
     """Shared implementation used by both public entry points. Returns the
     packed bytes alongside the final quantized image so preview-generating
-    callers can reuse it without re-running the pipeline."""
+    callers can reuse it without re-running the pipeline.
+
+    pack_method="fast" routes the packing step through the vectorized path
+    (identical output bytes -- see scripts/verify_packing.py); "legacy" is
+    the historical per-pixel path and stays the default until the fast one
+    is validated on real hardware."""
     if not locked:
         # The Fraimic way: a mismatched image lies sideways at full size.
         image = _auto_rotate(image, width, height)
@@ -533,6 +631,9 @@ def _process(
     image = _resize_cover_centered(image, width, height)
     if rotation:
         image = image.rotate(rotation, expand=True)
+    if pack_method == "fast":
+        p_image = _quantize_to_spectra6_p(image)
+        return _pack_p_image_fast(p_image), p_image.convert("RGB")
     image = _quantize_to_spectra6(image)
     return _pack_to_spectra6_bin(image), image
 
@@ -568,14 +669,16 @@ def convert_image_bytes_cropped(
     height: int,
     crop_box: "Tuple[float, float, float, float]",
     rotation: int = 0,
+    pack_method: str = "legacy",
 ) -> bytes:
     """
     Convert raw image bytes to Spectra 6 binary using a manually-chosen crop
     rectangle instead of the automatic letterbox path. See
-    :func:`convert_image_cropped` for parameter details.
+    :func:`convert_image_cropped` for parameter details and :func:`_process`
+    for *pack_method*.
     """
     image = _open_as_rgb(image_data)
-    return _process_cropped(image, width, height, crop_box, rotation)
+    return _process_cropped(image, width, height, crop_box, rotation, pack_method)
 
 
 def _process_cropped(
@@ -584,6 +687,7 @@ def _process_cropped(
     height: int,
     crop_box: "Tuple[float, float, float, float]",
     rotation: int = 0,
+    pack_method: str = "legacy",
 ) -> bytes:
     """Shared implementation for the manual-crop public entry points.
 
@@ -596,5 +700,7 @@ def _process_cropped(
     image = image.resize((width, height), Image.LANCZOS)
     if rotation:
         image = image.rotate(rotation, expand=True)
+    if pack_method == "fast":
+        return _pack_p_image_fast(_quantize_to_spectra6_p(image))
     image = _quantize_to_spectra6(image)
     return _pack_to_spectra6_bin(image)

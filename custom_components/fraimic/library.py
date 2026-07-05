@@ -1378,38 +1378,50 @@ class LibraryManager:
         images = await self._backend.async_list_images()
         return next((img for img in images if img.image_id == image_id), None)
 
-    async def async_get_bin_for_send(self, image_id: str, spec: RenderSpec) -> bytes:
+    async def async_get_bin_for_send(
+        self, image_id: str, spec: RenderSpec, pack_method: str | None = None
+    ) -> bytes:
         """Return a cached .bin for this render spec, generating + caching it
         on the fly if this render hasn't been seen for this image before
         (e.g. a frame added after the image was uploaded, or a crop was just
         changed and invalidated the old cache). Uses the image's saved manual
         crop for the spec's effective resolution if one exists; otherwise
         falls back to the automatic render (centered cover-crop when locked,
-        sideways-rotate-to-fill when not)."""
+        sideways-rotate-to-fill when not).
+
+        pack_method ("legacy" | "fast"), when given, is an A/B testing
+        override: the .bin cache is bypassed entirely -- no read (so the
+        requested method definitely runs) and no write (so a test send never
+        pollutes the cache) -- and the conversion packs with that method.
+        None (the normal path) converts with the default packer and uses the
+        cache as usual."""
         width, height = spec.width, spec.height
-        cached = await self._backend.async_get_bin(image_id, width, height, spec.variant)
-        if cached is not None:
-            return cached
+        if pack_method is None:
+            cached = await self._backend.async_get_bin(image_id, width, height, spec.variant)
+            if cached is not None:
+                return cached
 
         raw_bytes, _content_type = await self._backend.async_get_original(image_id)
         record = await self._find_image(image_id)
         crop_box = (record.crops if record else {}).get(f"{width}x{height}")
+        effective_method = pack_method or "legacy"
 
         if crop_box:
             from .image_converter import convert_image_bytes_cropped  # noqa: PLC0415
 
             bin_bytes = await self.hass.async_add_executor_job(
                 convert_image_bytes_cropped, raw_bytes, width, height,
-                tuple(crop_box), spec.rotation,
+                tuple(crop_box), spec.rotation, effective_method,
             )
         else:
             from .image_converter import convert_image_bytes  # noqa: PLC0415
 
             bin_bytes = await self.hass.async_add_executor_job(
                 convert_image_bytes, raw_bytes, width, height,
-                spec.rotation, spec.locked,
+                spec.rotation, spec.locked, effective_method,
             )
-        await self._backend.async_save_bin(image_id, width, height, bin_bytes, spec.variant)
+        if pack_method is None:
+            await self._backend.async_save_bin(image_id, width, height, bin_bytes, spec.variant)
         return bin_bytes
 
     async def async_set_crop(

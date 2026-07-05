@@ -267,6 +267,16 @@ class FraimicLibrarySendView(HomeAssistantView):
         if not image_id:
             return self.json_message("image_id is required", status_code=400)
 
+        # Hidden A/B test switch (open the panel as /fraimic?packer=fast or
+        # ?packer=legacy): forces that packing method and bypasses the .bin
+        # cache so the same image can be sent to two frames, one per method,
+        # and compared on real hardware. See image_converter._process.
+        packer = body.get("packer") or None
+        if packer is not None and packer not in ("legacy", "fast"):
+            return self.json_message(
+                "packer must be 'legacy' or 'fast'", status_code=400
+            )
+
         try:
             coordinator, entry = resolve_frame_by_entity(hass, entity_id)
         except ValueError as err:
@@ -274,8 +284,14 @@ class FraimicLibrarySendView(HomeAssistantView):
 
         spec = render_spec_for_entry(entry)
 
+        if packer is not None:
+            _LOGGER.info(
+                "Library send with packer override '%s' (bin cache bypassed): "
+                "image %s -> %s", packer, image_id, entity_id,
+            )
+
         try:
-            bin_bytes = await manager.async_get_bin_for_send(image_id, spec)
+            bin_bytes = await manager.async_get_bin_for_send(image_id, spec, pack_method=packer)
         except Exception as err:  # noqa: BLE001
             _LOGGER.error("Library send conversion failed: %s", err)
             return self.json_message(f"Conversion failed: {err}", status_code=500)
@@ -290,7 +306,10 @@ class FraimicLibrarySendView(HomeAssistantView):
 
         await coordinator.async_set_last_image(image_id=image_id)
 
-        return self.json({"success": True, "bytes_sent": len(bin_bytes)})
+        result: dict = {"success": True, "bytes_sent": len(bin_bytes)}
+        if packer is not None:
+            result["packer"] = packer
+        return self.json(result)
 
 
 class FraimicLibraryCropView(HomeAssistantView):
