@@ -105,6 +105,43 @@ async function pickImageInWallPicker(page, imageId) {
   }, imageId);
 }
 
+function getPickerGridImageIds(page) {
+  return page.evaluate(() =>
+    [...document.getElementById('panel').shadowRoot.querySelectorAll('#wall-image-picker-grid .image-picker-cell')]
+      .map((c) => c.dataset.imageId)
+  );
+}
+
+async function selectPickerAlbum(page, albumName) {
+  await page.evaluate((name) => {
+    const root = document.getElementById('panel').shadowRoot;
+    const sel = root.getElementById('wall-image-picker-album');
+    sel.value = name;
+    sel.dispatchEvent(new Event('change'));
+  }, albumName);
+}
+
+function getPickerBoxRect(page) {
+  return page.evaluate(() => {
+    const r = document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-box').getBoundingClientRect();
+    return { x: r.x, y: r.y };
+  });
+}
+
+// Drags the picker panel by its header -- regression coverage for it being
+// stuck in place and blocking the wall behind it.
+async function dragPickerBy(page, dx, dy) {
+  const header = await page.evaluate(() => {
+    const r = document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-header').getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + 10 };
+  });
+  await page.mouse.move(header.x, header.y);
+  await page.mouse.down();
+  await page.mouse.move(header.x + dx / 2, header.y + dy / 2, { steps: 5 });
+  await page.mouse.move(header.x + dx, header.y + dy, { steps: 10 });
+  await page.mouse.up();
+}
+
 async function selectWallScene(page, sceneId) {
   await page.evaluate((id) => {
     const root = document.getElementById('panel').shadowRoot;
@@ -148,6 +185,10 @@ module.exports = {
   dragTileBy,
   clickTile,
   pickImageInWallPicker,
+  getPickerGridImageIds,
+  selectPickerAlbum,
+  getPickerBoxRect,
+  dragPickerBy,
   selectWallScene,
   getWallTiles,
   clickPanelButton,

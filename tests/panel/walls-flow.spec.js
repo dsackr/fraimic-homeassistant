@@ -101,7 +101,7 @@ test.describe('Walls save/preview/edit flow', () => {
     mockServer.requestLog.length = 0;
     await clickTile(page, 'entry_2');
     await page.waitForFunction(
-      () => document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-overlay').style.display === 'flex'
+      () => document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-overlay').style.display === 'block'
     );
     await pickImageInWallPicker(page, 'image_2');
     await page.waitForTimeout(300);
@@ -137,7 +137,7 @@ test.describe('Walls save/preview/edit flow', () => {
 
     await clickTile(page, 'entry_2');
     await page.waitForFunction(
-      () => document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-overlay').style.display === 'flex'
+      () => document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-overlay').style.display === 'block'
     );
     await pickImageInWallPicker(page, 'image_2');
     await page.waitForTimeout(200);

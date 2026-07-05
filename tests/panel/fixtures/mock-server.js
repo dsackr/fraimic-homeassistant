@@ -27,8 +27,9 @@ function readJsonBody(req) {
 
 // frames: [{ entry_id, title, width, height, orientation, ... }]
 // scenes: [{ scene_id, name, mappings, album, source }]
-// images: [{ image_id, filename, albums }]
-function createMockServer({ frames = [], scenes = [], images = [] } = {}) {
+// images: [{ image_id, filename, albums: [albumName, ...] }]
+// albums: [{ name, count, cover_image_id }]
+function createMockServer({ frames = [], scenes = [], images = [], albums = [] } = {}) {
   let sceneList = scenes.map((s) => ({ created_at: 0, album: null, source: 'user', ...s }));
   let wallList = [];
   let nextWallId = 1;
@@ -55,9 +56,15 @@ function createMockServer({ frames = [], scenes = [], images = [] } = {}) {
       return json(res, 200, { frames });
     }
 
-    if (p === '/api/fraimic/library/list') return json(res, 200, { images, backend: 'local' });
+    if (p === '/api/fraimic/library/list') {
+      // Mirrors library_http.py's FraimicLibraryListView: `album` is an
+      // optional filter over the full image list, not a required param.
+      const album = url.searchParams.get('album');
+      const filtered = album ? images.filter((img) => (img.albums || []).includes(album)) : images;
+      return json(res, 200, { images: filtered, backend: 'local' });
+    }
     if (p === '/api/fraimic/library/settings') return json(res, 200, { backend: 'local' });
-    if (p === '/api/fraimic/library/albums') return json(res, 200, { albums: [] });
+    if (p === '/api/fraimic/library/albums') return json(res, 200, { albums });
     if (p === '/api/fraimic/scene_packs') return json(res, 200, { packs: [] });
 
     if (p.startsWith('/api/fraimic/library/image/')) {

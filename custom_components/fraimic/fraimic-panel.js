@@ -695,6 +695,51 @@
       box-sizing: border-box;
     }
 
+    /* ---- wall image picker: draggable floating panel, not a centered
+       modal-overlay -- see the HTML comment above its markup. ---- */
+    .wall-picker-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1100;
+      display: none;
+      pointer-events: none;
+    }
+    .wall-picker-box {
+      position: absolute;
+      left: 50%;
+      top: 72px;
+      transform: translateX(-50%);
+      pointer-events: auto;
+      width: 380px;
+      max-width: calc(100vw - 32px);
+      max-height: calc(100vh - 96px);
+      background: var(--card-background-color, #fff);
+      border-radius: var(--ha-card-border-radius, 12px);
+      box-shadow: 0 10px 40px rgba(0,0,0,.35);
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .wall-picker-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 10px 10px 16px;
+      border-bottom: 1px solid var(--divider-color, rgba(0,0,0,.12));
+      cursor: grab;
+      touch-action: none;
+      flex: 0 0 auto;
+    }
+    .wall-picker-header.dragging { cursor: grabbing; }
+    .wall-picker-header h3 { margin: 0; font-size: 15px; color: var(--primary-text-color); }
+    .wall-picker-body {
+      padding: 16px;
+      overflow-y: auto;
+      flex: 1 1 auto;
+    }
+
     /* ---- scene packs ---- */
     .pack-cover {
       width: 100%;
@@ -1360,16 +1405,27 @@
           </div>
         </div>
 
-        <div class="modal-overlay" id="wall-image-picker-overlay">
-          <div class="modal-box" style="max-width:520px">
-            <h3>Choose an Image</h3>
-            <div class="modal-row">
-              <button class="btn-ghost" id="wall-image-picker-clear">✕ Remove Image From This Frame</button>
+        <!-- Not a centered modal-overlay like the others on purpose: this
+             picker opens while positioning images on the wall canvas behind
+             it, so it's a draggable floating panel (see _wireWallImagePicker)
+             with no darkening backdrop, letting the wall stay visible and
+             clickable around it. -->
+        <div class="wall-picker-overlay" id="wall-image-picker-overlay">
+          <div class="wall-picker-box" id="wall-image-picker-box">
+            <div class="wall-picker-header" id="wall-image-picker-header">
+              <h3>Choose an Image</h3>
+              <button class="btn-ghost" id="wall-image-picker-cancel" style="flex:0 0 auto;padding:4px 10px">✕</button>
             </div>
-            <div class="image-picker-grid" id="wall-image-picker-grid"></div>
-            <div class="feedback" id="wall-image-picker-fb"></div>
-            <div class="modal-actions">
-              <button class="btn-ghost" id="wall-image-picker-cancel">Cancel</button>
+            <div class="wall-picker-body">
+              <div class="modal-row">
+                <label for="wall-image-picker-album">Album</label>
+                <select id="wall-image-picker-album"></select>
+              </div>
+              <div class="modal-row">
+                <button class="btn-ghost" id="wall-image-picker-clear">✕ Remove Image From This Frame</button>
+              </div>
+              <div class="image-picker-grid" id="wall-image-picker-grid"></div>
+              <div class="feedback" id="wall-image-picker-fb"></div>
             </div>
           </div>
         </div>
@@ -4034,40 +4090,100 @@
         this._closeWallImagePicker();
         this._renderWallCanvas();
       });
+      this.shadowRoot.getElementById('wall-image-picker-album').addEventListener('change', () => this._loadWallImagePickerImages());
+      this._wireWallImagePickerDrag();
     }
 
-    // Lists every image in the library, with no album filter -- unlike the
-    // Scenes tab's editor (which stays scoped to one album), a wall tile can
-    // pull from anywhere in the library.
+    // Lets the picker panel be dragged by its header so the wall canvas
+    // behind it stays reachable while choosing an image -- see the
+    // .wall-picker-overlay/.wall-picker-box CSS comment for why this isn't a
+    // centered modal-overlay like the rest of the panel's modals.
+    _wireWallImagePickerDrag() {
+      const header = this.shadowRoot.getElementById('wall-image-picker-header');
+      const box    = this.shadowRoot.getElementById('wall-image-picker-box');
+
+      header.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('button')) return; // don't hijack the close button
+        e.preventDefault();
+
+        const rect = box.getBoundingClientRect();
+        // Switch from the CSS-centered default (left:50%+transform) to
+        // absolute pixel positioning so the drag math below is a simple
+        // delta -- and so the panel stays wherever it's dropped instead of
+        // re-centering on the next open.
+        box.style.left = `${rect.left}px`;
+        box.style.top  = `${rect.top}px`;
+        box.style.transform = 'none';
+        header.classList.add('dragging');
+
+        const startClientX = e.clientX, startClientY = e.clientY;
+        const startLeft = rect.left, startTop = rect.top;
+
+        const onMove = (ev) => {
+          box.style.left = `${startLeft + (ev.clientX - startClientX)}px`;
+          box.style.top  = `${startTop + (ev.clientY - startClientY)}px`;
+        };
+        const onUp = () => {
+          header.classList.remove('dragging');
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', onUp);
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+      });
+    }
+
     async _openWallImagePicker(entryId) {
       this._wallImagePickerEntryId = entryId;
+
+      const overlay     = this.shadowRoot.getElementById('wall-image-picker-overlay');
+      const albumSelect = this.shadowRoot.getElementById('wall-image-picker-album');
+      const fb          = this.shadowRoot.getElementById('wall-image-picker-fb');
+      fb.style.display = 'none';
+
+      if (!this._albums || !this._albums.length) await this._loadAlbums();
+      albumSelect.innerHTML = '<option value="">All Photos</option>' +
+        this._albums.map(a => `<option value="${this._esc(a.name)}">${this._esc(a.name)}</option>`).join('');
+      albumSelect.value = ''; // default to every album, not wherever it was last left
+
+      overlay.style.display = 'block';
+      await this._loadWallImagePickerImages();
+    }
+
+    // Separated from _openWallImagePicker so the album <select> can re-run
+    // just this part without resetting the panel's dragged position or
+    // reloading the album list.
+    async _loadWallImagePickerImages() {
+      const entryId = this._wallImagePickerEntryId;
       // A token, not just entryId, guards against a slow fetch from an
-      // earlier open finishing after the user closed it and opened the
-      // picker for a *different* tile -- without this, the stale response
-      // would render a grid whose click handlers still assign to the old
-      // entryId, silently mis-assigning an image to the wrong frame.
+      // earlier open/album-change finishing after the user moved on --
+      // without this, a stale response could render a grid whose click
+      // handlers still assign to the wrong entryId or the wrong album filter.
       const token = (this._wallImagePickerToken = (this._wallImagePickerToken || 0) + 1);
 
-      const overlay = this.shadowRoot.getElementById('wall-image-picker-overlay');
-      const grid    = this.shadowRoot.getElementById('wall-image-picker-grid');
-      const fb      = this.shadowRoot.getElementById('wall-image-picker-fb');
-      fb.style.display = 'none';
+      const grid        = this.shadowRoot.getElementById('wall-image-picker-grid');
+      const albumSelect = this.shadowRoot.getElementById('wall-image-picker-album');
+      const album       = albumSelect.value;
       grid.innerHTML = '<div class="modal-file-summary">Loading photos…</div>';
-      overlay.style.display = 'flex';
 
       let images = [];
       try {
-        const resp = await fetch('/api/fraimic/library/list', { headers: this._authHeaders() });
+        const url = album
+          ? `/api/fraimic/library/list?album=${encodeURIComponent(album)}`
+          : '/api/fraimic/library/list';
+        const resp = await fetch(url, { headers: this._authHeaders() });
         const result = await resp.json();
         images = result.images || [];
       } catch (err) {
         console.warn('[fraimic-panel] library load for wall image picker failed:', err);
       }
 
-      if (token !== this._wallImagePickerToken) return; // superseded by a newer open
+      if (token !== this._wallImagePickerToken) return; // superseded by a newer open/album change
 
       if (!images.length) {
-        grid.innerHTML = '<div class="modal-file-summary">No photos in the library yet.</div>';
+        grid.innerHTML = album
+          ? '<div class="modal-file-summary">No photos in this album yet.</div>'
+          : '<div class="modal-file-summary">No photos in the library yet.</div>';
         return;
       }
 
