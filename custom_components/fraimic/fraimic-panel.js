@@ -3756,9 +3756,19 @@
       this._openWall(null);
     }
 
-    _clearWallThumbCache() {
-      for (const url of Object.values(this._wallThumbUrls)) URL.revokeObjectURL(url);
-      this._wallThumbUrls = {};
+    // Revokes only the cached thumbnails that no longer belong to any tile in
+    // this render -- unlike a full wipe, this lets a tile whose image_id is
+    // unchanged (e.g. after repositioning it, or after editing a *different*
+    // tile) keep showing its already-loaded thumbnail instantly instead of
+    // blanking out and re-fetching it, which reads as "thumbnails clearing"
+    // on anything slower than localhost.
+    _pruneWallThumbCache(neededImageIds) {
+      for (const imageId of Object.keys(this._wallThumbUrls)) {
+        if (!neededImageIds.has(imageId)) {
+          URL.revokeObjectURL(this._wallThumbUrls[imageId]);
+          delete this._wallThumbUrls[imageId];
+        }
+      }
     }
 
     // A frame tile's on-canvas size, aspect-ratio-correct for that frame's
@@ -3779,7 +3789,13 @@
     _renderWallCanvas() {
       const palette = this.shadowRoot.getElementById('wall-palette');
       const canvas  = this.shadowRoot.getElementById('wall-canvas');
-      this._clearWallThumbCache();
+
+      const neededImageIds = new Set();
+      for (const entryId of Object.keys(this._wallPlacements)) {
+        const imageId = this._wallEffectiveMapping(entryId);
+        if (imageId) neededImageIds.add(imageId);
+      }
+      this._pruneWallThumbCache(neededImageIds);
 
       const placedEntryIds = new Set(Object.keys(this._wallPlacements));
       const unplaced = this._frames.filter(f => !placedEntryIds.has(f.entryId));
@@ -3957,10 +3973,22 @@
     }
 
     async _saveWallLayout() {
-      const wall = this._walls.find(w => w.wall_id === this._activeWallId);
-      if (!wall) return;
+      const fb  = this.shadowRoot.getElementById('wall-fb');
+      const btn = this.shadowRoot.getElementById('wall-save-layout-btn');
 
-      const fb = this.shadowRoot.getElementById('wall-fb');
+      const wall = this._walls.find(w => w.wall_id === this._activeWallId);
+      if (!wall) {
+        // Previously silent -- e.g. this wall was deleted from another tab
+        // since it was opened here. A no-op click with no feedback reads as
+        // "Save Layout doesn't do anything", so surface it instead.
+        fb.className = 'feedback err';
+        fb.textContent = "Couldn't save layout: this wall is no longer available. Pick a wall again.";
+        fb.style.display = 'block';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
       try {
         const resp = await fetch(`/api/fraimic/walls/${wall.wall_id}`, {
           method: 'POST',
@@ -3981,6 +4009,8 @@
         fb.textContent = `Couldn't save layout: ${err.message}`;
         fb.style.display = 'block';
       }
+      btn.disabled = false;
+      btn.textContent = 'Save Layout';
     }
 
     _renderWallScenePicker() {
@@ -4082,7 +4112,21 @@
       try {
         await this._loadScenes();
         const scene = this._scenes.find(s => s.scene_id === this._wallActiveSceneId);
-        if (!scene) throw new Error('Scene no longer exists');
+        if (!scene) {
+          // Don't just dead-end here -- whatever the user picked for this
+          // wall's tiles (this._wallPendingMappings) is still intact, so
+          // point them at "Save As New Scene" instead of discarding it.
+          console.error(
+            '[fraimic-panel] wall scene save: active scene not found after reload',
+            { activeSceneId: this._wallActiveSceneId, availableSceneIds: this._scenes.map(s => s.scene_id) }
+          );
+          this._wallActiveSceneId = null;
+          this._renderWallScenePicker();
+          throw new Error(
+            "that scene isn't available anymore (renamed or deleted elsewhere). " +
+            'Your image choices are still applied here -- use "Save As New Scene" to keep them.'
+          );
+        }
 
         const mergedMappings = { ...scene.mappings };
         for (const entryId of Object.keys(this._wallPlacements)) {
