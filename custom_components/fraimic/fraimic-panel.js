@@ -696,13 +696,17 @@
     }
 
     /* ---- wall image picker: draggable floating panel, not a centered
-       modal-overlay -- see the HTML comment above its markup. ---- */
+       modal-overlay -- see the HTML comment above its markup. The overlay
+       itself is transparent (the wall stays visible through it) but DOES
+       catch pointer events -- clicking it (not the box) closes the picker,
+       same "click outside to dismiss" behavior a normal modal backdrop
+       gives you, just without darkening the view. ---- */
     .wall-picker-overlay {
       position: fixed;
       inset: 0;
       z-index: 1100;
       display: none;
-      pointer-events: none;
+      background: transparent;
     }
     .wall-picker-box {
       position: absolute;
@@ -4091,6 +4095,13 @@
         this._renderWallCanvas();
       });
       this.shadowRoot.getElementById('wall-image-picker-album').addEventListener('change', () => this._loadWallImagePickerImages());
+      // Clicking the transparent backdrop (not the panel itself) closes the
+      // picker -- e.target is only the overlay element when the click lands
+      // outside .wall-picker-box, same as a normal modal's "click outside
+      // to dismiss", just without a darkened background.
+      this.shadowRoot.getElementById('wall-image-picker-overlay').addEventListener('click', (e) => {
+        if (e.target.id === 'wall-image-picker-overlay') this._closeWallImagePicker();
+      });
       this._wireWallImagePickerDrag();
     }
 

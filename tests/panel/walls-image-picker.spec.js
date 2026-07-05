@@ -92,7 +92,7 @@ test.describe('Wall image picker', () => {
     );
   });
 
-  test('the picker panel can be dragged, and the wall stays clickable around it', async ({ page }) => {
+  test('the picker panel can be dragged', async ({ page }) => {
     await gotoPanel(page, baseUrl, { frames: FRAMES });
     await openPickerOnFirstTile(page);
 
@@ -103,12 +103,48 @@ test.describe('Wall image picker', () => {
 
     expect(after.x).not.toBe(before.x);
     expect(after.y).not.toBe(before.y);
+  });
 
-    // The overlay wrapper must not blanket-intercept clicks -- only the
-    // panel box itself should, so the wall canvas underneath stays usable.
-    const overlayPointerEvents = await page.evaluate(
-      () => getComputedStyle(document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-overlay')).pointerEvents
+  test('the backdrop is transparent so the wall stays visible', async ({ page }) => {
+    await gotoPanel(page, baseUrl, { frames: FRAMES });
+    await openPickerOnFirstTile(page);
+
+    const backdropColor = await page.evaluate(
+      () => getComputedStyle(document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-overlay')).backgroundColor
     );
-    expect(overlayPointerEvents).toBe('none');
+    // "transparent" computes to rgba(0, 0, 0, 0) in Chromium.
+    expect(backdropColor).toBe('rgba(0, 0, 0, 0)');
+  });
+
+  test('clicking outside the panel closes it', async ({ page }) => {
+    await gotoPanel(page, baseUrl, { frames: FRAMES });
+    await openPickerOnFirstTile(page);
+
+    // Click a point on the overlay well away from the panel box (which
+    // defaults to a fixed top-center position -- see .wall-picker-box CSS).
+    await page.mouse.click(20, 20);
+    await page.waitForTimeout(100);
+
+    const display = await page.evaluate(
+      () => document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-overlay').style.display
+    );
+    expect(display).toBe('none');
+  });
+
+  test('clicking inside the panel does not close it', async ({ page }) => {
+    await gotoPanel(page, baseUrl, { frames: FRAMES });
+    await openPickerOnFirstTile(page);
+
+    // A click on the header's own padding (not the close button, not a
+    // drag) must not be mistaken for an outside click.
+    await page.evaluate(() => {
+      document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-header').click();
+    });
+    await page.waitForTimeout(100);
+
+    const display = await page.evaluate(
+      () => document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-overlay').style.display
+    );
+    expect(display).toBe('block');
   });
 });
