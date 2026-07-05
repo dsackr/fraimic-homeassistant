@@ -17,6 +17,7 @@ panel's "Connect Google Drive" flow) are all fully implemented.
 from __future__ import annotations
 
 import asyncio
+import copy
 import io
 import json
 import logging
@@ -479,6 +480,43 @@ class LocalLibraryBackend(LibraryBackend):
 
 
 # ---------------------------------------------------------------------------
+# Manifest cache for the cloud backends
+# ---------------------------------------------------------------------------
+
+
+class _ManifestCache:
+    """Bounded-staleness in-memory copy of a cloud backend's manifest.
+
+    Without this, every image fetch / list / album op re-downloads the entire
+    manifest from Dropbox or Drive just to resolve one entry -- painting a
+    grid of N images costs ~2N cloud round trips. All manifest writes in both
+    cloud backends go through _write_manifest, which refreshes this cache, so
+    within one HA instance it can never go stale. The TTL only bounds
+    staleness against *out-of-band* writers (a second HA instance pointed at
+    the same account -- already unsupported, since two instances' unlocked
+    read-modify-writes clobber each other regardless of caching).
+
+    get()/store() deep-copy in both directions: callers mutate the manifest
+    they read before writing it back, and a failed write must leave the
+    cached copy exactly as the remote still is.
+    """
+
+    def __init__(self, ttl: float = 300.0) -> None:
+        self._value: dict[str, Any] | None = None
+        self._fetched_at: float = 0.0
+        self._ttl = ttl
+
+    def get(self) -> dict[str, Any] | None:
+        if self._value is None or (time.time() - self._fetched_at) >= self._ttl:
+            return None
+        return copy.deepcopy(self._value)
+
+    def store(self, manifest: dict[str, Any]) -> None:
+        self._value = copy.deepcopy(manifest)
+        self._fetched_at = time.time()
+
+
+# ---------------------------------------------------------------------------
 # Dropbox backend -- a single long-lived access token, pasted in by the user
 # ---------------------------------------------------------------------------
 
@@ -510,6 +548,7 @@ class DropboxLibraryBackend(LibraryBackend):
         # See LocalLibraryBackend._manifest_lock -- same read-modify-write
         # race, just over the Dropbox API instead of a local file.
         self._manifest_lock = asyncio.Lock()
+        self._manifest_cache = _ManifestCache()
 
     def _headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
         headers = {"Authorization": f"Bearer {self._access_token}"}
@@ -551,6 +590,15 @@ class DropboxLibraryBackend(LibraryBackend):
             await self._write_manifest({"images": []})
 
     async def _read_manifest(self) -> dict[str, Any] | None:
+        cached = self._manifest_cache.get()
+        if cached is not None:
+            return cached
+        manifest = await self._read_manifest_remote()
+        if manifest is not None:
+            self._manifest_cache.store(manifest)
+        return manifest
+
+    async def _read_manifest_remote(self) -> dict[str, Any] | None:
         session = async_get_clientsession(self.hass)
         resp = await session.post(
             f"{_DROPBOX_CONTENT_API}/files/download",
@@ -588,6 +636,7 @@ class DropboxLibraryBackend(LibraryBackend):
             raise LibraryBackendError(
                 f"Dropbox manifest write failed ({resp.status}): {text[:200]}"
             )
+        self._manifest_cache.store(manifest)
 
     def _bin_path(self, image_id: str, width: int, height: int, variant: str = "") -> str:
         return f"{_DROPBOX_ROOT}/bin/{width}x{height}{variant}/{image_id}.bin"
@@ -869,6 +918,7 @@ class GoogleDriveLibraryBackend(LibraryBackend):
         # See LocalLibraryBackend._manifest_lock -- same read-modify-write
         # race, just over the Drive API instead of a local file.
         self._manifest_lock = asyncio.Lock()
+        self._manifest_cache = _ManifestCache()
 
     async def async_setup(self) -> None:
         required = ("client_id", "client_secret", "refresh_token")
@@ -980,10 +1030,13 @@ class GoogleDriveLibraryBackend(LibraryBackend):
         await session.delete(f"{_GOOGLE_DRIVE_API}/files/{file_id}", headers=self._headers())
 
     async def _read_manifest(self) -> dict[str, Any]:
+        cached = self._manifest_cache.get()
+        if cached is not None:
+            return cached
         raw = await self._download_content(self.settings["manifest_file_id"])
-        if raw is None:
-            return {"images": []}
-        return json.loads(raw.decode("utf-8"))
+        manifest = {"images": []} if raw is None else json.loads(raw.decode("utf-8"))
+        self._manifest_cache.store(manifest)
+        return manifest
 
     async def _write_manifest(self, manifest: dict[str, Any]) -> None:
         await self._upload_content(
@@ -991,6 +1044,7 @@ class GoogleDriveLibraryBackend(LibraryBackend):
             json.dumps(manifest).encode("utf-8"),
             "application/json",
         )
+        self._manifest_cache.store(manifest)
 
     async def async_list_images(self) -> list[LibraryImage]:
         manifest = await self._read_manifest()
