@@ -1404,7 +1404,7 @@ class LibraryManager:
         raw_bytes, _content_type = await self._backend.async_get_original(image_id)
         record = await self._find_image(image_id)
         crop_box = (record.crops if record else {}).get(f"{width}x{height}")
-        effective_method = pack_method or "legacy"
+        effective_method = pack_method or "fast"
 
         if crop_box:
             from .image_converter import convert_image_bytes_cropped  # noqa: PLC0415

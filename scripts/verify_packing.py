@@ -171,7 +171,7 @@ def main() -> int:
     for arg in sys.argv[1:]:
         raw = Path(arg).read_bytes()
         for (width, height) in sorted({ft.resolution for ft in frame_types.FRAME_TYPES.values()}):
-            legacy = ic.convert_image_bytes(raw, width, height)
+            legacy = ic.convert_image_bytes(raw, width, height, pack_method="legacy")
             fast = ic.convert_image_bytes(raw, width, height, pack_method="fast")
             checks += 1
             if legacy != fast:

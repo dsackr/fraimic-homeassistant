@@ -542,7 +542,7 @@ def convert_image_bytes(
     height: int,
     rotation: int = 0,
     locked: bool = False,
-    pack_method: str = "legacy",
+    pack_method: str = "fast",
 ) -> bytes:
     """
     Convert raw image bytes to the raw Spectra 6 binary format.
@@ -613,16 +613,18 @@ def _process(
     height: int,
     rotation: int = 0,
     locked: bool = False,
-    pack_method: str = "legacy",
+    pack_method: str = "fast",
 ) -> "Tuple[bytes, Image.Image]":
     """Shared implementation used by both public entry points. Returns the
     packed bytes alongside the final quantized image so preview-generating
     callers can reuse it without re-running the pipeline.
 
-    pack_method="fast" routes the packing step through the vectorized path
-    (identical output bytes -- see scripts/verify_packing.py); "legacy" is
-    the historical per-pixel path and stays the default until the fast one
-    is validated on real hardware."""
+    pack_method="fast" (the default) packs through the vectorized path;
+    "legacy" is the historical per-pixel path, kept temporarily as an
+    escape hatch (reachable via the panel's ?packer=legacy override). The
+    two produce identical bytes -- proven by scripts/verify_packing.py and
+    confirmed pixel-identical on real frames (2026-07) -- so legacy plus
+    the A/B switches can be removed in a future release."""
     if not locked:
         # The Fraimic way: a mismatched image lies sideways at full size.
         image = _auto_rotate(image, width, height)
@@ -669,7 +671,7 @@ def convert_image_bytes_cropped(
     height: int,
     crop_box: "Tuple[float, float, float, float]",
     rotation: int = 0,
-    pack_method: str = "legacy",
+    pack_method: str = "fast",
 ) -> bytes:
     """
     Convert raw image bytes to Spectra 6 binary using a manually-chosen crop
@@ -687,7 +689,7 @@ def _process_cropped(
     height: int,
     crop_box: "Tuple[float, float, float, float]",
     rotation: int = 0,
-    pack_method: str = "legacy",
+    pack_method: str = "fast",
 ) -> bytes:
     """Shared implementation for the manual-crop public entry points.
 
