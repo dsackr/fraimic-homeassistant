@@ -591,6 +591,110 @@
       margin-top: 3px;
     }
 
+    /* ---- frames sub-nav (Status / Walls) ---- */
+    .frames-subnav {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--divider-color, rgba(0,0,0,.12));
+    }
+    .subnav-btn {
+      flex: 0 0 auto;
+      padding: 8px 14px;
+      border: none;
+      background: transparent;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--secondary-text-color);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color .15s ease, border-color .15s ease;
+    }
+    .subnav-btn:hover:not(.active) { color: var(--primary-text-color); }
+    .subnav-btn.active {
+      color: var(--primary-color, #3b82f6);
+      border-bottom-color: var(--primary-color, #3b82f6);
+    }
+    .frames-sub { display: none; }
+    .frames-sub.active { display: block; }
+
+    /* ---- walls ---- */
+    .wall-layout-row {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .wall-palette {
+      flex: 0 0 160px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 8px;
+      background: var(--card-background-color, #fff);
+      border-radius: var(--ha-card-border-radius, 12px);
+      min-height: 400px;
+      box-sizing: border-box;
+    }
+    .wall-palette-item {
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: var(--secondary-background-color, #f1f5f9);
+      color: var(--primary-text-color);
+      cursor: grab;
+      font-size: 12px;
+      touch-action: none;
+    }
+    .wall-canvas {
+      position: relative;
+      flex: 1 1 auto;
+      min-height: 400px;
+      background-color: var(--secondary-background-color, #f8fafc);
+      background-image:
+        linear-gradient(to right, rgba(0,0,0,.06) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(0,0,0,.06) 1px, transparent 1px);
+      background-size: 20px 20px;
+      border-radius: var(--ha-card-border-radius, 12px);
+      border: 1px dashed var(--divider-color, rgba(0,0,0,.2));
+      overflow: auto;
+      box-sizing: border-box;
+    }
+    .wall-tile {
+      position: absolute;
+      border-radius: 4px;
+      overflow: hidden;
+      background: var(--card-background-color, #fff);
+      box-shadow: 0 1px 5px rgba(0,0,0,.3);
+      cursor: grab;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      color: var(--secondary-text-color);
+      text-align: center;
+      padding: 2px;
+      box-sizing: border-box;
+      touch-action: none;
+    }
+    .wall-tile.dragging { opacity: .5; z-index: 10; cursor: grabbing; }
+    .wall-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .wall-drag-ghost {
+      position: fixed;
+      pointer-events: none;
+      z-index: 1200;
+      opacity: .85;
+      border-radius: 4px;
+      background: var(--card-background-color, #fff);
+      box-shadow: 0 4px 16px rgba(0,0,0,.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      color: var(--primary-text-color);
+      text-align: center;
+      padding: 2px;
+      box-sizing: border-box;
+    }
+
     /* ---- scene packs ---- */
     .pack-cover {
       width: 100%;
@@ -915,6 +1019,21 @@
       this._packCategory  = null;     // null = category-tile view; otherwise the category id being browsed
       this._packPreview   = null;     // { pack, index } while the read-only image gallery is open, else null
 
+      this._framesSub = 'status';     // 'status' | 'walls' -- sub-view within the Frames tab
+      this._walls          = [];      // [{ wall_id, name, placements: { entry_id: {x, y} } }]
+      this._activeWallId   = null;    // wall_id currently open in the Walls sub-view
+      this._wallPlacements = {};      // working copy of the active wall's placements while editing layout
+      this._wallDrag        = null;   // in-progress palette/tile pointer drag, or null
+      this._wallActiveSceneId = null;    // scene_id loaded for preview on this wall, or null
+      this._wallPendingMappings = {};    // entry_id -> image_id ('' = explicitly cleared) touched this session,
+                                          // overlaid on the active scene's own mappings -- see _wallEffectiveMapping
+      this._wallImagePickerEntryId = null; // entry_id whose "choose an image" picker is open, or null
+      this._wallImagePickerToken = 0;      // incremented per open -- lets a stale fetch detect it's superseded
+      this._wallThumbUrls       = {}; // image_id → blob: URL, for wall tile thumbnails
+      this._wallPickerThumbUrls = {}; // image_id → blob: URL, for the wall image picker grid
+      this._onWallPointerMove = this._onWallPointerMove.bind(this);
+      this._onWallPointerUp   = this._onWallPointerUp.bind(this);
+
       this._editorState = null;   // active crop-editor session, or null when closed
       this._editorDrag  = null;   // in-progress pointer drag, or null
       this._editorImgUrl = null;  // blob: URL for the editor's full-size image
@@ -947,6 +1066,9 @@
       this._wireAlbumCreate();
       this._wireSceneToolbar();
       this._wireSceneEditor();
+      this._wireFramesSubnav();
+      this._wireWallToolbar();
+      this._wireWallImagePicker();
       await this._discoverFrames();
       this._renderFrames();
       this._handleDeepLink();
@@ -957,6 +1079,8 @@
       this._renderLibrary();
       await this._loadScenes();
       this._renderScenes();
+      await this._loadWalls();
+      this._renderWallsSubview();
     }
 
     // Coming from a device page's "Visit" link (/fraimic?entry=<entry_id>):
@@ -1076,6 +1200,12 @@
         </div><!-- /tab-library -->
 
         <div class="tab-content" id="tab-frames">
+        <div class="frames-subnav" id="frames-subnav">
+          <button class="subnav-btn active" data-framesub="status">Status</button>
+          <button class="subnav-btn" data-framesub="walls">Walls</button>
+        </div>
+
+        <div class="frames-sub active" id="frames-sub-status">
         <div class="lib-toolbar" style="justify-content:flex-end">
           <button class="btn-primary" id="frame-add-btn" style="flex:0 0 auto">＋ Add Frame</button>
         </div>
@@ -1085,6 +1215,55 @@
             <h2>Discovering frames…</h2>
           </div>
         </div>
+        </div><!-- /frames-sub-status -->
+
+        <div class="frames-sub" id="frames-sub-walls">
+        <div class="lib-toolbar">
+          <div class="lib-backend">
+            <label for="wall-select">Wall:</label>
+            <select id="wall-select"><option value="">— Select a wall —</option></select>
+          </div>
+          <div class="lib-toolbar-actions">
+            <button class="btn-primary" id="wall-new-btn" style="flex:0 0 auto">＋ New Wall</button>
+            <button class="btn-ghost" id="wall-delete-btn" style="flex:0 0 auto;display:none">🗑 Delete Wall</button>
+          </div>
+        </div>
+        <div class="feedback" id="wall-fb"></div>
+
+        <div class="empty" id="wall-empty">
+          <div class="empty-icon">▦</div>
+          <h2>No wall selected</h2>
+          <p>Create a wall to lay out a subset of your frames the way they're physically
+             hung -- e.g. four frames on the living room wall -- then preview and edit
+             scenes across them at once.</p>
+        </div>
+
+        <div id="wall-editor" style="display:none">
+          <h3 style="margin:16px 0 6px;font-size:14px">Layout</h3>
+          <p style="font-size:12px;color:var(--secondary-text-color);margin:0 0 10px">
+            Drag a frame from the palette onto the wall, then drag a placed frame to
+            reposition it. Positions snap to a grid.
+          </p>
+          <div class="wall-layout-row">
+            <div class="wall-palette" id="wall-palette"></div>
+            <div class="wall-canvas" id="wall-canvas"></div>
+          </div>
+          <div class="btns" style="margin-top:10px">
+            <button class="btn-primary" id="wall-save-layout-btn">Save Layout</button>
+          </div>
+
+          <h3 style="margin:22px 0 6px;font-size:14px">Preview / Edit Scene</h3>
+          <div class="modal-row" style="max-width:320px">
+            <label for="wall-scene-select">Scene</label>
+            <select id="wall-scene-select"><option value="">— None —</option></select>
+          </div>
+          <div class="btns" style="margin-top:10px">
+            <button class="btn-primary" id="wall-save-scene-btn">Save to Scene</button>
+            <button class="btn-ghost" id="wall-save-new-scene-btn">Save As New Scene</button>
+          </div>
+          <div class="feedback" id="wall-scene-fb"></div>
+        </div>
+        </div><!-- /frames-sub-walls -->
         </div><!-- /tab-frames -->
 
         <div class="tab-content" id="tab-scenes">
@@ -1177,6 +1356,20 @@
             <div class="modal-actions">
               <button class="btn-primary" id="album-create-save">Create Album</button>
               <button class="btn-ghost" id="album-create-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-overlay" id="wall-image-picker-overlay">
+          <div class="modal-box" style="max-width:520px">
+            <h3>Choose an Image</h3>
+            <div class="modal-row">
+              <button class="btn-ghost" id="wall-image-picker-clear">✕ Remove Image From This Frame</button>
+            </div>
+            <div class="image-picker-grid" id="wall-image-picker-grid"></div>
+            <div class="feedback" id="wall-image-picker-fb"></div>
+            <div class="modal-actions">
+              <button class="btn-ghost" id="wall-image-picker-cancel">Cancel</button>
             </div>
           </div>
         </div>
@@ -3418,6 +3611,551 @@
         fb.textContent = `Network error: ${err.message}`;
       }
       fb.style.display = 'block';
+    }
+
+    // -----------------------------------------------------------------------
+    // Walls -- a virtual layout of a subset of the user's frames, positioned
+    // the way they're physically hung. Pure panel-local state: a wall only
+    // stores where each frame sits on a free-form canvas, never which image
+    // it shows. Loading a scene onto a wall and saving back is done entirely
+    // against the existing scenes API -- see _saveWallToScene.
+    // -----------------------------------------------------------------------
+
+    _wireFramesSubnav() {
+      this.shadowRoot.querySelectorAll('.subnav-btn').forEach(btn => {
+        btn.addEventListener('click', () => this._setFramesSub(btn.dataset.framesub));
+      });
+    }
+
+    _setFramesSub(name) {
+      this._framesSub = name;
+      const root = this.shadowRoot;
+      ['status', 'walls'].forEach(sub => {
+        const content = root.getElementById(`frames-sub-${sub}`);
+        const btn     = root.querySelector(`.subnav-btn[data-framesub="${sub}"]`);
+        if (content) content.classList.toggle('active', sub === name);
+        if (btn)     btn.classList.toggle('active', sub === name);
+      });
+    }
+
+    _wireWallToolbar() {
+      this.shadowRoot.getElementById('wall-select').addEventListener('change', (e) => {
+        const nextId = e.target.value || null;
+        if (this._wallLayoutIsDirty() && !window.confirm(
+          'You have unsaved layout changes on this wall. Switch walls and discard them?'
+        )) {
+          e.target.value = this._activeWallId || '';
+          return;
+        }
+        this._openWall(nextId);
+      });
+      this.shadowRoot.getElementById('wall-new-btn').addEventListener('click', () => this._createWall());
+      this.shadowRoot.getElementById('wall-delete-btn').addEventListener('click', () => this._deleteWall());
+      this.shadowRoot.getElementById('wall-save-layout-btn').addEventListener('click', () => this._saveWallLayout());
+      this.shadowRoot.getElementById('wall-scene-select').addEventListener('change', (e) => {
+        this._loadSceneOntoWall(e.target.value || null);
+      });
+      this.shadowRoot.getElementById('wall-save-scene-btn').addEventListener('click', () => this._saveWallToScene());
+      this.shadowRoot.getElementById('wall-save-new-scene-btn').addEventListener('click', () => this._saveWallAsNewScene());
+    }
+
+    async _loadWalls() {
+      try {
+        const resp = await fetch('/api/fraimic/walls', { headers: this._authHeaders() });
+        const result = await resp.json();
+        this._walls = result.walls || [];
+      } catch (err) {
+        console.error('[fraimic-panel] walls load failed:', err);
+        this._walls = [];
+      }
+    }
+
+    _renderWallsSubview() {
+      const select = this.shadowRoot.getElementById('wall-select');
+      select.innerHTML = '<option value="">— Select a wall —</option>' +
+        this._walls.map(w => `<option value="${this._esc(w.wall_id)}">${this._esc(w.name)}</option>`).join('');
+      select.value = this._activeWallId || '';
+
+      const hasActive = !!(this._activeWallId && this._walls.some(w => w.wall_id === this._activeWallId));
+      this.shadowRoot.getElementById('wall-delete-btn').style.display = hasActive ? '' : 'none';
+      this.shadowRoot.getElementById('wall-empty').style.display = hasActive ? 'none' : '';
+      this.shadowRoot.getElementById('wall-editor').style.display = hasActive ? '' : 'none';
+
+      if (hasActive) {
+        this._renderWallScenePicker();
+        this._renderWallCanvas();
+      }
+    }
+
+    // Whether the working copy of the active wall's placements (mutated by
+    // dragging tiles) has diverged from what's actually persisted -- used to
+    // warn before switching walls silently discards unsaved drag edits.
+    _wallLayoutIsDirty() {
+      if (!this._activeWallId) return false;
+      const wall = this._walls.find(w => w.wall_id === this._activeWallId);
+      if (!wall) return false;
+      return JSON.stringify(wall.placements || {}) !== JSON.stringify(this._wallPlacements || {});
+    }
+
+    _openWall(wallId) {
+      this._activeWallId = wallId || null;
+      const wall = wallId && this._walls.find(w => w.wall_id === wallId);
+      // Deep-copy so canvas edits don't mutate this._walls until Save Layout.
+      this._wallPlacements = wall ? JSON.parse(JSON.stringify(wall.placements || {})) : {};
+      this._wallActiveSceneId = null;
+      this._wallPendingMappings = {};
+      this._renderWallsSubview();
+    }
+
+    async _createWall() {
+      const name = window.prompt('Name this wall (e.g. "Living Room"):');
+      if (!name || !name.trim()) return;
+
+      const fb = this.shadowRoot.getElementById('wall-fb');
+      try {
+        const resp = await fetch('/api/fraimic/walls', {
+          method: 'POST',
+          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name.trim(), placements: {} }),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+        fb.style.display = 'none';
+        await this._loadWalls();
+        this._openWall(result.wall.wall_id);
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Couldn't create wall: ${err.message}`;
+        fb.style.display = 'block';
+      }
+    }
+
+    async _deleteWall() {
+      const wall = this._walls.find(w => w.wall_id === this._activeWallId);
+      if (!wall) return;
+      if (!window.confirm(`Delete wall "${wall.name}"? This can't be undone.`)) return;
+
+      const fb = this.shadowRoot.getElementById('wall-fb');
+      try {
+        const resp = await fetch(`/api/fraimic/walls/${wall.wall_id}`, {
+          method: 'DELETE', headers: this._authHeaders(),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Delete failed: ${err.message}`;
+        fb.style.display = 'block';
+        return;
+      }
+      await this._loadWalls();
+      this._openWall(null);
+    }
+
+    _clearWallThumbCache() {
+      for (const url of Object.values(this._wallThumbUrls)) URL.revokeObjectURL(url);
+      this._wallThumbUrls = {};
+    }
+
+    // A frame tile's on-canvas size, aspect-ratio-correct for that frame's
+    // real resolution (orientation-swapped if the frame is orientation-
+    // locked) -- normalized to a fixed longest edge so every tile reads
+    // clearly regardless of the frame's actual native resolution.
+    _wallTileDims(frame) {
+      let w = (frame && frame.width) || 1200;
+      let h = (frame && frame.height) || 1600;
+      const orientation = frame && frame.orientation;
+      if (orientation === 'portrait' && w > h) { const t = w; w = h; h = t; }
+      if (orientation === 'landscape' && h > w) { const t = w; w = h; h = t; }
+      const targetLongest = 140;
+      const scale = targetLongest / Math.max(w, h);
+      return { width: Math.round(w * scale), height: Math.round(h * scale) };
+    }
+
+    _renderWallCanvas() {
+      const palette = this.shadowRoot.getElementById('wall-palette');
+      const canvas  = this.shadowRoot.getElementById('wall-canvas');
+      this._clearWallThumbCache();
+
+      const placedEntryIds = new Set(Object.keys(this._wallPlacements));
+      const unplaced = this._frames.filter(f => !placedEntryIds.has(f.entryId));
+
+      palette.innerHTML = '';
+      if (!unplaced.length) {
+        palette.innerHTML = '<div style="font-size:12px;color:var(--secondary-text-color);padding:6px">All frames placed.</div>';
+      } else {
+        for (const frame of unplaced) {
+          const item = document.createElement('div');
+          item.className = 'wall-palette-item';
+          item.dataset.entryId = frame.entryId;
+          item.textContent = frame.title;
+          item.addEventListener('pointerdown', (e) => this._wallBeginDrag(e, frame.entryId, 'palette'));
+          palette.appendChild(item);
+        }
+      }
+
+      canvas.innerHTML = '';
+      for (const entryId of Object.keys(this._wallPlacements)) {
+        const frame = this._frames.find(f => f.entryId === entryId);
+        if (!frame) continue; // frame removed/reconfigured since this wall was laid out
+        const pos  = this._wallPlacements[entryId];
+        const dims = this._wallTileDims(frame);
+
+        const tile = document.createElement('div');
+        tile.className = 'wall-tile';
+        tile.dataset.entryId = entryId;
+        tile.style.left   = `${pos.x}px`;
+        tile.style.top    = `${pos.y}px`;
+        tile.style.width  = `${dims.width}px`;
+        tile.style.height = `${dims.height}px`;
+        tile.title = frame.title;
+        canvas.appendChild(tile);
+
+        this._renderWallTileContent(tile, entryId, frame);
+        tile.addEventListener('pointerdown', (e) => this._wallBeginDrag(e, entryId, 'tile'));
+      }
+    }
+
+    // Which image_id (if any) is currently showing on a wall tile: a pending
+    // edit made this session takes priority over the active preview scene's
+    // own mapping ('' means the user explicitly cleared this tile).
+    _wallEffectiveMapping(entryId) {
+      if (Object.prototype.hasOwnProperty.call(this._wallPendingMappings, entryId)) {
+        return this._wallPendingMappings[entryId] || null;
+      }
+      const scene = this._wallActiveSceneId
+        && this._scenes.find(s => s.scene_id === this._wallActiveSceneId);
+      return (scene && scene.mappings && scene.mappings[entryId]) || null;
+    }
+
+    _renderWallTileContent(tile, entryId, frame) {
+      const imageId = this._wallEffectiveMapping(entryId);
+      if (!imageId) {
+        tile.innerHTML = `<div>${this._esc(frame.title)}</div>`;
+        return;
+      }
+      tile.innerHTML = '';
+      if (this._wallThumbUrls[imageId]) {
+        // Same image already loaded for another tile this render pass --
+        // reuse it rather than issuing a duplicate fetch (and orphaning the
+        // first blob: URL when _loadThumbnail overwrites the cache entry).
+        tile.innerHTML = `<img src="${this._wallThumbUrls[imageId]}" alt="">`;
+      } else {
+        this._loadThumbnail(imageId, tile, this._wallThumbUrls);
+      }
+    }
+
+    _positionWallGhost(clientX, clientY) {
+      const drag = this._wallDrag;
+      if (!drag) return;
+      drag.ghost.style.left = `${clientX - drag.dims.width / 2}px`;
+      drag.ghost.style.top  = `${clientY - drag.dims.height / 2}px`;
+    }
+
+    _wallBeginDrag(e, entryId, kind) {
+      e.preventDefault();
+      const canvas = this.shadowRoot.getElementById('wall-canvas');
+      const frame  = this._frames.find(f => f.entryId === entryId);
+      if (!frame) return;
+      const dims = this._wallTileDims(frame);
+
+      const ghost = document.createElement('div');
+      ghost.className = 'wall-drag-ghost';
+      ghost.style.width  = `${dims.width}px`;
+      ghost.style.height = `${dims.height}px`;
+      ghost.textContent = frame.title;
+      this.shadowRoot.appendChild(ghost);
+
+      let startLeft = 0, startTop = 0;
+      if (kind === 'tile') {
+        const tileEl = canvas.querySelector(`.wall-tile[data-entry-id="${CSS.escape(entryId)}"]`);
+        if (tileEl) {
+          startLeft = parseFloat(tileEl.style.left) || 0;
+          startTop  = parseFloat(tileEl.style.top) || 0;
+          tileEl.classList.add('dragging');
+        }
+      }
+
+      this._wallDrag = {
+        kind, entryId, dims, ghost,
+        startClientX: e.clientX, startClientY: e.clientY,
+        startLeft, startTop,
+        moved: false,
+      };
+
+      this._positionWallGhost(e.clientX, e.clientY);
+      window.addEventListener('pointermove', this._onWallPointerMove);
+      window.addEventListener('pointerup', this._onWallPointerUp);
+    }
+
+    _onWallPointerMove(e) {
+      const drag = this._wallDrag;
+      if (!drag) return;
+      if (!drag.moved && (Math.abs(e.clientX - drag.startClientX) > 4 || Math.abs(e.clientY - drag.startClientY) > 4)) {
+        drag.moved = true;
+      }
+      this._positionWallGhost(e.clientX, e.clientY);
+    }
+
+    _onWallPointerUp(e) {
+      const drag = this._wallDrag;
+      if (!drag) return;
+      window.removeEventListener('pointermove', this._onWallPointerMove);
+      window.removeEventListener('pointerup', this._onWallPointerUp);
+      drag.ghost.remove();
+      this._wallDrag = null;
+
+      const canvas = this.shadowRoot.getElementById('wall-canvas');
+      const tileEl = canvas.querySelector(`.wall-tile[data-entry-id="${CSS.escape(drag.entryId)}"]`);
+      if (tileEl) tileEl.classList.remove('dragging');
+
+      if (drag.kind === 'tile' && !drag.moved) {
+        // A click, not a drag -- open the image picker for this tile
+        // instead of "repositioning" it to the same spot.
+        this._openWallImagePicker(drag.entryId);
+        return;
+      }
+
+      const canvasRect = canvas.getBoundingClientRect();
+
+      if (drag.kind === 'palette') {
+        const withinCanvas = e.clientX >= canvasRect.left && e.clientX <= canvasRect.right
+          && e.clientY >= canvasRect.top && e.clientY <= canvasRect.bottom;
+        if (!withinCanvas) {
+          // Dropped outside the wall -- treat as a cancel rather than
+          // snapping it onto whichever edge happens to be nearest.
+          this._renderWallCanvas();
+          return;
+        }
+      }
+
+      const rawX = drag.kind === 'palette'
+        ? (e.clientX - canvasRect.left + canvas.scrollLeft - drag.dims.width / 2)
+        : (drag.startLeft + (e.clientX - drag.startClientX));
+      const rawY = drag.kind === 'palette'
+        ? (e.clientY - canvasRect.top + canvas.scrollTop - drag.dims.height / 2)
+        : (drag.startTop + (e.clientY - drag.startClientY));
+
+      const GRID = 20;
+      const x = Math.max(0, Math.round(rawX / GRID) * GRID);
+      const y = Math.max(0, Math.round(rawY / GRID) * GRID);
+
+      this._wallPlacements[drag.entryId] = { x, y };
+      this._renderWallCanvas();
+    }
+
+    async _saveWallLayout() {
+      const wall = this._walls.find(w => w.wall_id === this._activeWallId);
+      if (!wall) return;
+
+      const fb = this.shadowRoot.getElementById('wall-fb');
+      try {
+        const resp = await fetch(`/api/fraimic/walls/${wall.wall_id}`, {
+          method: 'POST',
+          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: wall.name, placements: this._wallPlacements }),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+        await this._loadWalls();
+        fb.className = 'feedback ok';
+        fb.textContent = 'Layout saved.';
+        fb.style.display = 'block';
+        setTimeout(() => { fb.style.display = 'none'; }, 3000);
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Couldn't save layout: ${err.message}`;
+        fb.style.display = 'block';
+      }
+    }
+
+    _renderWallScenePicker() {
+      const select = this.shadowRoot.getElementById('wall-scene-select');
+      select.innerHTML = '<option value="">— None —</option>' +
+        this._scenes.map(s => `<option value="${this._esc(s.scene_id)}">${this._esc(s.name)}</option>`).join('');
+      select.value = this._wallActiveSceneId || '';
+    }
+
+    _loadSceneOntoWall(sceneId) {
+      this._wallActiveSceneId = sceneId || null;
+      this._wallPendingMappings = {};
+      this._renderWallCanvas();
+    }
+
+    _wireWallImagePicker() {
+      this.shadowRoot.getElementById('wall-image-picker-cancel').addEventListener('click', () => this._closeWallImagePicker());
+      this.shadowRoot.getElementById('wall-image-picker-clear').addEventListener('click', () => {
+        if (!this._wallImagePickerEntryId) return;
+        this._wallPendingMappings[this._wallImagePickerEntryId] = '';
+        this._closeWallImagePicker();
+        this._renderWallCanvas();
+      });
+    }
+
+    // Lists every image in the library, with no album filter -- unlike the
+    // Scenes tab's editor (which stays scoped to one album), a wall tile can
+    // pull from anywhere in the library.
+    async _openWallImagePicker(entryId) {
+      this._wallImagePickerEntryId = entryId;
+      // A token, not just entryId, guards against a slow fetch from an
+      // earlier open finishing after the user closed it and opened the
+      // picker for a *different* tile -- without this, the stale response
+      // would render a grid whose click handlers still assign to the old
+      // entryId, silently mis-assigning an image to the wrong frame.
+      const token = (this._wallImagePickerToken = (this._wallImagePickerToken || 0) + 1);
+
+      const overlay = this.shadowRoot.getElementById('wall-image-picker-overlay');
+      const grid    = this.shadowRoot.getElementById('wall-image-picker-grid');
+      const fb      = this.shadowRoot.getElementById('wall-image-picker-fb');
+      fb.style.display = 'none';
+      grid.innerHTML = '<div class="modal-file-summary">Loading photos…</div>';
+      overlay.style.display = 'flex';
+
+      let images = [];
+      try {
+        const resp = await fetch('/api/fraimic/library/list', { headers: this._authHeaders() });
+        const result = await resp.json();
+        images = result.images || [];
+      } catch (err) {
+        console.warn('[fraimic-panel] library load for wall image picker failed:', err);
+      }
+
+      if (token !== this._wallImagePickerToken) return; // superseded by a newer open
+
+      if (!images.length) {
+        grid.innerHTML = '<div class="modal-file-summary">No photos in the library yet.</div>';
+        return;
+      }
+
+      grid.innerHTML = '';
+      for (const image of images) {
+        const cell = document.createElement('div');
+        cell.className = 'image-picker-cell';
+        cell.dataset.imageId = image.image_id;
+        cell.title = image.filename;
+        cell.innerHTML = `<div class="image-picker-thumb">🖼</div>`;
+
+        const previousUrl = this._wallPickerThumbUrls[image.image_id];
+        if (previousUrl) URL.revokeObjectURL(previousUrl);
+        this._loadThumbnail(image.image_id, cell.querySelector('.image-picker-thumb'), this._wallPickerThumbUrls);
+
+        cell.addEventListener('click', () => {
+          this._wallPendingMappings[entryId] = image.image_id;
+          this._closeWallImagePicker();
+          this._renderWallCanvas();
+        });
+        grid.appendChild(cell);
+      }
+    }
+
+    _closeWallImagePicker() {
+      this.shadowRoot.getElementById('wall-image-picker-overlay').style.display = 'none';
+      this._wallImagePickerEntryId = null;
+    }
+
+    // Merges this wall's tile assignments into the scene's *current* full
+    // mappings -- a scene can span multiple walls, so this must never
+    // clobber mappings for frames that aren't placed on this one.
+    async _saveWallToScene() {
+      const fb = this.shadowRoot.getElementById('wall-scene-fb');
+      if (!this._wallActiveSceneId) {
+        fb.className = 'feedback err';
+        fb.textContent = 'Load a scene first.';
+        fb.style.display = 'block';
+        return;
+      }
+
+      try {
+        await this._loadScenes();
+        const scene = this._scenes.find(s => s.scene_id === this._wallActiveSceneId);
+        if (!scene) throw new Error('Scene no longer exists');
+
+        const mergedMappings = { ...scene.mappings };
+        for (const entryId of Object.keys(this._wallPlacements)) {
+          const imageId = this._wallEffectiveMapping(entryId);
+          if (imageId) {
+            mergedMappings[entryId] = imageId;
+          } else {
+            delete mergedMappings[entryId];
+          }
+        }
+
+        const resp = await fetch(`/api/fraimic/scenes/${scene.scene_id}`, {
+          method: 'POST',
+          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: scene.name, mappings: mergedMappings, album: scene.album }),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+
+        await this._loadScenes();
+        this._wallPendingMappings = {};
+        this._renderWallCanvas();
+        this._renderScenes();
+
+        fb.className = 'feedback ok';
+        fb.textContent = `Saved to scene "${scene.name}".`;
+        fb.style.display = 'block';
+        setTimeout(() => { fb.style.display = 'none'; }, 3000);
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Couldn't save scene: ${err.message}`;
+        fb.style.display = 'block';
+      }
+    }
+
+    async _saveWallAsNewScene() {
+      const fb = this.shadowRoot.getElementById('wall-scene-fb');
+      const name = window.prompt('Name for the new scene:');
+      if (!name || !name.trim()) return;
+
+      const mappings = {};
+      for (const entryId of Object.keys(this._wallPlacements)) {
+        const imageId = this._wallEffectiveMapping(entryId);
+        if (imageId) mappings[entryId] = imageId;
+      }
+      if (!Object.keys(mappings).length) {
+        fb.className = 'feedback err';
+        fb.textContent = 'Assign an image to at least one frame on this wall first.';
+        fb.style.display = 'block';
+        return;
+      }
+
+      try {
+        const resp = await fetch('/api/fraimic/scenes', {
+          method: 'POST',
+          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name.trim(), mappings }),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+
+        await this._loadScenes();
+        this._wallActiveSceneId = result.scene.scene_id;
+        this._wallPendingMappings = {};
+        this._renderWallScenePicker();
+        this._renderWallCanvas();
+        this._renderScenes();
+
+        fb.className = 'feedback ok';
+        fb.textContent = `Created scene "${result.scene.name}".`;
+        fb.style.display = 'block';
+        setTimeout(() => { fb.style.display = 'none'; }, 3000);
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Couldn't create scene: ${err.message}`;
+        fb.style.display = 'block';
+      }
     }
 
     // -----------------------------------------------------------------------

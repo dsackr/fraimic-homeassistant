@@ -169,6 +169,21 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.http.register_view(FraimicSceneView())
     hass.http.register_view(FraimicSceneSendView())
 
+    # Walls: virtual layouts of a subset of the user's frames, positioned the
+    # way they're physically hung. Pure panel-local state -- like scenes,
+    # config entry_ids are meaningless off this HA instance, and walls are
+    # never referenced by automations, voice control, or an entity platform.
+    from .walls import WallManager  # noqa: PLC0415
+
+    wall_manager = WallManager(hass)
+    await wall_manager.async_load()
+    hass.data.setdefault(DOMAIN, {})["_walls"] = wall_manager
+
+    from .walls_http import FraimicWallsView, FraimicWallView  # noqa: PLC0415
+
+    hass.http.register_view(FraimicWallsView())
+    hass.http.register_view(FraimicWallView())
+
     # Scene packs: curated bundles of public-domain images + an auto-built
     # scene, installable from the panel with no manual setup. Built on top
     # of the library and scene managers above, so it's set up after both.
@@ -336,6 +351,24 @@ def _get_coordinator_by_device_id(
     )
 
 
+def _safe_media_join(local_dir: str, relative: str) -> str:
+    """Join *relative* onto *local_dir*, rejecting any escape via '..' or an
+    absolute path override (os.path.join discards local_dir if relative is
+    absolute).
+
+    Deliberately uses abspath/normpath rather than realpath: it must reject
+    '../' segments that escape local_dir, but must NOT reject a legitimate
+    symlink inside local_dir that points elsewhere on disk (e.g. a large
+    photo library mounted outside the HA config directory) -- realpath would
+    resolve that symlink and then wrongly flag it as outside local_dir.
+    """
+    joined = os.path.normpath(os.path.join(local_dir, relative))
+    base = os.path.abspath(local_dir)
+    if joined != base and not joined.startswith(base + os.sep):
+        raise HomeAssistantError(f"Invalid media path: {relative}")
+    return joined
+
+
 async def _resolve_media_path(hass: HomeAssistant, media_content_id: str) -> str:
     """Resolve a media content_id or path string to an absolute filesystem path."""
     if media_content_id.startswith("media-source://"):
@@ -352,7 +385,7 @@ async def _resolve_media_path(hass: HomeAssistant, media_content_id: str) -> str
                 local_dir = hass.config.media_dirs.get(
                     "local", hass.config.path("media")
                 )
-                return os.path.join(local_dir, url[len(prefix):])
+                return _safe_media_join(local_dir, url[len(prefix):])
 
             raise HomeAssistantError(f"Cannot access non-local media URL: {url}")
         except ImportError as err:
@@ -362,7 +395,7 @@ async def _resolve_media_path(hass: HomeAssistant, media_content_id: str) -> str
 
     if media_content_id.startswith("/media/"):
         local_dir = hass.config.media_dirs.get("local", hass.config.path("media"))
-        return os.path.join(local_dir, media_content_id[len("/media/"):])
+        return _safe_media_join(local_dir, media_content_id[len("/media/"):])
 
     return media_content_id
 

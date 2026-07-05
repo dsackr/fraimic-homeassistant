@@ -47,6 +47,11 @@ HUB_PLATFORMS = [Platform.SCENE]
 # the scene entity platform can add/remove/rename entities without a reload.
 SIGNAL_SCENES_UPDATED = f"{DOMAIN}_scenes_updated"
 
+# Dispatcher signal fired whenever a wall layout is created, edited, or
+# deleted. No entity platform listens today -- walls are pure panel-local
+# state -- but this mirrors SIGNAL_SCENES_UPDATED for consistency.
+SIGNAL_WALLS_UPDATED = f"{DOMAIN}_walls_updated"
+
 # Where scene pack content (manifest + source images) is fetched from at
 # install time. Content lives in this same repo under scene_packs/ rather
 # than a separate service, so installing a pack is just downloading public
