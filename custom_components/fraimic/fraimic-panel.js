@@ -743,6 +743,19 @@
       overflow-y: auto;
       flex: 1 1 auto;
     }
+    .wall-lock-hint {
+      font-size: 12px;
+      color: var(--secondary-text-color);
+      background: var(--secondary-background-color, #f1f5f9);
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-top: 10px;
+      line-height: 1.5;
+    }
+    .wall-lock-hint.warn {
+      color: var(--warning-color, #b45309);
+      background: rgba(180, 83, 9, .1);
+    }
 
     /* ---- scene packs ---- */
     .pack-cover {
@@ -1076,6 +1089,8 @@
       this._wallActiveSceneId = null;    // scene_id loaded for preview on this wall, or null
       this._wallPendingMappings = {};    // entry_id -> image_id ('' = explicitly cleared) touched this session,
                                           // overlaid on the active scene's own mappings -- see _wallEffectiveMapping
+      this._wallPendingPickAlbum = {};   // entry_id -> the album filter value active in the picker when that
+                                          // pending pick was made ('' = "All Photos") -- see _wallSceneAlbumLock
       this._wallImagePickerEntryId = null; // entry_id whose "choose an image" picker is open, or null
       this._wallImagePickerToken = 0;      // incremented per open -- lets a stale fetch detect it's superseded
       this._wallThumbUrls       = {}; // image_id → blob: URL, for wall tile thumbnails
@@ -1306,6 +1321,7 @@
             <label for="wall-scene-select">Scene</label>
             <select id="wall-scene-select"><option value="">— None —</option></select>
           </div>
+          <div class="wall-lock-hint" id="wall-lock-hint" style="display:none"></div>
           <div class="btns" style="margin-top:10px">
             <button class="btn-primary" id="wall-save-scene-btn">Save to Scene</button>
             <button class="btn-ghost" id="wall-save-new-scene-btn">Save As New Scene</button>
@@ -1425,6 +1441,7 @@
                 <label for="wall-image-picker-album">Album</label>
                 <select id="wall-image-picker-album"></select>
               </div>
+              <div class="wall-lock-hint" id="wall-image-picker-lock-hint" style="display:none"></div>
               <div class="modal-row">
                 <button class="btn-ghost" id="wall-image-picker-clear">✕ Remove Image From This Frame</button>
               </div>
@@ -3764,6 +3781,7 @@
       this._wallPlacements = wall ? JSON.parse(JSON.stringify(wall.placements || {})) : {};
       this._wallActiveSceneId = null;
       this._wallPendingMappings = {};
+      this._wallPendingPickAlbum = {};
       this._renderWallsSubview();
     }
 
@@ -3893,6 +3911,40 @@
 
         this._renderWallTileContent(tile, entryId, frame);
         tile.addEventListener('pointerdown', (e) => this._wallBeginDrag(e, entryId, 'tile'));
+      }
+
+      this._updateWallSaveToSceneAvailability();
+    }
+
+    // Keeps the Save to Scene button (and the explanatory hint above it) in
+    // sync with the album lock -- called after every wall canvas render, the
+    // same "re-render everything downstream of a state change" pattern
+    // _updateSceneFrameOptions uses for the Scenes tab editor.
+    _updateWallSaveToSceneAvailability() {
+      const btn  = this.shadowRoot.getElementById('wall-save-scene-btn');
+      const hint = this.shadowRoot.getElementById('wall-lock-hint');
+      const lockedAlbum = this._wallSceneAlbumLock();
+
+      if (!lockedAlbum) {
+        btn.disabled = false;
+        btn.title = '';
+        hint.style.display = 'none';
+        return;
+      }
+
+      const violated = this._wallHasOffAlbumPick();
+      btn.disabled = violated;
+      hint.style.display = 'block';
+      if (violated) {
+        hint.className = 'wall-lock-hint warn';
+        hint.textContent = `Save to Scene is off -- this add-on scene is locked to the "${lockedAlbum}" album ` +
+          `and at least one pick here comes from elsewhere. Use Save As New Scene to keep it, or re-pick from ` +
+          `"${lockedAlbum}" to re-enable saving back to the original.`;
+        btn.title = `Locked to the "${lockedAlbum}" album`;
+      } else {
+        hint.className = 'wall-lock-hint';
+        hint.textContent = `This is an add-on scene -- locked to the "${lockedAlbum}" album.`;
+        btn.title = '';
       }
     }
 
@@ -4083,7 +4135,33 @@
     _loadSceneOntoWall(sceneId) {
       this._wallActiveSceneId = sceneId || null;
       this._wallPendingMappings = {};
+      this._wallPendingPickAlbum = {};
       this._renderWallCanvas();
+    }
+
+    // An add-on scene ships bound to the album its images were installed
+    // into (see ScenePackManager -- every pack image is uploaded into, and
+    // the pack's auto-built scene is scoped to, the same album). User-made
+    // scenes have no such binding -- picking images from any album for any
+    // frame is the whole point of building a scene by hand. Returns the
+    // locked album name, or null when no lock applies.
+    _wallSceneAlbumLock() {
+      const scene = this._wallActiveSceneId && this._scenes.find(s => s.scene_id === this._wallActiveSceneId);
+      return (scene && scene.source === 'addon' && scene.album) || null;
+    }
+
+    // True once any *currently pending* image pick was made while the
+    // picker's album filter was set away from the scene's locked album --
+    // this is what disables Save to Scene (Save As New Scene is never
+    // affected, since forking into a user-owned scene is always allowed).
+    // Clearing a tile's image doesn't count -- only actually picking an
+    // off-album image does.
+    _wallHasOffAlbumPick() {
+      const lockedAlbum = this._wallSceneAlbumLock();
+      if (!lockedAlbum) return false;
+      return Object.keys(this._wallPendingMappings).some(entryId =>
+        this._wallPendingMappings[entryId] && this._wallPendingPickAlbum[entryId] !== lockedAlbum
+      );
     }
 
     _wireWallImagePicker() {
@@ -4155,7 +4233,12 @@
       if (!this._albums || !this._albums.length) await this._loadAlbums();
       albumSelect.innerHTML = '<option value="">All Photos</option>' +
         this._albums.map(a => `<option value="${this._esc(a.name)}">${this._esc(a.name)}</option>`).join('');
-      albumSelect.value = ''; // default to every album, not wherever it was last left
+      // An add-on scene's images all ship in one dedicated album -- default
+      // straight to it instead of "All Photos" so picking a replacement for
+      // one of its frames doesn't require hunting it down manually. A
+      // user-made scene has no such album, so this is a no-op for those.
+      const lockedAlbum = this._wallSceneAlbumLock();
+      albumSelect.value = lockedAlbum || '';
 
       overlay.style.display = 'block';
       await this._loadWallImagePickerImages();
@@ -4176,6 +4259,21 @@
       const albumSelect = this.shadowRoot.getElementById('wall-image-picker-album');
       const album       = albumSelect.value;
       grid.innerHTML = '<div class="modal-file-summary">Loading photos…</div>';
+
+      const lockedAlbum = this._wallSceneAlbumLock();
+      const hint = this.shadowRoot.getElementById('wall-image-picker-lock-hint');
+      if (!lockedAlbum) {
+        hint.style.display = 'none';
+      } else if (album === lockedAlbum) {
+        hint.className = 'wall-lock-hint';
+        hint.textContent = `This is an add-on scene -- locked to the "${lockedAlbum}" album.`;
+        hint.style.display = 'block';
+      } else {
+        hint.className = 'wall-lock-hint warn';
+        hint.textContent = `Picking outside "${lockedAlbum}" will disable Save to Scene for this session -- ` +
+          `you can still use Save As New Scene.`;
+        hint.style.display = 'block';
+      }
 
       let images = [];
       try {
@@ -4212,6 +4310,11 @@
 
         cell.addEventListener('click', () => {
           this._wallPendingMappings[entryId] = image.image_id;
+          // Recorded at the moment of picking, from whichever album filter
+          // was active right now -- not the image's own album tags -- so
+          // this stays a simple, predictable "did you leave the scene's
+          // locked album to make this pick" check (see _wallHasOffAlbumPick).
+          this._wallPendingPickAlbum[entryId] = album;
           this._closeWallImagePicker();
           this._renderWallCanvas();
         });
@@ -4232,6 +4335,15 @@
       if (!this._wallActiveSceneId) {
         fb.className = 'feedback err';
         fb.textContent = 'Load a scene first.';
+        fb.style.display = 'block';
+        return;
+      }
+      // The button is already disabled for this -- this is a backstop, not
+      // the primary guard, in case this ever gets invoked some other way.
+      if (this._wallHasOffAlbumPick()) {
+        fb.className = 'feedback err';
+        fb.textContent = `This add-on scene is locked to the "${this._wallSceneAlbumLock()}" album -- ` +
+          'use Save As New Scene to keep a pick from outside it.';
         fb.style.display = 'block';
         return;
       }
@@ -4277,6 +4389,7 @@
 
         await this._loadScenes();
         this._wallPendingMappings = {};
+        this._wallPendingPickAlbum = {};
         this._renderWallCanvas();
         this._renderScenes();
 
@@ -4322,6 +4435,7 @@
         await this._loadScenes();
         this._wallActiveSceneId = result.scene.scene_id;
         this._wallPendingMappings = {};
+        this._wallPendingPickAlbum = {};
         this._renderWallScenePicker();
         this._renderWallCanvas();
         this._renderScenes();
