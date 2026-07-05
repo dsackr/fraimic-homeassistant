@@ -16,7 +16,7 @@
   // Mirrors const.py's SCENE_PACK_RAW_BASE -- scene pack cover art is public
   // content, so the browser fetches it directly instead of proxying through
   // a Fraimic endpoint.
-  const SCENE_PACK_RAW_BASE = 'https://raw.githubusercontent.com/dsackr/fraimic-homeassistant/main';
+  const SCENE_PACK_RAW_BASE = 'https://raw.githubusercontent.com/dsackr/frame-addons/main';
 
   // Mirrors the "category" values scripts/build_scene_pack.py writes into
   // each pack's index.json entry -- the Add-ons tab browses packs grouped

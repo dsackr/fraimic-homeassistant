@@ -19,15 +19,15 @@ Thanks for your interest in contributing. This is a custom HACS integration for 
 
 ## Scene packs
 
-`scene_packs/` holds the content for one-click "install a pack" bundles surfaced in the panel: a manifest (`scene_packs/index.json`) plus resized source images, fetched at install time from GitHub raw content. Installing a pack runs its images through the normal `LibraryManager.async_upload()` pipeline (so it respects whatever storage backend the user already has configured) and auto-builds a scene by matching image orientation to each configured frame.
+Scene pack content (a manifest plus resized source images) lives in a separate repository ([dsackr/frame-addons](https://github.com/dsackr/frame-addons)) under the `scene_packs/` folder, fetched at install time from GitHub raw content. Installing a pack runs its images through the normal `LibraryManager.async_upload()` pipeline (so it respects whatever storage backend the user already has configured) and auto-builds a scene by matching image orientation to each configured frame.
 
-To add or refresh a pack, edit the `PACKS` list in `scripts/build_scene_pack.py` (a maintainer-only tool, not loaded by the integration) and run it:
+To add or refresh a pack, check out the [dsackr/frame-addons](https://github.com/dsackr/frame-addons) repository, edit the `PACKS` list in its copy of `scripts/build_scene_pack.py` (a maintainer-only tool, not loaded by the integration), and run it there:
 
 ```
 python3 scripts/build_scene_pack.py
 ```
 
-It searches Wikimedia Commons for each configured query, keeps only files whose license metadata explicitly says "public domain" *and* whose `Artist` metadata matches the expected artist (Commons full-text search can otherwise surface an unrelated painting for a loosely-worded query), downsizes them to a sane resolution, and rewrites `scene_packs/<pack_id>/` and `index.json`. Running it with no arguments rebuilds every pack in `PACKS` — review `git diff` before committing, since Commons occasionally reshuffles which scan ranks best for a given search. Pass one or more pack ids to rebuild only those and leave every other pack's existing `index.json` entry untouched, e.g. `python3 scripts/build_scene_pack.py christmas halloween`.
+It searches Wikimedia Commons for each configured query, keeps only files whose license metadata explicitly says "public domain" *and* whose `Artist` metadata matches the expected artist (Commons full-text search can otherwise surface an unrelated painting for a loosely-worded query), downsizes them to a sane resolution, and rewrites `scene_packs/<pack_id>/` and `index.json`. Running it with no arguments rebuilds every pack in `PACKS` — review `git diff` before committing, since Commons occasionally reshuffles which scan ranks best for a given search. Pass one or more pack ids to rebuild only those and leave every other pack's existing `index.json` entry untouched.
 
 Every pack has a `category` field (`"art"` or `"seasonal"`), shown in the panel as a top-level browsing tile before the user drills into a category's packs. Set it on the `PACKS` entry — it flows straight through to `index.json`.
 

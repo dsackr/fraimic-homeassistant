@@ -53,11 +53,10 @@ SIGNAL_SCENES_UPDATED = f"{DOMAIN}_scenes_updated"
 SIGNAL_WALLS_UPDATED = f"{DOMAIN}_walls_updated"
 
 # Where scene pack content (manifest + source images) is fetched from at
-# install time. Content lives in this same repo under scene_packs/ rather
-# than a separate service, so installing a pack is just downloading public
-# files -- no server-side component to run or keep available.
+# install time. Content lives in a separate repository (dsackr/frame-addons)
+# under scene_packs/ so the integration stays lightweight.
 SCENE_PACK_RAW_BASE = (
-    "https://raw.githubusercontent.com/dsackr/fraimic-homeassistant/main"
+    "https://raw.githubusercontent.com/dsackr/frame-addons/main"
 )
 SCENE_PACK_INDEX_URL = f"{SCENE_PACK_RAW_BASE}/scene_packs/index.json"
 
