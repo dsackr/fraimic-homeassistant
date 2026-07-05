@@ -25,6 +25,14 @@ function readJsonBody(req) {
   });
 }
 
+function readFormBody(req) {
+  return new Promise((resolve) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => resolve(Object.fromEntries(new URLSearchParams(body))));
+  });
+}
+
 // frames: [{ entry_id, title, width, height, orientation, ... }]
 // scenes: [{ scene_id, name, mappings, album, source }]
 // images: [{ image_id, filename, albums: [albumName, ...] }]
@@ -35,6 +43,7 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [] }
   let nextWallId = 1;
   let nextSceneId = sceneList.length + 1;
   const requestLog = [];
+  const sends = []; // { entity_id, image_id, packer } per /library/send POST
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
@@ -71,6 +80,16 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [] }
       res.writeHead(200, { 'Content-Type': 'image/png' });
       res.end(TINY_PNG);
       return;
+    }
+
+    if (p === '/api/fraimic/library/send' && req.method === 'POST') {
+      // Only parses URL-encoded bodies (what the ?packtest modal sends);
+      // FormData/multipart senders aren't exercised through this route yet.
+      const form = await readFormBody(req);
+      sends.push({ entity_id: form.entity_id, image_id: form.image_id, packer: form.packer });
+      const body = { success: true, bytes_sent: 960000 };
+      if (form.packer) body.packer = form.packer;
+      return json(res, 200, body);
     }
 
     if (p === '/api/fraimic/scenes') {
@@ -146,6 +165,7 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [] }
       await new Promise((resolve) => server.close(resolve));
     },
     requestLog,
+    sends,
     get scenes() { return sceneList; },
     get walls() { return wallList; },
   };

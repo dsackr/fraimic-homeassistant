@@ -1079,6 +1079,9 @@
       this._librarySelectMode = false;  // true = photo grid is in multi-select-for-delete mode
       this._librarySelected   = new Set();  // image_ids selected while in that mode
 
+      this._packerOverride = null;         // 'legacy' | 'fast' | null -- see ?packer in _init
+      this._packTestSelectedImage = null;  // image_id picked in the ?packtest modal
+
       this._scenes        = [];       // [{ scene_id, name, mappings: { entry_id: image_id }, source }]
       this._sceneEditorId  = null;    // scene_id being edited, or null when creating a new one
 
@@ -1124,13 +1127,18 @@
     // -----------------------------------------------------------------------
 
     async _init() {
-      // Hidden A/B test switch: open the panel as /fraimic?packer=fast (or
-      // ?packer=legacy) and every Library "Send" carries that packing-method
-      // override -- the backend then bypasses the .bin cache and converts
-      // fresh with the requested packer, so the same image can be sent to
-      // two frames (one per method) and compared on the physical panels.
+      // Hidden A/B test switches for the fast bin packer:
+      //   /fraimic?packtest      -- guided one-image-two-frames test modal
+      //                             (opens automatically once data loads)
+      //   /fraimic?packer=fast   -- every Library "Send" carries this
+      //   /fraimic?packer=legacy    packing-method override instead
+      // Both make the backend bypass the .bin cache and convert fresh with
+      // the requested packer, so the physical panels can be compared.
+      let packTestRequested = false;
       try {
-        const packer = new URLSearchParams(window.location.search).get('packer');
+        const params = new URLSearchParams(window.location.search);
+        packTestRequested = params.has('packtest');
+        const packer = params.get('packer');
         this._packerOverride = (packer === 'fast' || packer === 'legacy') ? packer : null;
       } catch (err) {
         this._packerOverride = null;
@@ -1152,6 +1160,7 @@
       this._wireFramesSubnav();
       this._wireWallToolbar();
       this._wireWallImagePicker();
+      this._wirePackTest();
       // Fire every tab's data load concurrently and render each section as
       // its data lands -- these are independent endpoints, and awaiting
       // them serially made first paint wait on the sum of all round trips
@@ -1176,6 +1185,9 @@
       this._renderWallsSubview();
       await packsP;
       this._renderScenePacks();
+
+      // Needs frames + albums, both awaited above.
+      if (packTestRequested) this._openPackTestModal();
     }
 
     // Coming from a device page's "Visit" link (/fraimic?entry=<entry_id>):
@@ -1452,6 +1464,44 @@
             <div class="modal-actions">
               <button class="btn-primary" id="album-create-save">Create Album</button>
               <button class="btn-ghost" id="album-create-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hidden packer A/B test: only ever opened via /fraimic?packtest
+             (see _init). Sends one image to two frames, one per packing
+             method, bypassing the .bin cache -- for verifying the fast
+             packer renders identically on real hardware. -->
+        <div class="modal-overlay" id="packtest-overlay">
+          <div class="modal-box" style="max-width:520px">
+            <h3>🧪 Packer A/B Test</h3>
+            <p class="muted" style="margin:0 0 12px">
+              Sends one image to two frames — Frame A with the <strong>legacy</strong>
+              packer, Frame B with the <strong>fast</strong> packer — bypassing the
+              .bin cache so both really convert. The two panels should come out
+              pixel-identical, including the dither pattern.
+            </p>
+            <div class="modal-row">
+              <label for="packtest-album">Album</label>
+              <select id="packtest-album"></select>
+            </div>
+            <div class="modal-row">
+              <label>Pick one image</label>
+              <div class="image-picker-grid" id="packtest-images"></div>
+            </div>
+            <div class="modal-row">
+              <label for="packtest-frame-a">Frame A — legacy packer</label>
+              <select id="packtest-frame-a"></select>
+            </div>
+            <div class="modal-row">
+              <label for="packtest-frame-b">Frame B — fast packer</label>
+              <select id="packtest-frame-b"></select>
+            </div>
+            <div class="modal-file-summary" id="packtest-log" style="white-space:pre-line"></div>
+            <div class="feedback" id="packtest-fb"></div>
+            <div class="modal-actions">
+              <button class="btn-primary" id="packtest-go">▶ Go</button>
+              <button class="btn-ghost" id="packtest-close">Close</button>
             </div>
           </div>
         </div>
@@ -2735,6 +2785,143 @@
       setTimeout(() => { fb.style.display = 'none'; }, 4000);
     }
 
+    // -----------------------------------------------------------------------
+    // Packer A/B test modal (hidden -- only reachable via /fraimic?packtest)
+    // -----------------------------------------------------------------------
+
+    _wirePackTest() {
+      this.shadowRoot.getElementById('packtest-close').addEventListener('click', () => {
+        this.shadowRoot.getElementById('packtest-overlay').style.display = 'none';
+      });
+      this.shadowRoot.getElementById('packtest-album').addEventListener('change', () => this._loadPackTestImages());
+      this.shadowRoot.getElementById('packtest-go').addEventListener('click', () => this._runPackTest());
+    }
+
+    async _openPackTestModal() {
+      const overlay     = this.shadowRoot.getElementById('packtest-overlay');
+      const albumSelect = this.shadowRoot.getElementById('packtest-album');
+      const selA        = this.shadowRoot.getElementById('packtest-frame-a');
+      const selB        = this.shadowRoot.getElementById('packtest-frame-b');
+      const fb          = this.shadowRoot.getElementById('packtest-fb');
+
+      fb.style.display = 'none';
+      this.shadowRoot.getElementById('packtest-log').textContent = '';
+
+      const frameOptions = this._frames.map(f =>
+        `<option value="${this._esc(f.entityId)}">${this._esc(f.title)}</option>`
+      ).join('');
+      selA.innerHTML = frameOptions;
+      selB.innerHTML = frameOptions;
+      // Default to two different frames -- ideally the same model side by
+      // side, but any second frame beats defaulting both to the same one.
+      if (this._frames.length > 1) selB.selectedIndex = 1;
+
+      if (!this._albums || !this._albums.length) await this._loadAlbums();
+      albumSelect.innerHTML = '<option value="">All Photos</option>' +
+        this._albums.map(a => `<option value="${this._esc(a.name)}">${this._esc(a.name)}</option>`).join('');
+
+      overlay.style.display = 'flex';
+      await this._loadPackTestImages();
+    }
+
+    async _loadPackTestImages() {
+      const grid  = this.shadowRoot.getElementById('packtest-images');
+      const album = this.shadowRoot.getElementById('packtest-album').value;
+      this._packTestSelectedImage = null;
+      grid.innerHTML = '<div class="modal-file-summary">Loading photos…</div>';
+
+      let images = [];
+      try {
+        const url = album
+          ? `/api/fraimic/library/list?album=${encodeURIComponent(album)}`
+          : '/api/fraimic/library/list';
+        const resp = await fetch(url, { headers: this._authHeaders() });
+        const result = await resp.json();
+        images = result.images || [];
+      } catch (err) {
+        console.warn('[fraimic-panel] library load for packer test failed:', err);
+      }
+
+      if (!images.length) {
+        grid.innerHTML = '<div class="modal-file-summary">No photos here yet.</div>';
+        return;
+      }
+
+      grid.innerHTML = '';
+      for (const image of images) {
+        const cell = document.createElement('div');
+        cell.className = 'image-picker-cell';
+        cell.dataset.imageId = image.image_id;
+        cell.title = image.filename;
+        cell.innerHTML = `<div class="image-picker-thumb">🖼</div>`;
+        this._loadThumbnail(image.image_id, cell.querySelector('.image-picker-thumb'));
+        cell.addEventListener('click', () => {
+          grid.querySelectorAll('.image-picker-cell.selected').forEach(c => c.classList.remove('selected'));
+          cell.classList.add('selected');
+          this._packTestSelectedImage = image.image_id;
+        });
+        grid.appendChild(cell);
+      }
+    }
+
+    // Sends the picked image twice, one frame at a time: Frame A with the
+    // legacy packer, Frame B with the fast packer. Each send carries the
+    // packer override, which makes the backend bypass the .bin cache in
+    // both directions (see LibraryManager.async_get_bin_for_send).
+    async _runPackTest() {
+      const fb  = this.shadowRoot.getElementById('packtest-fb');
+      const log = this.shadowRoot.getElementById('packtest-log');
+      const btn = this.shadowRoot.getElementById('packtest-go');
+      const imageId  = this._packTestSelectedImage;
+      const entityA  = this.shadowRoot.getElementById('packtest-frame-a').value;
+      const entityB  = this.shadowRoot.getElementById('packtest-frame-b').value;
+
+      const fail = (msg) => {
+        fb.className = 'feedback err';
+        fb.textContent = msg;
+        fb.style.display = 'block';
+      };
+      fb.style.display = 'none';
+      if (!imageId) return fail('Pick an image first.');
+      if (!entityA || !entityB) return fail('Pick both frames.');
+      if (entityA === entityB) return fail('Pick two different frames.');
+
+      btn.disabled = true;
+      log.textContent = '';
+      let failed = false;
+
+      for (const [entityId, packer] of [[entityA, 'legacy'], [entityB, 'fast']]) {
+        const frame = this._frames.find(f => f.entityId === entityId);
+        const name = frame ? frame.title : entityId;
+        log.textContent += `Sending with ${packer} packer to "${name}" (cache bypassed)…\n`;
+        const t0 = performance.now();
+        try {
+          // URL-encoded rather than FormData purely for simplicity -- the
+          // backend's request.post() parses both identically.
+          const resp = await fetch('/api/fraimic/library/send', {
+            method: 'POST',
+            headers: { ...this._authHeaders(), 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ entity_id: entityId, image_id: imageId, packer }),
+          });
+          const result = await resp.json().catch(() => ({}));
+          if (!resp.ok || !result.success) {
+            throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+          }
+          const secs = ((performance.now() - t0) / 1000).toFixed(1);
+          log.textContent += `  ✓ done in ${secs}s (${result.bytes_sent} bytes)\n`;
+        } catch (err) {
+          const secs = ((performance.now() - t0) / 1000).toFixed(1);
+          log.textContent += `  ✗ failed after ${secs}s: ${err.message}\n`;
+          failed = true;
+          break;
+        }
+      }
+
+      if (!failed) {
+        log.textContent += '\nDone. Compare the two frames — they should be pixel-identical, dither pattern included.';
+      }
+      btn.disabled = false;
+    }
 
     // -----------------------------------------------------------------------
     // Library: crop editor (aspect dictated by the selected frame)

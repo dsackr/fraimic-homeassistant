@@ -2,11 +2,13 @@
 // createMockServer() backend. Keeps each spec focused on the flow it's
 // actually testing instead of re-deriving init/navigation boilerplate.
 
-async function gotoPanel(page, baseUrl, { frames = [] } = {}) {
+// `query` (e.g. '?packtest') lands in the harness page's URL, which the
+// panel reads via window.location.search -- same as HA's real panel iframe.
+async function gotoPanel(page, baseUrl, { frames = [], query = '' } = {}) {
   const pageErrors = [];
   page.on('pageerror', (err) => pageErrors.push(err));
 
-  await page.goto(`${baseUrl}/harness.html`);
+  await page.goto(`${baseUrl}/harness.html${query}`);
   await page.evaluate((frameList) => {
     document.getElementById('panel').hass = window.__buildMockHass(frameList);
   }, frames);
