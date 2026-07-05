@@ -57,6 +57,10 @@ with open("out.bin", "wb") as f:
 
 Send `out.bin` to a frame via its local API and verify it renders correctly. Color accuracy on Spectra 6 panels can vary — if something looks wrong on hardware, that's the ground truth.
 
+## Testing the panel
+
+`fraimic-panel.js` has a Playwright suite under `tests/panel/` that drives the real panel JS in an actual browser against a mocked backend — no HA instance or frame needed. This exists because the panel's real bugs (DOM/pointer-event handling, async fetch timing, `<script>`-scope shadowing) don't show up from reading the code. See `tests/panel/README.md` to run it and for what to add a test for when you fix a panel bug.
+
 ## Releasing (maintainers)
 
 Releases are fully automatic. Every push to `main` (a direct commit or a merged PR) runs `bump-version.yaml`, which computes the next semver tag from the commit log, stamps it into `manifest.json`, pushes the tag, and publishes the GitHub release itself in the same job; HACS picks it up automatically. Don't hand-edit `manifest.json`'s `version` field — it's overwritten by the workflow. (`release.yaml` still exists as a fallback for a tag pushed manually with a real user token, but the automatic path doesn't depend on it — a tag pushed with the workflow's own token can't cascade-trigger another workflow.)

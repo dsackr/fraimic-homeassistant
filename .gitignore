@@ -2,3 +2,10 @@ __pycache__/
 *.pyc
 *.pyo
 .DS_Store
+
+# tests/panel (Playwright)
+tests/panel/node_modules/
+tests/panel/test-results/
+tests/panel/playwright-report/
+tests/panel/blob-report/
+tests/panel/playwright/.cache/

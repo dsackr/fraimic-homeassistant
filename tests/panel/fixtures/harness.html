@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>fraimic-panel test harness</title></head>
+<body style="margin:0;padding:0;">
+  <fraimic-panel id="panel"></fraimic-panel>
+  <script src="/fraimic-panel.js"></script>
+  <script>
+    // A faithful-enough stand-in for the real `hass` object HA injects into
+    // every custom panel/card. `states` MUST be present -- fraimic-panel.js
+    // reads hass.states[entityId] directly (e.g. for orientation selects),
+    // and a real hass object always has it. Omitting it previously masked
+    // an unrelated bug from showing up in tests and made init abort silently
+    // partway through (see tests/panel/README.md).
+    window.__buildMockHass = function (frames) {
+      const states = {};
+      const entities = [];
+      for (const f of frames) {
+        const batteryId = `sensor.${f.entry_id}_battery`;
+        const orientationId = `select.${f.entry_id}_orientation`;
+        states[batteryId] = { state: '90', attributes: {} };
+        states[orientationId] = { state: 'auto', attributes: { options: ['auto', 'portrait', 'landscape'] } };
+        entities.push(
+          { device_id: f.entry_id, unique_id: `${f.entry_id}_battery`, entity_id: batteryId },
+          { device_id: f.entry_id, unique_id: `${f.entry_id}_orientation`, entity_id: orientationId },
+        );
+      }
+      return {
+        auth: { data: { access_token: 'test-token' } },
+        states,
+        callWS: async (msg) => {
+          if (msg.type === 'config_entries/get') {
+            return frames.map((f) => ({ entry_id: f.entry_id, title: f.title }));
+          }
+          if (msg.type === 'config/device_registry/list') {
+            return frames.map((f) => ({ id: f.entry_id, config_entries: [f.entry_id] }));
+          }
+          if (msg.type === 'config/entity_registry/list') {
+            return entities;
+          }
+          return [];
+        },
+      };
+    };
+  </script>
+</body>
+</html>

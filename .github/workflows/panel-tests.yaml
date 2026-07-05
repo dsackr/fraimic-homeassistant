@@ -1,0 +1,45 @@
+name: Panel browser tests
+
+# fraimic-panel.js bugs tend to be invisible to code review -- e.g. a
+# top-level `const CSS` shadowing the global CSS object, or a full
+# thumbnail-cache wipe that only reads as broken under real network
+# latency -- because they only show up once real pointer/DOM events fire in
+# an actual browser. tests/panel/ drives the real panel JS with Playwright
+# against a mocked Fraimic HTTP API; see tests/panel/README.md.
+#
+# Scoped to changes under custom_components/fraimic/fraimic-panel.js or
+# tests/panel/ so unrelated commits (e.g. docs, other integration files)
+# don't pay for a browser install.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'custom_components/fraimic/fraimic-panel.js'
+      - 'tests/panel/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'custom_components/fraimic/fraimic-panel.js'
+      - 'tests/panel/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tests/panel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: tests/panel/playwright-report/
+          retention-days: 7
