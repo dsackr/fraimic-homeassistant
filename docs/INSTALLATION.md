@@ -50,7 +50,7 @@ Community clone builds:
 
 ## Image format notes
 
-Images are converted to Spectra 6 raw `.bin` format before being sent to frames. This format is community-validated, but e-ink panels can vary — test with your frame and [open an issue](https://github.com/dsackr/fraimic-homeassistant/issues) if the display looks wrong.
+Images are converted to Spectra 6 raw `.bin` format before being sent to frames. The conversion pipeline is based on the [Fraimic bin converter](https://github.com/Fraimic/fraimic_bin_converter) reference implementation. See also the [REST API guide](https://github.com/Fraimic/Fraimic_eink_canvas_home_assistant_restAPI_guide) for documentation on the endpoints this integration uses. E-ink panels can vary — test with your frame and [open an issue](https://github.com/dsackr/fraimic-homeassistant/issues) if the display looks wrong.
 
 ## Issues & support
 
