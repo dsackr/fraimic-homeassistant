@@ -322,6 +322,9 @@ class ScenePackManager:
         installed = self._installed.get(pack_id)
         if installed is None:
             raise ScenePackError(f"Pack '{pack_id}' is not installed")
+        if installed.get("type") == "widget":
+            await self.async_run_widget(pack_id)
+            return {"success": True, "pack_id": pack_id, "type": "widget"}
         if pack_id in self._installing:
             raise ScenePackError(f"Pack '{pack_id}' is already being installed")
 
@@ -486,6 +489,8 @@ class ScenePackManager:
         except Exception:
             layout = "split_half"
             
+        zip_code = config_data.get("zip_code")
+        
         script_config = {
             "frame": {
                 "ip_address": entry.data.get(CONF_HOST),
@@ -495,12 +500,21 @@ class ScenePackManager:
             "timezone": self.hass.config.time_zone or "UTC"
         }
         
-        lat_val = config_data.get("latitude")
-        lon_val = config_data.get("longitude")
-        if not lat_val and self.hass.config.latitude is not None:
-            lat_val = self.hass.config.latitude
-        if not lon_val and self.hass.config.longitude is not None:
-            lon_val = self.hass.config.longitude
+        if zip_code:
+            script_config["weather"] = {
+                "enabled": True,
+                "zip_code": zip_code
+            }
+        elif self.hass.config.latitude is not None and self.hass.config.longitude is not None:
+            script_config["weather"] = {
+                "enabled": True,
+                "latitude": self.hass.config.latitude,
+                "longitude": self.hass.config.longitude
+            }
+        else:
+            script_config["weather"] = {
+                "enabled": False
+            }
             
         for field in pack.get("config_schema", []):
             name = field["name"]
@@ -510,11 +524,8 @@ class ScenePackManager:
                     "source_type": "ical",
                     "ical_url": val
                 }
-            elif name == "latitude":
-                script_config.setdefault("weather", {})["latitude"] = float(lat_val) if lat_val else None
-                script_config.setdefault("weather", {})["enabled"] = True
-            elif name == "longitude":
-                script_config.setdefault("weather", {})["longitude"] = float(lon_val) if lon_val else None
+            elif name == "zip_code":
+                pass
             else:
                 script_config[name] = val
                 

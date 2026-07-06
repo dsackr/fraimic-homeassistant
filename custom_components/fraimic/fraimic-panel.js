@@ -5061,7 +5061,8 @@
       if (pack.installed) {
         if (isWidget) {
           statusHtml = `
-            <button class="btn-primary" id="pack-configure-${sid}">⚙ Settings</button>
+            <button class="btn-primary" id="pack-run-${sid}">▶ Refresh</button>
+            <button class="btn-ghost" id="pack-configure-${sid}">⚙ Settings</button>
             <button class="btn-ghost" id="pack-remove-${sid}">🗑 Remove</button>
           `;
           badgeHtml = `
@@ -5102,6 +5103,8 @@
 
       if (pack.installed) {
         if (isWidget) {
+          el.querySelector(`#pack-run-${sid}`)
+            .addEventListener('click', () => this._runWidget(pack, el, sid));
           el.querySelector(`#pack-configure-${sid}`)
             .addEventListener('click', () => this._openWidgetConfigModal(pack, el, sid));
         } else {
@@ -5150,17 +5153,69 @@
         </div>
       `;
       
+      let basicFieldsHtml = '';
+      let weatherFieldsHtml = '';
+      
       for (const field of (pack.config_schema || [])) {
         const fieldId = `widget-field-${field.name}`;
         const label = field.label || field.name;
         const required = field.required ? 'required' : '';
         const placeholder = field.placeholder || '';
         
+        if (field.name === 'quote_feed') {
+          let fieldHtml = `
+            <div class="modal-row">
+              <label for="${fieldId}">${this._esc(label)}</label>
+              <select id="${fieldId}">
+                <option value="zenquotes">ZenQuotes (Inspirational)</option>
+                <option value="favqs">FavQs (General)</option>
+                <option value="custom">Custom API URL...</option>
+              </select>
+            </div>
+          `;
+          basicFieldsHtml += fieldHtml;
+        } else if (field.name === 'quote_api_url') {
+          let fieldHtml = `
+            <div class="modal-row" id="widget-quote-custom-row" style="display:none">
+              <label for="${fieldId}">${this._esc(label)}</label>
+              <input type="text" id="${fieldId}" placeholder="${this._esc(placeholder)}">
+            </div>
+          `;
+          basicFieldsHtml += fieldHtml;
+        } else {
+          let fieldHtml = `
+            <div class="modal-row">
+              <label for="${fieldId}">${this._esc(label)}</label>
+              <input type="text" id="${fieldId}" placeholder="${this._esc(placeholder)}" ${required}>
+          `;
+          
+          if (field.name === 'calendar_url') {
+            fieldHtml += `<div style="font-size:11px;color:var(--secondary-text-color);margin-top:4px;line-height:1.4">To get this: Open Google Calendar on desktop, go to <strong>Settings</strong> > click your calendar name in the left panel > scroll down to <strong>Integrate calendar</strong> > copy the <strong>Secret address in iCal format</strong>.</div>`;
+          }
+          
+          fieldHtml += `</div>`;
+          
+          if (field.name === 'zip_code') {
+            weatherFieldsHtml += fieldHtml;
+          } else {
+            basicFieldsHtml += fieldHtml;
+          }
+        }
+      }
+      
+      html += basicFieldsHtml;
+      
+      if (weatherFieldsHtml) {
         html += `
-          <div class="modal-row">
-            <label for="${fieldId}">${this._esc(label)}</label>
-            <input type="text" id="${fieldId}" placeholder="${this._esc(placeholder)}" ${required}>
-          </div>
+          <details style="margin-top:16px;cursor:pointer">
+            <summary style="font-weight:500;font-size:13.5px;color:var(--primary-color)">Location / Weather Settings (Optional)</summary>
+            <div style="padding-top:8px">
+              ${weatherFieldsHtml}
+              <div style="font-size:11px;color:var(--secondary-text-color);margin-top:4px;line-height:1.4">
+                Leave blank to automatically use your Home Assistant system coordinates.
+              </div>
+            </div>
+          </details>
         `;
       }
       
@@ -5186,6 +5241,16 @@
         schedTimeRow.style.display = schedTypeSel.value === 'daily' ? 'block' : 'none';
       });
       
+      const quoteFeedSel = this.shadowRoot.getElementById('widget-field-quote_feed');
+      const quoteCustomRow = this.shadowRoot.getElementById('widget-quote-custom-row');
+      if (quoteFeedSel && quoteCustomRow) {
+        const updateQuoteRow = () => {
+          quoteCustomRow.style.display = quoteFeedSel.value === 'custom' ? 'block' : 'none';
+        };
+        quoteFeedSel.addEventListener('change', updateQuoteRow);
+        updateQuoteRow();
+      }
+      
       if (pack.installed && pack.config) {
         const config = pack.config;
         const frameSel = this.shadowRoot.getElementById('widget-config-frame');
@@ -5194,8 +5259,13 @@
         for (const field of (pack.config_schema || [])) {
           const val = config[field.name];
           if (val !== undefined) {
-            this.shadowRoot.getElementById(`widget-field-${field.name}`).value = val;
+            const el = this.shadowRoot.getElementById(`widget-field-${field.name}`);
+            if (el) el.value = val;
           }
+        }
+        
+        if (quoteFeedSel && quoteCustomRow) {
+          quoteCustomRow.style.display = quoteFeedSel.value === 'custom' ? 'block' : 'none';
         }
         
         if (config.schedule) {
@@ -5225,8 +5295,19 @@
         };
         
         for (const field of (pack.config_schema || [])) {
-          const val = this.shadowRoot.getElementById(`widget-field-${field.name}`).value.trim();
-          if (field.required && !val) {
+          const el = this.shadowRoot.getElementById(`widget-field-${field.name}`);
+          if (!el) continue;
+          const val = el.value.trim();
+          
+          if (field.name === 'quote_api_url') {
+            const isCustomFeed = quoteFeedSel && quoteFeedSel.value === 'custom';
+            if (isCustomFeed && !val) {
+              fb.textContent = 'Custom API URL is required.';
+              fb.className = 'feedback err';
+              fb.style.display = 'block';
+              return;
+            }
+          } else if (field.required && !val) {
             fb.textContent = `Field "${field.label || field.name}" is required.`;
             fb.className = 'feedback err';
             fb.style.display = 'block';
@@ -5284,6 +5365,35 @@
       });
       
       overlay.style.display = 'flex';
+    }
+
+    async _runWidget(pack, el, sid) {
+      const btn = el.querySelector(`#pack-run-${sid}`);
+      const fb  = el.querySelector(`#pack-card-fb-${sid}`);
+      btn.disabled = true;
+      const prevText = btn.textContent;
+      btn.textContent = '⏳ Refreshing…';
+      
+      try {
+        const resp = await fetch(`/api/fraimic/scene_packs/${pack.id}/sync`, {
+          method: 'POST', headers: this._authHeaders(),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+        fb.className = 'feedback ok';
+        fb.textContent = 'Frame refreshed!';
+        fb.style.display = 'block';
+        setTimeout(() => { fb.style.display = 'none'; }, 3000);
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Refresh failed: ${err.message}`;
+        fb.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = prevText;
+      }
     }
 
     async _installPack(pack, el, sid) {
