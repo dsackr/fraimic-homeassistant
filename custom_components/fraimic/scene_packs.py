@@ -520,10 +520,18 @@ class ScenePackManager:
             name = field["name"]
             val = config_data.get(name)
             if name == "calendar_url":
-                script_config["calendar"] = {
-                    "source_type": "ical",
-                    "ical_url": val
-                }
+                if val:
+                    script_config["calendar"] = {
+                        "source_type": "ical",
+                        "ical_url": val
+                    }
+                else:
+                    calendar_entities = self.hass.states.async_entity_ids("calendar")
+                    default_entity = calendar_entities[0] if calendar_entities else None
+                    script_config["calendar"] = {
+                        "source_type": "ha",
+                        "ha_calendar_entity": default_entity
+                    }
             elif name == "zip_code":
                 pass
             else:
@@ -609,6 +617,55 @@ class ScenePackManager:
         import os
         
         addon_dir = self.hass.config.path("fraimic_addons", pack_id)
+        
+        # Pre-fetch Home Assistant calendar events if configured
+        config_path = os.path.join(addon_dir, "config.json")
+        if os.path.exists(config_path):
+            try:
+                import json
+                with open(config_path, "r") as f:
+                    widget_config = json.load(f)
+                cal_conf = widget_config.get("calendar", {})
+                if cal_conf.get("source_type") == "ha":
+                    entity_id = cal_conf.get("ha_calendar_entity")
+                    if not entity_id:
+                        calendar_entities = self.hass.states.async_entity_ids("calendar")
+                        entity_id = calendar_entities[0] if calendar_entities else None
+                        
+                    if entity_id:
+                        import pytz
+                        import datetime
+                        from homeassistant.util import dt as dt_util
+                        tz_name = widget_config.get("timezone", self.hass.config.time_zone or "UTC")
+                        try:
+                            target_tz = pytz.timezone(tz_name)
+                        except Exception:
+                            target_tz = pytz.UTC
+                            
+                        now = dt_util.now().astimezone(target_tz)
+                        start_dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                        end_dt = now.replace(hour=23, minute=59, second=59, microsecond=0)
+                        
+                        _LOGGER.info("Pre-fetching HA calendar events for entity %s...", entity_id)
+                        response = await self.hass.services.async_call(
+                            "calendar",
+                            "get_events",
+                            {
+                                "entity_id": entity_id,
+                                "start_date_time": start_dt.isoformat(),
+                                "end_date_time": end_dt.isoformat()
+                            },
+                            blocking=True,
+                            return_response=True
+                        )
+                        events = response.get(entity_id, {}).get("events", [])
+                        
+                        ha_events_path = os.path.join(addon_dir, "ha_events.json")
+                        with open(ha_events_path, "w") as ef:
+                            json.dump(events, ef, indent=2)
+            except Exception as err:
+                _LOGGER.error("Failed to pre-fetch HA calendar events for widget %s: %s", pack_id, err)
+                
         script_path = os.path.join(addon_dir, "renderer.py")
         
         if not os.path.exists(script_path):
