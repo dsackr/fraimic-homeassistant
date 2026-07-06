@@ -62,7 +62,8 @@ function parseMultipartFields(buf) {
 // images: [{ image_id, filename, albums: [albumName, ...] }]
 // albums: [{ name, count, cover_image_id }]
 // walls: [{ wall_id, name, placements }]
-function createMockServer({ frames = [], scenes = [], images = [], albums = [], walls = [] } = {}) {
+// scenePacks: [{ id, name, categories, ... }]
+function createMockServer({ frames = [], scenes = [], images = [], albums = [], walls = [], scenePacks = [] } = {}) {
   let sceneList = scenes.map((s) => ({ created_at: 0, album: null, source: 'user', ...s }));
   let wallList = walls.map((w) => ({ created_at: 0, placements: {}, ...w }));
   let nextWallId = wallList.length + 1;
@@ -99,7 +100,7 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [], 
     }
     if (p === '/api/fraimic/library/settings') return json(res, 200, { backend: 'local' });
     if (p === '/api/fraimic/library/albums') return json(res, 200, { albums });
-    if (p === '/api/fraimic/scene_packs') return json(res, 200, { packs: [] });
+    if (p === '/api/fraimic/scene_packs') return json(res, 200, { packs: scenePacks });
 
     if (p.startsWith('/api/fraimic/library/image/')) {
       res.writeHead(200, { 'Content-Type': 'image/png' });

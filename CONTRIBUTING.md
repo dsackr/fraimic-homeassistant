@@ -29,7 +29,7 @@ python3 scripts/build_scene_pack.py
 
 It searches Wikimedia Commons for each configured query, keeps only files whose license metadata explicitly says "public domain" *and* whose `Artist` metadata matches the expected artist (Commons full-text search can otherwise surface an unrelated painting for a loosely-worded query), downsizes them to a sane resolution, and rewrites `scene_packs/<pack_id>/` and `index.json`. Running it with no arguments rebuilds every pack in `PACKS` — review `git diff` before committing, since Commons occasionally reshuffles which scan ranks best for a given search. Pass one or more pack ids to rebuild only those and leave every other pack's existing `index.json` entry untouched.
 
-Every pack has a `category` field (`"art"` or `"seasonal"`), shown in the panel as a top-level browsing tile before the user drills into a category's packs. Set it on the `PACKS` entry — it flows straight through to `index.json`.
+Every art pack has category tags in the `categories` field, for example `["famous_artists"]` or `["speed", "nature"]`. Categories are tags, not folders: a pack appears under every category tag it carries. The Add-ons tab builds its Art Packs category tiles dynamically from those tags while preserving labels for known categories. The legacy `category` field is still tolerated by the panel for older catalogs.
 
 ## Dev environment
 

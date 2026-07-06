@@ -18,9 +18,8 @@
   // a Fraimic endpoint.
   const SCENE_PACK_RAW_BASE = 'https://raw.githubusercontent.com/dsackr/frame-addons/main';
 
-  // Mirrors the "category" values scripts/build_scene_pack.py writes into
-  // each pack's index.json entry -- the Add-ons tab browses packs grouped
-  // into these tiles before drilling into a flat pack grid.
+  // Labels for known add-on category tags. The Add-ons tab derives which
+  // Art Pack category tiles to show from the tags in the remote pack catalog.
   const PACK_CATEGORIES = {
     famous_artists: { label: 'Famous Artists' },
     nature: { label: 'Nature' },
@@ -30,6 +29,15 @@
     speed: { label: 'Speed' },
     productivity: { label: 'Productivity' }
   };
+  const PRODUCTIVITY_CATEGORY = 'productivity';
+  const PACK_CATEGORY_ORDER = [
+    'famous_artists',
+    'nature',
+    'architecture',
+    'seasons',
+    'history',
+    'speed',
+  ];
 
   // -------------------------------------------------------------------------
   // Styles
@@ -1158,7 +1166,7 @@
 
       this._scenes        = [];       // [{ scene_id, name, mappings: { entry_id: image_id }, source }]
 
-      this._scenePacks    = [];       // [{ id, name, description, category, license, cover, images, installed, scene_created }]
+      this._scenePacks    = [];       // [{ id, name, description, categories, license, cover, images, installed, scene_created }]
       this._activeTab     = 'library'; // 'library' | 'frames' | 'scenes' | 'addons'
       this._packCategory  = null;     // null = category-tile view; otherwise the category id being browsed
       this._packPreview   = null;     // { pack, index } while the read-only image gallery is open, else null
@@ -4890,28 +4898,22 @@
         const artGrid = grid.querySelector('#art-categories-grid');
         const prodGrid = grid.querySelector('#productivity-grid');
         
-        const artCatIds = ['famous_artists', 'nature', 'architecture', 'seasons', 'history', 'speed'];
-        for (const catId of artCatIds) {
-          const packs = this._scenePacks.filter(p => {
-            const cats = Array.isArray(p.category) ? p.category : [p.category || 'famous_artists'];
-            return cats.includes(catId);
-          });
+        const artPacks = this._scenePacks.filter(p => !this._isProductivityPack(p));
+        for (const catId of this._artPackCategoryIds(artPacks)) {
+          const packs = artPacks.filter(p => this._packCategoryTags(p).includes(catId));
           if (packs.length > 0) {
             artGrid.appendChild(this._buildCategoryTile(catId, packs));
           }
         }
         
-        const prodPacks = this._scenePacks.filter(p => {
-          const cats = Array.isArray(p.category) ? p.category : [p.category || 'famous_artists'];
-          return cats.includes('productivity');
-        });
+        const prodPacks = this._scenePacks.filter(p => this._isProductivityPack(p));
         for (const pack of prodPacks) {
           prodGrid.appendChild(this._buildPackCard(pack));
         }
         return;
       }
 
-      const catInfo = PACK_CATEGORIES[this._packCategory] || { label: this._packCategory };
+      const catInfo = this._packCategoryInfo(this._packCategory);
       crumb.style.display = 'flex';
       crumb.innerHTML = `
         <button class="btn-ghost" id="addons-crumb-back">← Categories</button>
@@ -4925,15 +4927,58 @@
       grid.className = 'lib-grid';
       grid.innerHTML = '';
       for (const pack of this._scenePacks.filter(p => {
-        const cats = Array.isArray(p.category) ? p.category : [p.category || 'famous_artists'];
-        return cats.includes(this._packCategory);
+        return !this._isProductivityPack(p) && this._packCategoryTags(p).includes(this._packCategory);
       })) {
         grid.appendChild(this._buildPackCard(pack));
       }
     }
 
+    _packCategoryTags(pack) {
+      const raw = Array.isArray(pack.categories)
+        ? pack.categories
+        : (Array.isArray(pack.category) ? pack.category : [pack.category || 'famous_artists']);
+      const tags = [];
+      for (const tag of raw) {
+        if (typeof tag !== 'string') continue;
+        const normalized = tag.trim();
+        if (normalized && !tags.includes(normalized)) tags.push(normalized);
+      }
+      return tags.length ? tags : ['famous_artists'];
+    }
+
+    _isProductivityPack(pack) {
+      return pack.type === 'widget' || this._packCategoryTags(pack).includes(PRODUCTIVITY_CATEGORY);
+    }
+
+    _packCategoryInfo(catId) {
+      if (PACK_CATEGORIES[catId]) return PACK_CATEGORIES[catId];
+      return {
+        label: String(catId || '')
+          .replace(/[_-]+/g, ' ')
+          .replace(/\b\w/g, c => c.toUpperCase()),
+      };
+    }
+
+    _artPackCategoryIds(packs) {
+      const ids = [];
+      for (const pack of packs) {
+        for (const tag of this._packCategoryTags(pack)) {
+          if (tag === PRODUCTIVITY_CATEGORY || ids.includes(tag)) continue;
+          ids.push(tag);
+        }
+      }
+      return ids.sort((a, b) => {
+        const ai = PACK_CATEGORY_ORDER.indexOf(a);
+        const bi = PACK_CATEGORY_ORDER.indexOf(b);
+        if (ai !== -1 && bi !== -1) return ai - bi;
+        if (ai !== -1) return -1;
+        if (bi !== -1) return 1;
+        return 0;
+      });
+    }
+
     _buildCategoryTile(catId, packs) {
-      const info = PACK_CATEGORIES[catId] || { label: catId };
+      const info = this._packCategoryInfo(catId);
       const installedCount = packs.filter(p => p.installed).length;
       const coverUrl = `${SCENE_PACK_RAW_BASE}/${packs[0].cover}`;
 
