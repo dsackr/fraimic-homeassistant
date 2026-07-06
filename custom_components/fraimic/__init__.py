@@ -317,6 +317,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: "ConfigEntry") -> bool:
             # Remove services when the last frame entry is gone.
             for service in ("send_image", "send_scene", "refresh", "sleep", "restart"):
                 hass.services.async_remove(DOMAIN, service)
+            
+            # Clean up active widget timers!
+            scene_packs = hass.data[DOMAIN].get("_scene_packs")
+            if scene_packs:
+                scene_packs.unload()
 
     return unload_ok
 

@@ -24,6 +24,7 @@
   const PACK_CATEGORIES = {
     art: { label: 'Art' },
     seasonal: { label: 'Seasonal & Holiday' },
+    widgets: { label: 'Active Add-ons' },
   };
 
   // -------------------------------------------------------------------------
@@ -1712,6 +1713,18 @@
             <button class="pack-preview-nav pack-preview-next" id="pack-preview-next" title="Next image">›</button>
           </div>
           <div class="pack-preview-caption" id="pack-preview-caption"></div>
+        </div>
+
+        <div class="modal-overlay" id="widget-config-overlay">
+          <div class="modal-box" style="max-width:520px">
+            <h3 id="widget-config-title">Configure Add-on</h3>
+            <div id="widget-config-fields"></div>
+            <div class="feedback" id="widget-config-fb"></div>
+            <div class="modal-actions">
+              <button class="btn-primary" id="widget-config-submit">Install</button>
+              <button class="btn-ghost" id="widget-config-cancel">Cancel</button>
+            </div>
+          </div>
         </div>
       `;
     }
@@ -5040,46 +5053,237 @@
       const sid = this._sid(pack.id);
       const count = (pack.images || []).length;
       const coverUrl = `${SCENE_PACK_RAW_BASE}/${pack.cover}`;
+      const isWidget = pack.type === 'widget';
+      const summaryText = isWidget ? 'System Add-on Widget' : `${count} image${count === 1 ? '' : 's'} · ${this._esc(pack.license || '')}`;
 
       let statusHtml;
       let badgeHtml = '';
       if (pack.installed) {
-        statusHtml = `
-          <button class="btn-ghost" id="pack-sync-${sid}" title="Re-check for missing or newly added images">🔄 Sync</button>
-          <button class="btn-ghost" id="pack-remove-${sid}">🗑 Remove</button>
-        `;
-        badgeHtml = `
-          <div style="margin-top:10px">
-            <span class="badge-installed">✓ ${pack.scene_created ? 'Installed · scene created' : 'Installed'}</span>
-          </div>
-        `;
+        if (isWidget) {
+          statusHtml = `
+            <button class="btn-primary" id="pack-configure-${sid}">⚙ Settings</button>
+            <button class="btn-ghost" id="pack-remove-${sid}">🗑 Remove</button>
+          `;
+          badgeHtml = `
+            <div style="margin-top:10px">
+              <span class="badge-installed">✓ Configured & Active</span>
+            </div>
+          `;
+        } else {
+          statusHtml = `
+            <button class="btn-ghost" id="pack-sync-${sid}" title="Re-check for missing or newly added images">🔄 Sync</button>
+            <button class="btn-ghost" id="pack-remove-${sid}">🗑 Remove</button>
+          `;
+          badgeHtml = `
+            <div style="margin-top:10px">
+              <span class="badge-installed">✓ ${pack.scene_created ? 'Installed · scene created' : 'Installed'}</span>
+            </div>
+          `;
+        }
       } else {
         statusHtml = `<button class="btn-primary" id="pack-install-${sid}">⬇ Install</button>`;
       }
 
       el.innerHTML = `
-        <img class="pack-cover" src="${this._esc(coverUrl)}" alt="${this._esc(pack.name)}" loading="lazy" title="Preview this pack">
+        <img class="pack-cover" src="${this._esc(coverUrl)}" alt="${this._esc(pack.name)}" loading="lazy" title="${isWidget ? 'Configure this add-on' : 'Preview this pack'}">
         <div class="scene-card-title">${this._esc(pack.name)}</div>
         <div class="pack-desc">${this._esc(pack.description || '')}</div>
-        <div class="scene-card-summary">${count} image${count === 1 ? '' : 's'} · ${this._esc(pack.license || '')}</div>
+        <div class="scene-card-summary">${summaryText}</div>
         <div class="btns" style="margin-top:10px">${statusHtml}</div>
         ${badgeHtml}
         <div class="feedback" id="pack-card-fb-${sid}"></div>
       `;
 
-      el.querySelector('.pack-cover').addEventListener('click', () => this._openPackPreview(pack, 0));
+      if (!isWidget) {
+        el.querySelector('.pack-cover').addEventListener('click', () => this._openPackPreview(pack, 0));
+      } else {
+        el.querySelector('.pack-cover').addEventListener('click', () => this._openWidgetConfigModal(pack, el, sid));
+      }
 
       if (pack.installed) {
-        el.querySelector(`#pack-sync-${sid}`)
-          .addEventListener('click', () => this._syncPack(pack, el, sid));
+        if (isWidget) {
+          el.querySelector(`#pack-configure-${sid}`)
+            .addEventListener('click', () => this._openWidgetConfigModal(pack, el, sid));
+        } else {
+          el.querySelector(`#pack-sync-${sid}`)
+            .addEventListener('click', () => this._syncPack(pack, el, sid));
+        }
         el.querySelector(`#pack-remove-${sid}`)
           .addEventListener('click', () => this._uninstallPack(pack, el, sid));
       } else {
         el.querySelector(`#pack-install-${sid}`)
-          .addEventListener('click', () => this._installPack(pack, el, sid));
+          .addEventListener('click', () => {
+            if (isWidget) {
+              this._openWidgetConfigModal(pack, el, sid);
+            } else {
+              this._installPack(pack, el, sid);
+            }
+          });
       }
 
       return el;
+    }
+
+    _openWidgetConfigModal(pack, cardEl, sid) {
+      const overlay = this.shadowRoot.getElementById('widget-config-overlay');
+      const title = this.shadowRoot.getElementById('widget-config-title');
+      const fieldsContainer = this.shadowRoot.getElementById('widget-config-fields');
+      const submitBtn = this.shadowRoot.getElementById('widget-config-submit');
+      const fb = this.shadowRoot.getElementById('widget-config-fb');
+      
+      fb.style.display = 'none';
+      title.textContent = `${pack.installed ? 'Configure' : 'Install'} ${pack.name}`;
+      submitBtn.textContent = pack.installed ? 'Save Settings' : 'Install Add-on';
+      
+      let html = '';
+      
+      const frameOptions = this._frames.map(f => 
+        `<option value="${f.entryId}">${this._esc(f.title)}</option>`
+      ).join('');
+      
+      html += `
+        <div class="modal-row">
+          <label for="widget-config-frame">Target Frame</label>
+          <select id="widget-config-frame" ${this._frames.length ? '' : 'disabled'}>
+            ${this._frames.length ? frameOptions : '<option value="">No frames available</option>'}
+          </select>
+        </div>
+      `;
+      
+      for (const field of (pack.config_schema || [])) {
+        const fieldId = `widget-field-${field.name}`;
+        const label = field.label || field.name;
+        const required = field.required ? 'required' : '';
+        const placeholder = field.placeholder || '';
+        
+        html += `
+          <div class="modal-row">
+            <label for="${fieldId}">${this._esc(label)}</label>
+            <input type="text" id="${fieldId}" placeholder="${this._esc(placeholder)}" ${required}>
+          </div>
+        `;
+      }
+      
+      html += `
+        <div class="modal-row">
+          <label for="widget-schedule-type">Update Schedule</label>
+          <select id="widget-schedule-type">
+            <option value="hourly">Hourly</option>
+            <option value="daily">Daily at specific time</option>
+          </select>
+        </div>
+        <div class="modal-row" id="widget-schedule-time-row" style="display:none">
+          <label for="widget-schedule-time">Daily Update Time (24h format)</label>
+          <input type="text" id="widget-schedule-time" value="07:00:00" placeholder="e.g. 07:30:00">
+        </div>
+      `;
+      
+      fieldsContainer.innerHTML = html;
+      
+      const schedTypeSel = this.shadowRoot.getElementById('widget-schedule-type');
+      const schedTimeRow = this.shadowRoot.getElementById('widget-schedule-time-row');
+      schedTypeSel.addEventListener('change', () => {
+        schedTimeRow.style.display = schedTypeSel.value === 'daily' ? 'block' : 'none';
+      });
+      
+      if (pack.installed && pack.config) {
+        const config = pack.config;
+        const frameSel = this.shadowRoot.getElementById('widget-config-frame');
+        if (config.frame_id) frameSel.value = config.frame_id;
+        
+        for (const field of (pack.config_schema || [])) {
+          const val = config[field.name];
+          if (val !== undefined) {
+            this.shadowRoot.getElementById(`widget-field-${field.name}`).value = val;
+          }
+        }
+        
+        if (config.schedule) {
+          schedTypeSel.value = config.schedule.type || 'hourly';
+          if (schedTypeSel.value === 'daily') {
+            schedTimeRow.style.display = 'block';
+            this.shadowRoot.getElementById('widget-schedule-time').value = config.schedule.time || '07:00:00';
+          }
+        }
+      }
+      
+      const submitHandler = async () => {
+        const frameId = this.shadowRoot.getElementById('widget-config-frame').value;
+        if (!frameId) {
+          fb.textContent = 'Please select a target frame.';
+          fb.className = 'feedback err';
+          fb.style.display = 'block';
+          return;
+        }
+        
+        const payload = {
+          frame_id: frameId,
+          schedule: {
+            type: schedTypeSel.value,
+            time: this.shadowRoot.getElementById('widget-schedule-time').value
+          }
+        };
+        
+        for (const field of (pack.config_schema || [])) {
+          const val = this.shadowRoot.getElementById(`widget-field-${field.name}`).value.trim();
+          if (field.required && !val) {
+            fb.textContent = `Field "${field.label || field.name}" is required.`;
+            fb.className = 'feedback err';
+            fb.style.display = 'block';
+            return;
+          }
+          payload[field.name] = val;
+        }
+        
+        newSubmitBtn.disabled = true;
+        newSubmitBtn.textContent = 'Saving…';
+        
+        try {
+          const resp = await fetch(`/api/fraimic/scene_packs/${pack.id}/install`, {
+            method: 'POST',
+            headers: {
+              ...this._authHeaders(),
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ config: payload })
+          });
+          const result = await resp.json().catch(() => ({}));
+          if (!resp.ok || !result.success) {
+            throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+          }
+          
+          overlay.style.display = 'none';
+          
+          const cardFb = cardEl.querySelector(`#pack-card-fb-${sid}`);
+          cardFb.className = 'feedback ok';
+          cardFb.textContent = pack.installed ? 'Settings updated!' : 'Add-on installed successfully!';
+          cardFb.style.display = 'block';
+          setTimeout(() => { cardFb.style.display = 'none'; }, 3000);
+          
+          await this._loadScenePacks();
+          this._renderScenePacks();
+          
+        } catch (err) {
+          fb.textContent = `Installation failed: ${err.message}`;
+          fb.className = 'feedback err';
+          fb.style.display = 'block';
+          newSubmitBtn.disabled = false;
+          newSubmitBtn.textContent = pack.installed ? 'Save Settings' : 'Install Add-on';
+        }
+      };
+      
+      const newSubmitBtn = submitBtn.cloneNode(true);
+      submitBtn.parentNode.replaceChild(newSubmitBtn, submitBtn);
+      newSubmitBtn.addEventListener('click', submitHandler);
+      
+      const cancelBtn = this.shadowRoot.getElementById('widget-config-cancel');
+      const newCancelBtn = cancelBtn.cloneNode(true);
+      cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+      newCancelBtn.addEventListener('click', () => {
+        overlay.style.display = 'none';
+      });
+      
+      overlay.style.display = 'flex';
     }
 
     async _installPack(pack, el, sid) {

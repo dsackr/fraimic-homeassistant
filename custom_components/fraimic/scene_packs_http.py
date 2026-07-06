@@ -66,7 +66,13 @@ class FraimicScenePackInstallView(HomeAssistantView):
         from .scene_packs import ScenePackError  # noqa: PLC0415
 
         try:
-            result = await manager.async_install_pack(pack_id)
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            config_data = body.get("config")
+            
+            result = await manager.async_install_pack(pack_id, config_data)
         except ScenePackError as err:
             return self.json_message(str(err), status_code=400)
         except Exception as err:  # noqa: BLE001

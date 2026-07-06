@@ -108,10 +108,15 @@ class ScenePackManager:
         self._installing: set[str] = set()
         self._index_cache: list[dict[str, Any]] | None = None
         self._index_cache_time: float = 0.0
+        self._schedulers: dict[str, Any] = {}
 
     async def async_load(self) -> None:
         stored = await self._store.async_load()
         self._installed = dict((stored or {}).get("installed") or {})
+        
+        # Reschedule any installed widgets at startup
+        for pack_id in self._installed:
+            self._schedule_widget(pack_id)
 
     def installed_scene_ids(self) -> set[str]:
         """Scene ids created by any currently-installed pack -- used to
@@ -167,6 +172,7 @@ class ScenePackManager:
                     **pack,
                     "installed": installed is not None,
                     "scene_created": bool(installed and installed.get("scene_id")),
+                    "config": installed.get("config") if installed else None,
                 }
             )
         return result
@@ -202,7 +208,14 @@ class ScenePackManager:
         record = await self._library.async_upload(filename, raw_bytes, [album])
         return record["image_id"], width > height
 
-    async def async_install_pack(self, pack_id: str) -> dict[str, Any]:
+    async def async_install_pack(
+        self, pack_id: str, config_data: dict[str, Any] = None
+    ) -> dict[str, Any]:
+        pack = await self._async_get_pack(pack_id)
+
+        if pack.get("type") == "widget":
+            return await self._async_install_widget(pack_id, pack, config_data)
+
         if pack_id in self._installed:
             raise ScenePackError(
                 f"Pack '{pack_id}' is already installed -- remove it first to reinstall"
@@ -210,7 +223,6 @@ class ScenePackManager:
         if pack_id in self._installing:
             raise ScenePackError(f"Pack '{pack_id}' is already being installed")
 
-        pack = await self._async_get_pack(pack_id)
         album = pack["name"]
         session = async_get_clientsession(self.hass)
 
@@ -369,12 +381,24 @@ class ScenePackManager:
         if installed is None:
             raise ScenePackError(f"Pack '{pack_id}' is not installed")
 
+        if installed.get("type") == "widget":
+            self._cancel_scheduler(pack_id)
+            import shutil
+            import os
+            addon_dir = self.hass.config.path("fraimic_addons", pack_id)
+            if os.path.exists(addon_dir):
+                await self.hass.async_add_executor_job(shutil.rmtree, addon_dir)
+            del self._installed[pack_id]
+            await self._async_persist()
+            return
+
         if installed.get("scene_id"):
             await self._scenes.async_delete_scene(installed["scene_id"])
 
         # Get all library images to check their album tags
         library_images = await self._library.async_list_images()
         images_by_id = {img["image_id"]: img for img in library_images}
+        pack = await self._async_get_pack(pack_id)
         album_to_remove = installed.get("album", pack["name"])
 
         remaining: list[str] = []
@@ -413,3 +437,197 @@ class ScenePackManager:
 
         del self._installed[pack_id]
         await self._async_persist()
+
+    async def _async_install_widget(
+        self, pack_id: str, pack: dict[str, Any], config_data: dict[str, Any] = None
+    ) -> dict[str, Any]:
+        """Download widget script, write configuration, and schedule execution."""
+        import os
+        import json
+        import shutil
+        from .const import CONF_HOST
+        
+        if not config_data:
+            raise ScenePackError("Configuration data is required for add-on installation")
+            
+        script_url = f"{SCENE_PACK_RAW_BASE}/{pack.get('script_url')}"
+        session = async_get_clientsession(self.hass)
+        
+        try:
+            async with session.get(script_url, timeout=_DOWNLOAD_TIMEOUT) as resp:
+                if resp.status != 200:
+                    raise ScenePackError(f"HTTP {resp.status} fetching widget script")
+                script_content = await resp.read()
+        except Exception as err:
+            raise ScenePackError(f"Failed to fetch script from github raw source: {err}")
+            
+        addon_dir = self.hass.config.path("fraimic_addons", pack_id)
+        await self.hass.async_add_executor_job(os.makedirs, addon_dir, True)
+        
+        script_path = os.path.join(addon_dir, "renderer.py")
+        
+        def _write_files():
+            with open(script_path, "wb") as f:
+                f.write(script_content)
+                
+        await self.hass.async_add_executor_job(_write_files)
+        
+        frame_id = config_data.get("frame_id")
+        entry = self.hass.config_entries.async_get_entry(frame_id)
+        if entry is None:
+            raise ScenePackError("Selected target frame was not found")
+            
+        from .helpers import render_spec_for_entry  # noqa: PLC0415
+        spec = render_spec_for_entry(entry)
+        
+        from .frame_types import byte_layout_for_resolution  # noqa: PLC0415
+        try:
+            layout = byte_layout_for_resolution(spec.width, spec.height)
+        except Exception:
+            layout = "split_half"
+            
+        script_config = {
+            "frame": {
+                "ip_address": entry.data.get(CONF_HOST),
+                "resolution": [spec.width, spec.height],
+                "layout": layout
+            },
+            "timezone": self.hass.config.time_zone or "UTC"
+        }
+        
+        lat_val = config_data.get("latitude")
+        lon_val = config_data.get("longitude")
+        if not lat_val and self.hass.config.latitude is not None:
+            lat_val = self.hass.config.latitude
+        if not lon_val and self.hass.config.longitude is not None:
+            lon_val = self.hass.config.longitude
+            
+        for field in pack.get("config_schema", []):
+            name = field["name"]
+            val = config_data.get(name)
+            if name == "calendar_url":
+                script_config["calendar"] = {
+                    "source_type": "ical",
+                    "ical_url": val
+                }
+            elif name == "latitude":
+                script_config.setdefault("weather", {})["latitude"] = float(lat_val) if lat_val else None
+                script_config.setdefault("weather", {})["enabled"] = True
+            elif name == "longitude":
+                script_config.setdefault("weather", {})["longitude"] = float(lon_val) if lon_val else None
+            else:
+                script_config[name] = val
+                
+        config_path = os.path.join(addon_dir, "config.json")
+        
+        def _write_config():
+            with open(config_path, "w") as f:
+                json.dump(script_config, f, indent=2)
+                
+        await self.hass.async_add_executor_job(_write_config)
+        
+        self._installed[pack_id] = {
+            "type": "widget",
+            "frame_id": frame_id,
+            "schedule": config_data.get("schedule"),
+            "config": config_data,
+            "installed_at": time.time()
+        }
+        await self._async_persist()
+        
+        self._schedule_widget(pack_id)
+        
+        self.hass.async_create_task(self.async_run_widget(pack_id))
+        
+        return {
+            "success": True,
+            "pack_id": pack_id,
+            "type": "widget"
+        }
+
+    def _schedule_widget(self, pack_id: str) -> None:
+        """Schedule the execution callback for an active widget."""
+        self._cancel_scheduler(pack_id)
+        
+        installed = self._installed.get(pack_id)
+        if not installed or installed.get("type") != "widget":
+            return
+            
+        schedule = installed.get("schedule") or {}
+        
+        async def run_job(*args):
+            await self.async_run_widget(pack_id)
+            
+        if schedule.get("type") == "daily":
+            time_str = schedule.get("time", "07:00:00")
+            try:
+                parts = [int(p) for p in time_str.split(":")]
+                hour = parts[0]
+                minute = parts[1] if len(parts) > 1 else 0
+                second = parts[2] if len(parts) > 2 else 0
+            except Exception:
+                hour, minute, second = 7, 0, 0
+                
+            from homeassistant.helpers.event import async_track_time_change  # noqa: PLC0415
+            self._schedulers[pack_id] = async_track_time_change(
+                self.hass, run_job, hour=hour, minute=minute, second=second
+            )
+            _LOGGER.info("Scheduled add-on '%s' daily at %02d:%02d:%02d", pack_id, hour, minute, second)
+        else:
+            from homeassistant.helpers.event import async_track_time_interval  # noqa: PLC0415
+            from datetime import timedelta
+            self._schedulers[pack_id] = async_track_time_interval(
+                self.hass, run_job, timedelta(hours=1)
+            )
+            _LOGGER.info("Scheduled add-on '%s' hourly", pack_id)
+
+    def _cancel_scheduler(self, pack_id: str) -> None:
+        """Cancel the scheduled interval/time listeners for a widget."""
+        if pack_id in self._schedulers:
+            self._schedulers[pack_id]()
+            del self._schedulers[pack_id]
+
+    async def async_run_widget(self, pack_id: str) -> None:
+        """Run the widget script using sys.executable in a background subprocess."""
+        installed = self._installed.get(pack_id)
+        if not installed or installed.get("type") != "widget":
+            return
+            
+        import sys
+        import asyncio
+        import os
+        
+        addon_dir = self.hass.config.path("fraimic_addons", pack_id)
+        script_path = os.path.join(addon_dir, "renderer.py")
+        
+        if not os.path.exists(script_path):
+            _LOGGER.error("Widget script not found at %s", script_path)
+            return
+            
+        _LOGGER.info("Executing widget script: %s", script_path)
+        try:
+            process = await asyncio.create_subprocess_exec(
+                sys.executable, script_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=addon_dir
+            )
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode != 0:
+                _LOGGER.error(
+                    "Widget '%s' run failed (exit code %d):\n%s",
+                    pack_id,
+                    process.returncode,
+                    stderr.decode().strip()
+                )
+            else:
+                _LOGGER.info("Widget '%s' completed successfully: %s", pack_id, stdout.decode().strip())
+        except Exception as err:
+            _LOGGER.error("Failed to execute widget '%s': %s", pack_id, err)
+
+    def unload(self) -> None:
+        """Clean up and cancel all active widget schedules."""
+        for pack_id in list(self._schedulers.keys()):
+            self._cancel_scheduler(pack_id)
+
