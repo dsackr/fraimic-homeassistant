@@ -372,13 +372,25 @@ class ScenePackManager:
         if installed.get("scene_id"):
             await self._scenes.async_delete_scene(installed["scene_id"])
 
+        # Get all library images to check their album tags
+        library_images = await self._library.async_list_images()
+        images_by_id = {img["image_id"]: img for img in library_images}
+        album_to_remove = installed.get("album", pack["name"])
+
         remaining: list[str] = []
         for image_id in installed.get("image_ids", []):
             try:
+                img = images_by_id.get(image_id)
+                if img:
+                    other_albums = [a for a in img.get("albums", []) if a != album_to_remove]
+                    if other_albums:
+                        # Image is tagged with other albums; remove only the pack's album tag and retain the image.
+                        await self._library.async_set_image_albums(image_id, other_albums)
+                        continue
                 await self._library.async_delete(image_id)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning(
-                    "Scene pack '%s': failed to delete image '%s': %s",
+                    "Scene pack '%s': failed to delete or untag image '%s': %s",
                     pack_id,
                     image_id,
                     err,
