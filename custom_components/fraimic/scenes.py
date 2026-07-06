@@ -186,13 +186,14 @@ class SceneManager:
         image that's been deleted since the scene was created only fails
         that one mapping, not the whole send.
 
-        Bin generation is resolved sequentially, one mapping at a time: the
-        library backends do an unlocked read-modify-write of one shared
-        manifest, so generating a not-yet-cached .bin for two different
-        images at once (as a naive fan-out over every mapping would do) can
-        race and silently drop one image's manifest update. Only the actual
-        per-frame network upload -- which touches no shared state -- runs
-        concurrently, which is what makes the frames update together.
+        Two phases, each internally concurrent: every mapping's .bin is
+        resolved first (cache lookup, or original fetch + conversion when
+        cold), then every frame upload fires together -- resolving fully
+        before uploading anything is what makes the frames update together
+        even when some bins are cold and others cached. Concurrent
+        resolution is safe: the only shared state it touches is the
+        manifest update inside async_save_bin, and every backend wraps that
+        read-modify-write in its _manifest_lock.
         """
         scene = self._scenes.get(scene_id)
         if scene is None:
@@ -202,36 +203,44 @@ class SceneManager:
         if library_manager is None:
             raise SceneError("Library manager not initialised")
 
+        from .helpers import render_spec_for_entry  # noqa: PLC0415
+
         prepared: dict[str, tuple[Any, bytes, str]] = {}
         results: list[dict[str, Any]] = []
 
-        for entry_id, image_id in scene.mappings.items():
+        async def _prepare_one(entry_id: str, image_id: str) -> dict[str, Any] | None:
+            """Resolve one mapping's bin; returns a failure record, or None
+            after stashing the ready-to-send bytes in `prepared`."""
             entry = hass.config_entries.async_get_entry(entry_id)
             if entry is None:
-                results.append({
+                return {
                     "entry_id": entry_id,
                     "success": False,
                     "message": "Frame is no longer configured",
-                })
-                continue
+                }
             coordinator = hass.data.get(DOMAIN, {}).get(entry_id)
             if coordinator is None:
-                results.append({
+                return {
                     "entry_id": entry_id,
                     "success": False,
                     "message": "Frame coordinator not available",
-                })
-                continue
+                }
             try:
-                from .helpers import render_spec_for_entry  # noqa: PLC0415
-
                 bin_bytes = await library_manager.async_get_bin_for_send(
                     image_id, render_spec_for_entry(entry)
                 )
             except Exception as err:  # noqa: BLE001
-                results.append({"entry_id": entry_id, "success": False, "message": str(err)})
-                continue
+                return {"entry_id": entry_id, "success": False, "message": str(err)}
             prepared[entry_id] = (coordinator, bin_bytes, image_id)
+            return None
+
+        failures = await asyncio.gather(
+            *(
+                _prepare_one(entry_id, image_id)
+                for entry_id, image_id in scene.mappings.items()
+            )
+        )
+        results.extend(failure for failure in failures if failure is not None)
 
         async def _send_one(coordinator: Any, bin_bytes: bytes) -> None:
             await coordinator.async_send_image(bin_bytes)
