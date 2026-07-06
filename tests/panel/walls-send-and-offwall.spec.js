@@ -1,23 +1,22 @@
-// Coverage for two Walls features:
-// - "Send to Frames": pushes whatever's currently previewed on the wall's
-//   placed tiles straight to the physical frames via /api/fraimic/library/send.
-// - The "Also assigned in this scene (not on this wall)" section: a loaded
-//   scene may map frames that aren't part of this wall's layout at all --
-//   those still get surfaced (with a thumbnail) so the user isn't surprised
-//   by a stale mapping, and can be cleared from here.
+// Coverage for "Send to Frames": pushes whatever's currently previewed for
+// every known frame straight to the physical frames via
+// /api/fraimic/library/send. A frame works the same whether it's placed on
+// the wall's canvas or still sitting in the palette -- clicking either one
+// opens the same image picker, and Send to Frames posts to both alike, not
+// just placed tiles.
 
 const { test, expect } = require('@playwright/test');
 const { createMockServer } = require('./fixtures/mock-server');
 const {
   gotoPanel,
-  openWallsSubTab,
+  openScenesTab,
   createWall,
   dragFirstPaletteItemTo,
   clickTile,
+  clickPaletteItem,
   pickImageInWallPicker,
   selectWallScene,
-  getWallOffWallEntries,
-  clickWallOffWallClear,
+  getWallPaletteItems,
   clickPanelButton,
   getFeedback,
 } = require('./fixtures/panel-page');
@@ -32,10 +31,11 @@ const IMAGES = [
   { image_id: 'image_2', filename: 'two.png', albums: [] },
 ];
 
-// Places only entry_1 and entry_2 on the wall -- entry_3 stays unplaced so it
-// can be used as an "off-wall" frame that a loaded scene still maps.
+// Places only entry_1 and entry_2 on the wall -- entry_3 stays unplaced in
+// the palette so it can be used as an "off-wall" frame that a loaded scene
+// still maps.
 async function buildWallWithTwoFrames(page) {
-  await openWallsSubTab(page);
+  await openScenesTab(page);
   await createWall(page, 'Living Room');
   const canvasBox = await page.evaluate(() => {
     const r = document.getElementById('panel').shadowRoot.getElementById('wall-canvas').getBoundingClientRect();
@@ -47,7 +47,7 @@ async function buildWallWithTwoFrames(page) {
   await page.waitForTimeout(100);
 }
 
-test.describe('Send to Frames and off-wall scene mappings', () => {
+test.describe('Send to Frames and off-wall frames', () => {
   let mockServer;
   let baseUrl;
 
@@ -68,14 +68,14 @@ test.describe('Send to Frames and off-wall scene mappings', () => {
     await mockServer.stop();
   });
 
-  test('Send to Frames posts each placed tile\'s effective image to its frame', async ({ page }) => {
+  test('Send to Frames posts every frame\'s effective image, on the wall or off it', async ({ page }) => {
     await gotoPanel(page, baseUrl, { frames: FRAMES });
     await buildWallWithTwoFrames(page);
     await selectWallScene(page, 'scene_1');
     await page.waitForTimeout(200);
 
-    // entry_2 has no mapping in scene_1 yet -- pick one so both placed tiles
-    // have an image to send.
+    // entry_2 has no mapping in scene_1 yet -- pick one so all three frames
+    // (two placed, one still in the palette) have an image to send.
     await clickTile(page, 'entry_2');
     await page.waitForFunction(
       () => document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-overlay').style.display === 'block'
@@ -88,16 +88,17 @@ test.describe('Send to Frames and off-wall scene mappings', () => {
 
     const fb = await getFeedback(page, 'wall-scene-fb');
     expect(fb.className).toContain('ok');
-    expect(fb.text).toContain('Sent to 2 frames');
+    expect(fb.text).toContain('Sent to 3 frames');
 
     const sent = mockServer.sends.map((s) => ({ entity_id: s.entity_id, image_id: s.image_id }));
     expect(sent.sort((a, b) => a.entity_id.localeCompare(b.entity_id))).toEqual([
       { entity_id: 'sensor.entry_1_battery', image_id: 'image_1' },
       { entity_id: 'sensor.entry_2_battery', image_id: 'image_2' },
+      { entity_id: 'sensor.entry_3_battery', image_id: 'image_2' },
     ]);
   });
 
-  test('Send to Frames reports an error when no placed tile has an image', async ({ page }) => {
+  test('Send to Frames reports an error when no frame has an image', async ({ page }) => {
     await gotoPanel(page, baseUrl, { frames: FRAMES });
     await buildWallWithTwoFrames(page); // no scene loaded, no pending picks
 
@@ -109,23 +110,28 @@ test.describe('Send to Frames and off-wall scene mappings', () => {
     expect(mockServer.sends).toHaveLength(0);
   });
 
-  test('a scene mapping for a frame not on this wall shows with a thumbnail and can be cleared', async ({ page }) => {
+  test('a frame not on this wall still shows its scene image and can be re-picked/cleared', async ({ page }) => {
     await gotoPanel(page, baseUrl, { frames: FRAMES });
     await buildWallWithTwoFrames(page);
     await selectWallScene(page, 'scene_1');
     await page.waitForTimeout(200);
 
-    let offWall = await getWallOffWallEntries(page);
-    expect(offWall).toHaveLength(1);
-    expect(offWall[0].entryId).toBe('entry_3');
-    expect(offWall[0].title).toBe('Bedroom Frame');
-    expect(offWall[0].hasImg).toBe(true);
+    let palette = await getWallPaletteItems(page);
+    let entry3 = palette.find((p) => p.entryId === 'entry_3');
+    expect(entry3.hasImg).toBe(true); // mapped in scene_1, even though it's not placed
 
-    await clickWallOffWallClear(page, 'entry_3');
+    // Clicking it (not dragging) opens the same image picker a placed tile
+    // would -- clearing the image works identically either way.
+    await clickPaletteItem(page, 'entry_3');
+    await page.waitForFunction(
+      () => document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-overlay').style.display === 'block'
+    );
+    await clickPanelButton(page, 'wall-image-picker-clear');
     await page.waitForTimeout(100);
 
-    offWall = await getWallOffWallEntries(page);
-    expect(offWall).toHaveLength(0);
+    palette = await getWallPaletteItems(page);
+    entry3 = palette.find((p) => p.entryId === 'entry_3');
+    expect(entry3.hasImg).toBe(false);
 
     await clickPanelButton(page, 'wall-save-scene-btn');
     await page.waitForTimeout(300);

@@ -14,16 +14,28 @@ const IMAGES = [
   { image_id: 'image_1', filename: 'one.png', albums: [] },
 ];
 
+// Selecting scene_1 previews its mapping on the wall canvas -- its one
+// mapped frame (entry_1) isn't placed on any wall, so the thumbnail paints
+// on its palette item.
 async function openScenesTabAndWaitForCover(page) {
   await page.evaluate(() => {
     document.getElementById('panel').shadowRoot.querySelector('.tab-btn[data-tab="scenes"]').click();
   });
   await page.waitForFunction(() => {
-    const img = document.getElementById('panel').shadowRoot.querySelector('#scene-grid .lib-thumb img');
+    const sel = document.getElementById('panel').shadowRoot.getElementById('wall-scene-select');
+    return [...sel.options].some((o) => o.value === 'scene_1');
+  }, { timeout: 5000 });
+  await page.evaluate(() => {
+    const sel = document.getElementById('panel').shadowRoot.getElementById('wall-scene-select');
+    sel.value = 'scene_1';
+    sel.dispatchEvent(new Event('change'));
+  });
+  await page.waitForFunction(() => {
+    const img = document.getElementById('panel').shadowRoot.querySelector('.wall-palette-thumb img');
     return img && img.src.startsWith('blob:');
   }, { timeout: 5000 });
   return page.evaluate(() =>
-    document.getElementById('panel').shadowRoot.querySelector('#scene-grid .lib-thumb img').src
+    document.getElementById('panel').shadowRoot.querySelector('.wall-palette-thumb img').src
   );
 }
 
@@ -73,7 +85,8 @@ test.describe('Panel element lifecycle', () => {
       document.dispatchEvent(new Event('visibilitychange'));
     });
 
-    // Reattach: panel revives and the scene cover repaints with a fresh blob.
+    // Reattach: panel revives and the wall palette's thumbnail repaints with
+    // a fresh blob.
     await page.evaluate(() => document.body.appendChild(window.__panel));
     const revived = await page.evaluate(() => ({
       disposed: window.__panel._disposed,
@@ -83,7 +96,7 @@ test.describe('Panel element lifecycle', () => {
     expect(revived.aborted).toBe(false);
 
     await page.waitForFunction(() => {
-      const img = window.__panel.shadowRoot.querySelector('#scene-grid .lib-thumb img');
+      const img = window.__panel.shadowRoot.querySelector('.wall-palette-thumb img');
       return img && img.src.startsWith('blob:');
     }, { timeout: 5000 });
 
@@ -104,7 +117,7 @@ test.describe('Panel element lifecycle', () => {
 
     const state = await page.evaluate(() => {
       const panel = document.getElementById('panel');
-      const img = panel.shadowRoot.querySelector('#scene-grid .lib-thumb img');
+      const img = panel.shadowRoot.querySelector('.wall-palette-thumb img');
       return {
         disposed: panel._disposed,
         thumbCount: Object.keys(panel._thumbUrls).length,

@@ -54,9 +54,9 @@ and produced misleading, hard-to-explain test failures. `harness.html`'s
 list you pass it -- extend that function, not individual tests, if the panel
 starts reading a new entity attribute.
 
-`fixtures/panel-page.js` wraps the common flows (open the Walls sub-tab,
-create a wall, drag a palette item onto the canvas, open the per-tile image
-picker, etc.) as reusable helpers, since driving the shadow DOM and real
+`fixtures/panel-page.js` wraps the common flows (open the Scenes tab, create
+a wall, drag a palette item onto the canvas, open the per-tile image picker,
+etc.) as reusable helpers, since driving the shadow DOM and real
 `page.mouse` events by hand in every test would bury the intent of each spec.
 
 ## Writing a new test

@@ -9,7 +9,7 @@ const { test, expect } = require('@playwright/test');
 const { createMockServer } = require('./fixtures/mock-server');
 const {
   gotoPanel,
-  openWallsSubTab,
+  openScenesTab,
   createWall,
   dragFirstPaletteItemTo,
   clickTile,
@@ -30,7 +30,7 @@ const IMAGES = [
 ];
 
 async function buildWallWithBothFrames(page, mockServer) {
-  await openWallsSubTab(page);
+  await openScenesTab(page);
   await createWall(page, 'Living Room');
   const canvasBox = await page.evaluate(() => {
     const r = document.getElementById('panel').shadowRoot.getElementById('wall-canvas').getBoundingClientRect();
@@ -125,8 +125,8 @@ test.describe('Walls save/preview/edit flow', () => {
     expect(image1Fetches).toBeLessThanOrEqual(1);
   });
 
-  test('Save to Scene merges this wall\'s edits without touching other mappings', async ({ page }) => {
-    // scene_1 also maps a frame that isn't on this wall at all -- Save to
+  test('Save Scene merges this wall\'s edits without touching other mappings', async ({ page }) => {
+    // scene_1 also maps a frame that isn't a known frame at all -- Save
     // Scene must round-trip that mapping untouched.
     mockServer.scenes[0].mappings.entry_offwall = 'image_1';
 

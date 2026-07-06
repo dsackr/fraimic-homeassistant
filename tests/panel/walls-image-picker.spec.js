@@ -6,7 +6,7 @@ const { test, expect } = require('@playwright/test');
 const { createMockServer } = require('./fixtures/mock-server');
 const {
   gotoPanel,
-  openWallsSubTab,
+  openScenesTab,
   createWall,
   dragFirstPaletteItemTo,
   clickTile,
@@ -30,7 +30,7 @@ const ALBUMS = [
 ];
 
 async function openPickerOnFirstTile(page) {
-  await openWallsSubTab(page);
+  await openScenesTab(page);
   await createWall(page, 'Living Room');
   const canvasBox = await page.evaluate(() => {
     const r = document.getElementById('panel').shadowRoot.getElementById('wall-canvas').getBoundingClientRect();

@@ -596,34 +596,7 @@
       margin-top: 3px;
     }
 
-    /* ---- frames sub-nav (Status / Walls) ---- */
-    .frames-subnav {
-      display: flex;
-      gap: 4px;
-      margin-bottom: 16px;
-      border-bottom: 1px solid var(--divider-color, rgba(0,0,0,.12));
-    }
-    .subnav-btn {
-      flex: 0 0 auto;
-      padding: 8px 14px;
-      border: none;
-      background: transparent;
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--secondary-text-color);
-      cursor: pointer;
-      border-bottom: 2px solid transparent;
-      transition: color .15s ease, border-color .15s ease;
-    }
-    .subnav-btn:hover:not(.active) { color: var(--primary-text-color); }
-    .subnav-btn.active {
-      color: var(--primary-color, #3b82f6);
-      border-bottom-color: var(--primary-color, #3b82f6);
-    }
-    .frames-sub { display: none; }
-    .frames-sub.active { display: block; }
-
-    /* ---- walls ---- */
+    /* ---- walls (the Scenes tab's layout + preview canvas) ---- */
     .wall-layout-row {
       display: flex;
       gap: 16px;
@@ -788,7 +761,7 @@
       flex: 0 0 auto;
     }
     .wall-picker-header.dragging { cursor: grabbing; }
-    .wall-picker-header h3 { margin: 0; font-size: 15px; color: var(--primary-text-color); }
+    .wall-picker-header h3 { margin: 0; font-size: 15px; color: var(--primary-text-color); flex: 1 1 auto; }
     .wall-picker-body {
       padding: 16px;
       overflow-y: auto;
@@ -807,33 +780,27 @@
       color: var(--warning-color, #b45309);
       background: rgba(180, 83, 9, .1);
     }
-    .wall-offwall-item {
+    .orientation-toggle {
       display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 6px 0;
+      gap: 4px;
+      flex: 0 0 auto;
     }
-    .wall-offwall-thumb {
-      width: 40px;
-      height: 40px;
-      border-radius: 6px;
-      overflow: hidden;
-      background: var(--secondary-background-color, #f1f5f9);
+    .orientation-icon-btn {
       display: flex;
       align-items: center;
       justify-content: center;
-      flex: 0 0 auto;
-      font-size: 16px;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      border: none;
+      border-radius: 6px;
+      background: var(--secondary-background-color, #f1f5f9);
+      color: var(--secondary-text-color);
+      cursor: pointer;
     }
-    .wall-offwall-thumb img { width: 100%; height: 100%; object-fit: cover; }
-    .wall-offwall-title {
-      flex: 1;
-      min-width: 0;
-      font-size: 13px;
-      color: var(--primary-text-color);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    .orientation-icon-btn.active {
+      background: var(--primary-color, #3b82f6);
+      color: #fff;
     }
 
     /* ---- scene packs ---- */
@@ -1190,14 +1157,15 @@
       this._packTestSelectedImage = null;  // image_id picked in the ?packtest modal
 
       this._scenes        = [];       // [{ scene_id, name, mappings: { entry_id: image_id }, source }]
-      this._sceneEditorId  = null;    // scene_id being edited, or null when creating a new one
 
       this._scenePacks    = [];       // [{ id, name, description, category, license, cover, images, installed, scene_created }]
       this._activeTab     = 'library'; // 'library' | 'frames' | 'scenes' | 'addons'
       this._packCategory  = null;     // null = category-tile view; otherwise the category id being browsed
       this._packPreview   = null;     // { pack, index } while the read-only image gallery is open, else null
 
-      this._framesSub = 'status';     // 'status' | 'walls' -- sub-view within the Frames tab
+      // The Scenes tab *is* the Walls workflow -- a wall is just a saved
+      // layout (frame positions) that the same canvas previews a scene
+      // (frame->image mappings) against. See _renderWallsSubview.
       this._walls          = [];      // [{ wall_id, name, placements: { entry_id: {x, y} } }]
       this._activeWallId   = null;    // wall_id currently open in the Walls sub-view
       this._wallPlacements = {};      // working copy of the active wall's placements while editing layout
@@ -1290,7 +1258,6 @@
       // (cheap: server-side disk thumbnail cache + browser HTTP cache).
       this._renderFrames();
       this._renderLibrary();
-      this._renderScenes();
       this._renderScenePacks();
       this._renderWallsSubview();
     }
@@ -1353,9 +1320,6 @@
       this._wireUploadModal();
       this._wireAlbumPicker();
       this._wireAlbumCreate();
-      this._wireSceneToolbar();
-      this._wireSceneEditor();
-      this._wireFramesSubnav();
       this._wireWallToolbar();
       this._wireWallImagePicker();
       this._wirePackTest();
@@ -1378,9 +1342,15 @@
       this._handleDeepLink();
       await Promise.all([backendP, albumsP]);
       this._renderLibrary();
-      await scenesP;
-      this._renderScenes();
-      await wallsP;
+      await Promise.all([scenesP, wallsP]);
+      // Don't make the user pick a wall first -- default straight to the
+      // first one that exists. If none exist yet, _renderWallsSubview shows
+      // an empty draft wall ready to lay out; it only gets named/created
+      // once "Save Layout" is clicked.
+      if (!this._activeWallId && this._walls.length) {
+        this._activeWallId = this._walls[0].wall_id;
+        this._wallPlacements = JSON.parse(JSON.stringify(this._walls[0].placements || {}));
+      }
       this._renderWallsSubview();
       await packsP;
       this._renderScenePacks();
@@ -1506,12 +1476,6 @@
         </div><!-- /tab-library -->
 
         <div class="tab-content" id="tab-frames">
-        <div class="frames-subnav" id="frames-subnav">
-          <button class="subnav-btn active" data-framesub="status">Status</button>
-          <button class="subnav-btn" data-framesub="walls">Walls</button>
-        </div>
-
-        <div class="frames-sub active" id="frames-sub-status">
         <div class="lib-toolbar" style="justify-content:flex-end">
           <button class="btn-primary" id="frame-add-btn" style="flex:0 0 auto">＋ Add Frame</button>
         </div>
@@ -1521,13 +1485,13 @@
             <h2>Discovering frames…</h2>
           </div>
         </div>
-        </div><!-- /frames-sub-status -->
+        </div><!-- /tab-frames -->
 
-        <div class="frames-sub" id="frames-sub-walls">
+        <div class="tab-content" id="tab-scenes">
         <div class="lib-toolbar">
           <div class="lib-backend">
             <label for="wall-select">Wall:</label>
-            <select id="wall-select"><option value="">— Select a wall —</option></select>
+            <select id="wall-select"><option value="">Untitled (unsaved)</option></select>
           </div>
           <div class="lib-toolbar-actions">
             <button class="btn-primary" id="wall-new-btn" style="flex:0 0 auto">＋ New Wall</button>
@@ -1536,19 +1500,13 @@
         </div>
         <div class="feedback" id="wall-fb"></div>
 
-        <div class="empty" id="wall-empty">
-          <div class="empty-icon">▦</div>
-          <h2>No wall selected</h2>
-          <p>Create a wall to lay out a subset of your frames the way they're physically
-             hung -- e.g. four frames on the living room wall -- then preview and edit
-             scenes across them at once.</p>
-        </div>
-
-        <div id="wall-editor" style="display:none">
+        <div id="wall-editor">
           <h3 style="margin:16px 0 6px;font-size:14px">Layout</h3>
           <p style="font-size:12px;color:var(--secondary-text-color);margin:0 0 10px">
             Drag a frame from the palette onto the wall, then drag a placed frame to
-            reposition it. Positions snap to a grid.
+            reposition it. Positions snap to a grid. A frame works the same whether
+            it's on the wall or still in the palette -- click it either way to choose
+            its image.
           </p>
           <div class="wall-layout-row">
             <div class="wall-palette" id="wall-palette"></div>
@@ -1558,44 +1516,19 @@
             <button class="btn-primary" id="wall-save-layout-btn">Save Layout</button>
           </div>
 
-          <h3 style="margin:22px 0 6px;font-size:14px">Preview / Edit Scene</h3>
+          <h3 style="margin:22px 0 6px;font-size:14px">Select a Scene</h3>
           <div class="modal-row" style="max-width:320px">
             <label for="wall-scene-select">Scene</label>
-            <select id="wall-scene-select"><option value="">— None —</option></select>
+            <select id="wall-scene-select"><option value="">Create New…</option></select>
           </div>
           <div class="wall-lock-hint" id="wall-lock-hint" style="display:none"></div>
 
-          <div id="wall-offwall-wrap" style="display:none;margin-top:14px">
-            <h4 style="margin:0 0 4px;font-size:13px;color:var(--secondary-text-color)">
-              Also assigned in this scene (not on this wall)
-            </h4>
-            <p style="font-size:12px;color:var(--secondary-text-color);margin:0 0 6px">
-              These frames aren't placed on this wall, but this scene still has photos
-              assigned to them.
-            </p>
-            <div id="wall-offwall-list"></div>
-          </div>
-
           <div class="btns" style="margin-top:10px">
             <button class="btn-primary" id="wall-send-btn">▶ Send to Frames</button>
-            <button class="btn-primary" id="wall-save-scene-btn">Save to Scene</button>
-            <button class="btn-ghost" id="wall-save-new-scene-btn">Save As New Scene</button>
+            <button class="btn-primary" id="wall-save-scene-btn">Save Scene</button>
+            <button class="btn-ghost" id="wall-delete-scene-btn" style="display:none">🗑 Delete Scene</button>
           </div>
           <div class="feedback" id="wall-scene-fb"></div>
-        </div>
-        </div><!-- /frames-sub-walls -->
-        </div><!-- /tab-frames -->
-
-        <div class="tab-content" id="tab-scenes">
-        <div class="lib-toolbar" style="justify-content:flex-end">
-          <button class="btn-primary" id="scene-new-btn" style="flex:0 0 auto">＋ New Scene</button>
-        </div>
-        <div class="feedback" id="scene-fb"></div>
-        <div class="lib-grid" id="scene-grid">
-          <div class="empty">
-            <div class="empty-icon">⋯</div>
-            <h2>Loading scenes…</h2>
-          </div>
         </div>
         </div><!-- /tab-scenes -->
 
@@ -1727,6 +1660,14 @@
           <div class="wall-picker-box" id="wall-image-picker-box">
             <div class="wall-picker-header" id="wall-image-picker-header">
               <h3>Choose an Image</h3>
+              <div class="orientation-toggle" id="wall-image-picker-orientation">
+                <button class="orientation-icon-btn" id="wall-image-picker-portrait" title="Portrait">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="2" width="12" height="20" rx="2"/></svg>
+                </button>
+                <button class="orientation-icon-btn" id="wall-image-picker-landscape" title="Landscape">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/></svg>
+                </button>
+              </div>
               <button class="btn-ghost" id="wall-image-picker-cancel" style="flex:0 0 auto;padding:4px 10px">✕</button>
             </div>
             <div class="wall-picker-body">
@@ -1740,29 +1681,6 @@
               </div>
               <div class="image-picker-grid" id="wall-image-picker-grid"></div>
               <div class="feedback" id="wall-image-picker-fb"></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="modal-overlay" id="scene-editor-overlay">
-          <div class="modal-box" style="max-width:480px">
-            <h3 id="scene-editor-title">New Scene</h3>
-            <div class="modal-row">
-              <label>Scene name</label>
-              <input type="text" id="scene-editor-name" placeholder="e.g. Countdown Wall">
-            </div>
-            <div class="modal-row">
-              <label>Album</label>
-              <select id="scene-editor-album"></select>
-            </div>
-            <div class="modal-row">
-              <label>Image → Frame</label>
-              <div id="scene-editor-mappings"></div>
-            </div>
-            <div class="feedback" id="scene-editor-fb"></div>
-            <div class="modal-actions">
-              <button class="btn-primary" id="scene-editor-save">Save Scene</button>
-              <button class="btn-ghost" id="scene-editor-cancel">Cancel</button>
             </div>
           </div>
         </div>
@@ -3930,11 +3848,10 @@
 
     // -----------------------------------------------------------------------
     // Scenes: a saved (frame, image) assignment list sendable all at once.
+    // Scenes are only ever created/edited/deleted through the wall canvas
+    // below (see _saveWallScene/_deleteWallScene) -- there's no separate
+    // scene list or editor.
     // -----------------------------------------------------------------------
-
-    _wireSceneToolbar() {
-      this.shadowRoot.getElementById('scene-new-btn').addEventListener('click', () => this._openSceneEditor());
-    }
 
     async _loadScenes() {
       try {
@@ -3947,366 +3864,18 @@
       }
     }
 
-    // A scene from a scene pack install carries source: 'addon'; anything
-    // else (including scenes saved before that field existed) is 'user'.
-    _scenesInGroup(key) {
-      return this._scenes.filter(scene =>
-        key === 'addon' ? scene.source === 'addon' : scene.source !== 'addon'
-      );
-    }
-
-    // Both groups render as sections on one screen -- no drill-in click.
-    _renderScenes() {
-      const grid = this.shadowRoot.getElementById('scene-grid');
-
-      if (!this._scenes.length) {
-        grid.innerHTML = `
-          <div class="empty">
-            <div class="empty-icon">▶</div>
-            <h2>No scenes yet</h2>
-            <p>Pick an album, match its photos to frames, then send them all to
-               your wall at once — e.g. four frames showing "1", "2", "3", "4" in order.</p>
-          </div>
-        `;
-        return;
-      }
-
-      const userScenes  = this._scenesInGroup('user');
-      const addonScenes = this._scenesInGroup('addon');
-
-      grid.innerHTML = '';
-
-      grid.appendChild(this._buildSectionHeader('👤 User Generated Scenes'));
-      if (userScenes.length) {
-        for (const scene of userScenes) grid.appendChild(this._buildSceneCard(scene));
-      } else {
-        grid.appendChild(this._buildSectionEmpty(
-          '▶', 'No user-generated scenes yet',
-          'Pick an album, match its photos to frames, then send them all to your wall at once — e.g. four frames showing "1", "2", "3", "4" in order.'
-        ));
-      }
-
-      grid.appendChild(this._buildSectionHeader('🧩 Add-on Scenes'));
-      if (addonScenes.length) {
-        for (const scene of addonScenes) grid.appendChild(this._buildSceneCard(scene));
-      } else {
-        grid.appendChild(this._buildSectionEmpty(
-          '🧩', 'No Add-on scenes yet',
-          'Install a scene pack from the Add-ons tab to get one automatically.'
-        ));
-      }
-    }
-
-    _buildSceneCard(scene) {
-      const el = document.createElement('div');
-      el.className = 'card scene-card';
-      const sid = this._sid(scene.scene_id);
-      const count = Object.keys(scene.mappings || {}).length;
-      const albumNote = scene.album ? `${this._esc(scene.album)} · ` : '';
-      const coverImageId = Object.values(scene.mappings || {})[0];
-
-      el.innerHTML = `
-        <div class="lib-thumb" id="scene-thumb-${sid}">
-          <div style="font-size:32px;text-align:center;padding:30px 0">🖼</div>
-        </div>
-        <div class="scene-card-title">${this._esc(scene.name)}</div>
-        <div class="scene-card-summary">${albumNote}${count} frame${count === 1 ? '' : 's'}</div>
-        <div class="btns" style="margin-top:10px">
-          <button class="btn-primary" id="scene-send-${sid}">▶ Send Scene</button>
-          <button class="btn-ghost" id="scene-edit-${sid}">✎ Edit</button>
-          <button class="btn-ghost" id="scene-delete-${sid}">🗑</button>
-        </div>
-        <div class="feedback" id="scene-card-fb-${sid}"></div>
-      `;
-
-      if (coverImageId) {
-        this._loadThumbnail(coverImageId, el.querySelector(`#scene-thumb-${sid}`));
-      }
-
-      el.querySelector(`#scene-send-${sid}`).addEventListener('click', () => this._sendScene(scene, el, sid));
-      el.querySelector(`#scene-edit-${sid}`).addEventListener('click', () => this._openSceneEditor(scene));
-      el.querySelector(`#scene-delete-${sid}`).addEventListener('click', () => this._deleteScene(scene));
-
-      return el;
-    }
-
-    _wireSceneEditor() {
-      this.shadowRoot.getElementById('scene-editor-cancel').addEventListener('click', () => this._closeSceneEditor());
-      this.shadowRoot.getElementById('scene-editor-save').addEventListener('click', () => this._saveSceneEditor());
-    }
-
-    async _openSceneEditor(scene) {
-      this._sceneEditorId = scene ? scene.scene_id : null;
-
-      const overlay     = this.shadowRoot.getElementById('scene-editor-overlay');
-      const title       = this.shadowRoot.getElementById('scene-editor-title');
-      const nameInput   = this.shadowRoot.getElementById('scene-editor-name');
-      const albumSelect = this.shadowRoot.getElementById('scene-editor-album');
-      const fb          = this.shadowRoot.getElementById('scene-editor-fb');
-
-      title.textContent = scene ? 'Edit Scene' : 'New Scene';
-      nameInput.value = scene ? scene.name : '';
-      fb.style.display = 'none';
-
-      if (!this._albums || !this._albums.length) await this._loadAlbums();
-
-      const existingMappings = (scene && scene.mappings) || {};
-      const defaultAlbum = (scene && scene.album && this._albums.some(a => a.name === scene.album))
-        ? scene.album
-        : (this._albums[0] ? this._albums[0].name : DEFAULT_ALBUM);
-
-      albumSelect.innerHTML = this._albums.map(a =>
-        `<option value="${this._esc(a.name)}">${this._esc(a.name)}</option>`
-      ).join('');
-      albumSelect.value = defaultAlbum;
-      // Switching album mid-edit invalidates the old mappings (different
-      // images), so it's assigned via .onchange (overwritten every open,
-      // never stacked) rather than addEventListener.
-      albumSelect.onchange = () => this._renderSceneMappingRows(albumSelect.value, {});
-
-      await this._renderSceneMappingRows(defaultAlbum, existingMappings);
-
-      overlay.style.display = 'flex';
-    }
-
-    async _renderSceneMappingRows(albumName, existingMappings) {
-      const mappingsEl = this.shadowRoot.getElementById('scene-editor-mappings');
-
-      let images = [];
-      try {
-        const resp = await fetch(`/api/fraimic/library/list?album=${encodeURIComponent(albumName)}`, {
-          headers: this._authHeaders(),
-        });
-        const result = await resp.json();
-        images = result.images || [];
-      } catch (err) {
-        console.warn('[fraimic-panel] library load for scene editor failed:', err);
-      }
-
-      if (!images.length) {
-        mappingsEl.innerHTML = `
-          <p style="font-size:13px;color:var(--secondary-text-color);margin:6px 0">
-            No photos in this album yet.
-          </p>
-        `;
-        return;
-      }
-
-      mappingsEl.innerHTML = images.map(img => {
-        const rid = this._sid(img.image_id);
-        const assignedEntryId = Object.keys(existingMappings)
-          .find(entryId => existingMappings[entryId] === img.image_id) || '';
-        return `
-          <div class="scene-mapping-row" data-image-id="${this._esc(img.image_id)}"
-               data-initial-entry-id="${this._esc(assignedEntryId)}">
-            <div class="scene-mapping-thumb" id="scene-map-thumb-${rid}">🖼</div>
-            <div class="scene-mapping-frame">${this._esc(img.filename)}</div>
-            <select class="scene-mapping-select" id="scene-map-select-${rid}"></select>
-          </div>
-        `;
-      }).join('');
-
-      for (const img of images) {
-        const rid = this._sid(img.image_id);
-        this._loadThumbnail(img.image_id, mappingsEl.querySelector(`#scene-map-thumb-${rid}`));
-        const select = mappingsEl.querySelector(`#scene-map-select-${rid}`);
-        select.addEventListener('change', () => {
-          select.dataset.touched = '1';
-          this._updateSceneFrameOptions();
-        });
-      }
-
-      this._updateSceneFrameOptions();
-    }
-
-    // Rebuilds every row's frame <select> options so a frame already claimed
-    // by another image in this scene can't be picked twice -- each select
-    // only ever offers frames that are free, plus whichever frame it already
-    // has selected.
-    _updateSceneFrameOptions() {
-      const mappingsEl = this.shadowRoot.getElementById('scene-editor-mappings');
-      const rows = [...mappingsEl.querySelectorAll('.scene-mapping-row')];
-
-      const current = rows.map(row => {
-        const select = row.querySelector('.scene-mapping-select');
-        return select.dataset.touched === '1' ? select.value : row.dataset.initialEntryId;
-      });
-      const used = new Set(current.filter(Boolean));
-
-      rows.forEach((row, i) => {
-        const select = row.querySelector('.scene-mapping-select');
-        const own = current[i];
-        const options = ['<option value="">— none —</option>'].concat(
-          this._frames
-            .filter(f => f.entryId === own || !used.has(f.entryId))
-            .map(f => `<option value="${this._esc(f.entryId)}">${this._esc(f.title)}</option>`)
-        );
-        select.innerHTML = options.join('');
-        select.value = own;
-      });
-    }
-
-    _closeSceneEditor() {
-      this.shadowRoot.getElementById('scene-editor-overlay').style.display = 'none';
-      this._sceneEditorId = null;
-    }
-
-    async _saveSceneEditor() {
-      const nameInput   = this.shadowRoot.getElementById('scene-editor-name');
-      const albumSelect = this.shadowRoot.getElementById('scene-editor-album');
-      const mappingsEl  = this.shadowRoot.getElementById('scene-editor-mappings');
-      const fb          = this.shadowRoot.getElementById('scene-editor-fb');
-      const saveBtn     = this.shadowRoot.getElementById('scene-editor-save');
-
-      const name = nameInput.value.trim();
-      if (!name) {
-        fb.className = 'feedback err';
-        fb.textContent = 'Enter a name for the scene.';
-        fb.style.display = 'block';
-        return;
-      }
-
-      const mappings = {};
-      mappingsEl.querySelectorAll('.scene-mapping-row').forEach(row => {
-        const select = row.querySelector('.scene-mapping-select');
-        if (select && select.value) mappings[select.value] = row.dataset.imageId;
-      });
-      if (!Object.keys(mappings).length) {
-        fb.className = 'feedback err';
-        fb.textContent = 'Assign a frame to at least one image.';
-        fb.style.display = 'block';
-        return;
-      }
-
-      saveBtn.disabled = true;
-      saveBtn.textContent = 'Saving…';
-
-      try {
-        const url = this._sceneEditorId
-          ? `/api/fraimic/scenes/${this._sceneEditorId}`
-          : '/api/fraimic/scenes';
-        const resp = await fetch(url, {
-          method: 'POST',
-          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, mappings, album: albumSelect.value }),
-        });
-        const result = await resp.json().catch(() => ({}));
-        if (!resp.ok || !result.success) {
-          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
-        }
-
-        this._closeSceneEditor();
-        await this._loadScenes();
-        this._renderScenes();
-      } catch (err) {
-        fb.className = 'feedback err';
-        fb.textContent = `Couldn't save scene: ${err.message}`;
-        fb.style.display = 'block';
-      }
-
-      saveBtn.disabled = false;
-      saveBtn.textContent = 'Save Scene';
-    }
-
-    async _sendScene(scene, el, sid) {
-      const btn = el.querySelector(`#scene-send-${sid}`);
-      const fb  = el.querySelector(`#scene-card-fb-${sid}`);
-      const prevText = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = '⏳ Sending…';
-
-      try {
-        const resp = await fetch(`/api/fraimic/scenes/${scene.scene_id}/send`, {
-          method: 'POST', headers: this._authHeaders(),
-        });
-        const result = await resp.json().catch(() => ({}));
-        const results = result.results || [];
-        const ok = results.filter(r => r.success).length;
-        const failed = results.filter(r => !r.success);
-
-        if (ok) {
-          let changed = false;
-          for (const r of results) {
-            if (!r.success) continue;
-            const imageId = scene.mappings[r.entry_id];
-            const frame = this._frames.find(f => f.entryId === r.entry_id);
-            if (frame && imageId) {
-              frame.lastImageId = imageId;
-              changed = true;
-            }
-          }
-          if (changed) this._renderFrames();
-        }
-
-        if (resp.ok && ok === results.length && results.length) {
-          fb.className = 'feedback ok';
-          fb.textContent = `✓ Sent to ${ok} frame${ok === 1 ? '' : 's'}`;
-        } else if (ok) {
-          fb.className = 'feedback err';
-          fb.textContent = `Sent to ${ok}/${results.length} frames — failed: `
-            + failed.map(f => f.message || f.entry_id).join(', ');
-        } else {
-          fb.className = 'feedback err';
-          fb.textContent = `Send failed: ${(failed[0] && failed[0].message) || result.message || resp.statusText || resp.status}`;
-        }
-      } catch (err) {
-        fb.className = 'feedback err';
-        fb.textContent = `Network error: ${err.message}`;
-      }
-      fb.style.display = 'block';
-
-      btn.disabled = false;
-      btn.textContent = prevText;
-      setTimeout(() => { fb.style.display = 'none'; }, 6000);
-    }
-
-    async _deleteScene(scene) {
-      if (!window.confirm(`Delete scene "${scene.name}"? This can't be undone.`)) return;
-
-      const fb = this.shadowRoot.getElementById('scene-fb');
-      try {
-        const resp = await fetch(`/api/fraimic/scenes/${scene.scene_id}`, {
-          method: 'DELETE', headers: this._authHeaders(),
-        });
-        const result = await resp.json().catch(() => ({}));
-        if (resp.ok && result.success) {
-          await this._loadScenes();
-          this._renderScenes();
-          return;
-        }
-        fb.className = 'feedback err';
-        fb.textContent = `Delete failed: ${result.message || resp.statusText || resp.status}`;
-      } catch (err) {
-        fb.className = 'feedback err';
-        fb.textContent = `Network error: ${err.message}`;
-      }
-      fb.style.display = 'block';
-    }
-
     // -----------------------------------------------------------------------
     // Walls -- a virtual layout of a subset of the user's frames, positioned
     // the way they're physically hung. Pure panel-local state: a wall only
     // stores where each frame sits on a free-form canvas, never which image
     // it shows. Loading a scene onto a wall and saving back is done entirely
-    // against the existing scenes API -- see _saveWallToScene.
+    // against the existing scenes API -- see _saveWallScene. This canvas is
+    // the entire content of the Scenes tab -- there's no wall selection
+    // gate: the first wall (or an empty draft, if none exists yet) is always
+    // showing, and a frame behaves identically whether it's placed on the
+    // canvas or still sitting in the palette -- click it either way to
+    // assign/change its image; dragging only ever changes its position.
     // -----------------------------------------------------------------------
-
-    _wireFramesSubnav() {
-      this.shadowRoot.querySelectorAll('.subnav-btn').forEach(btn => {
-        btn.addEventListener('click', () => this._setFramesSub(btn.dataset.framesub));
-      });
-    }
-
-    _setFramesSub(name) {
-      this._framesSub = name;
-      const root = this.shadowRoot;
-      ['status', 'walls'].forEach(sub => {
-        const content = root.getElementById(`frames-sub-${sub}`);
-        const btn     = root.querySelector(`.subnav-btn[data-framesub="${sub}"]`);
-        if (content) content.classList.toggle('active', sub === name);
-        if (btn)     btn.classList.toggle('active', sub === name);
-      });
-    }
 
     _wireWallToolbar() {
       this.shadowRoot.getElementById('wall-select').addEventListener('change', (e) => {
@@ -4325,8 +3894,8 @@
       this.shadowRoot.getElementById('wall-scene-select').addEventListener('change', (e) => {
         this._loadSceneOntoWall(e.target.value || null);
       });
-      this.shadowRoot.getElementById('wall-save-scene-btn').addEventListener('click', () => this._saveWallToScene());
-      this.shadowRoot.getElementById('wall-save-new-scene-btn').addEventListener('click', () => this._saveWallAsNewScene());
+      this.shadowRoot.getElementById('wall-save-scene-btn').addEventListener('click', () => this._saveWallScene());
+      this.shadowRoot.getElementById('wall-delete-scene-btn').addEventListener('click', () => this._deleteWallScene());
       this.shadowRoot.getElementById('wall-send-btn').addEventListener('click', () => this._sendWallToFrames());
     }
 
@@ -4343,26 +3912,24 @@
 
     _renderWallsSubview() {
       const select = this.shadowRoot.getElementById('wall-select');
-      select.innerHTML = '<option value="">— Select a wall —</option>' +
-        this._walls.map(w => `<option value="${this._esc(w.wall_id)}">${this._esc(w.name)}</option>`).join('');
+      const hasWalls = !!this._walls.length;
+      select.innerHTML = hasWalls
+        ? this._walls.map(w => `<option value="${this._esc(w.wall_id)}">${this._esc(w.name)}</option>`).join('')
+        : '<option value="">Untitled (unsaved)</option>';
       select.value = this._activeWallId || '';
 
       const hasActive = !!(this._activeWallId && this._walls.some(w => w.wall_id === this._activeWallId));
       this.shadowRoot.getElementById('wall-delete-btn').style.display = hasActive ? '' : 'none';
-      this.shadowRoot.getElementById('wall-empty').style.display = hasActive ? 'none' : '';
-      this.shadowRoot.getElementById('wall-editor').style.display = hasActive ? '' : 'none';
 
-      if (hasActive) {
-        this._renderWallScenePicker();
-        this._renderWallCanvas();
-      }
+      this._renderWallScenePicker();
+      this._renderWallCanvas();
     }
 
     // Whether the working copy of the active wall's placements (mutated by
     // dragging tiles) has diverged from what's actually persisted -- used to
     // warn before switching walls silently discards unsaved drag edits.
     _wallLayoutIsDirty() {
-      if (!this._activeWallId) return false;
+      if (!this._activeWallId) return Object.keys(this._wallPlacements || {}).length > 0;
       const wall = this._walls.find(w => w.wall_id === this._activeWallId);
       if (!wall) return false;
       return JSON.stringify(wall.placements || {}) !== JSON.stringify(this._wallPlacements || {});
@@ -4514,74 +4081,31 @@
       }
 
       this._updateWallSaveToSceneAvailability();
-      this._renderWallOffWallSection();
     }
 
-    // Frames the active preview scene has an image assigned to that aren't
-    // placed on *this* wall -- e.g. a scene spanning two walls, or a frame
-    // that used to be on this wall and was dragged off/reconfigured. Shown
-    // read-only (plus a clear button) so the user isn't surprised those
-    // mappings still exist when they hit Save to Scene.
-    _wallOffWallEntries() {
-      const scene = this._wallActiveSceneId && this._scenes.find(s => s.scene_id === this._wallActiveSceneId);
-      if (!scene || !scene.mappings) return [];
-      const placed = new Set(Object.keys(this._wallPlacements));
-      return Object.keys(scene.mappings)
-        .filter(entryId => !placed.has(entryId))
-        .map(entryId => ({
-          entryId,
-          frame: this._frames.find(f => f.entryId === entryId),
-          imageId: this._wallEffectiveMapping(entryId),
-        }))
-        .filter(e => e.frame && e.imageId); // dropped once cleared, or if the frame no longer exists
-    }
-
-    _renderWallOffWallSection() {
-      const wrap = this.shadowRoot.getElementById('wall-offwall-wrap');
-      const list = this.shadowRoot.getElementById('wall-offwall-list');
-      const entries = this._wallOffWallEntries();
-
-      wrap.style.display = entries.length ? '' : 'none';
-      list.innerHTML = '';
-      for (const { entryId, frame, imageId } of entries) {
-        const item = document.createElement('div');
-        item.className = 'wall-offwall-item';
-        item.dataset.entryId = entryId;
-        item.innerHTML = `
-          <div class="wall-offwall-thumb">🖼</div>
-          <div class="wall-offwall-title">${this._esc(frame.title)}</div>
-          <button class="btn-ghost" title="Clear this frame's image from the scene">✕ Clear</button>
-        `;
-        this._loadThumbnail(imageId, item.querySelector('.wall-offwall-thumb'));
-        item.querySelector('button').addEventListener('click', () => {
-          this._wallPendingMappings[entryId] = '';
-          this._renderWallCanvas();
-        });
-        list.appendChild(item);
-      }
-    }
-
-    // Sends whatever's currently previewed on this wall's placed tiles
-    // (pending edits take priority over the loaded scene's own mapping, per
+    // Sends whatever's currently previewed for every known frame (pending
+    // edits take priority over the loaded scene's own mapping, per
     // _wallEffectiveMapping) straight to the physical frames -- same
     // per-image endpoint the Library tab's "Send to frame" button uses, so
     // this works whether or not the preview has been saved back to a scene
-    // yet.
+    // yet. Not scoped to placed tiles -- a frame not on this wall's canvas
+    // still gets sent if it has an image assigned, since placement and
+    // "active" are unrelated (see the note above this section).
     async _sendWallToFrames() {
       const fb  = this.shadowRoot.getElementById('wall-scene-fb');
       const btn = this.shadowRoot.getElementById('wall-send-btn');
 
-      const targets = Object.keys(this._wallPlacements)
-        .map(entryId => ({
-          entryId,
-          frame: this._frames.find(f => f.entryId === entryId),
-          imageId: this._wallEffectiveMapping(entryId),
+      const targets = this._frames
+        .map(frame => ({
+          entryId: frame.entryId,
+          frame,
+          imageId: this._wallEffectiveMapping(frame.entryId),
         }))
         .filter(t => t.frame && t.frame.entityId && t.imageId);
 
       if (!targets.length) {
         fb.className = 'feedback err';
-        fb.textContent = 'No frames on this wall have an image assigned yet.';
+        fb.textContent = 'No frames have an image assigned yet.';
         fb.style.display = 'block';
         return;
       }
@@ -4633,10 +4157,8 @@
       btn.textContent = prevText;
     }
 
-    // Keeps the Save to Scene button (and the explanatory hint above it) in
-    // sync with the album lock -- called after every wall canvas render, the
-    // same "re-render everything downstream of a state change" pattern
-    // _updateSceneFrameOptions uses for the Scenes tab editor.
+    // Keeps the Save Scene button (and the explanatory hint above it) in
+    // sync with the album lock -- called after every wall canvas render.
     _updateWallSaveToSceneAvailability() {
       const btn  = this.shadowRoot.getElementById('wall-save-scene-btn');
       const hint = this.shadowRoot.getElementById('wall-lock-hint');
@@ -4654,9 +4176,9 @@
       hint.style.display = 'block';
       if (violated) {
         hint.className = 'wall-lock-hint warn';
-        hint.textContent = `Save to Scene is off -- this add-on scene is locked to the "${lockedAlbum}" album ` +
-          `and at least one pick here comes from elsewhere. Use Save As New Scene to keep it, or re-pick from ` +
-          `"${lockedAlbum}" to re-enable saving back to the original.`;
+        hint.textContent = `Save Scene is off -- this add-on scene is locked to the "${lockedAlbum}" album ` +
+          `and at least one pick here comes from elsewhere. Switch the scene picker to "Create New…" to keep ` +
+          `it as a new scene, or re-pick from "${lockedAlbum}" to re-enable saving back to the original.`;
         btn.title = `Locked to the "${lockedAlbum}" album`;
       } else {
         hint.className = 'wall-lock-hint';
@@ -4777,9 +4299,12 @@
       const tileEl = this._wallTileEl(canvas, drag.entryId);
       if (tileEl) tileEl.classList.remove('dragging');
 
-      if (drag.kind === 'tile' && !drag.moved) {
-        // A click, not a drag -- open the image picker for this tile
-        // instead of "repositioning" it to the same spot.
+      if (!drag.moved) {
+        // A click, not a drag -- open the image picker for this frame
+        // instead of "repositioning"/"placing" it. Applies to a palette
+        // item exactly the same as a placed tile: a frame works the same
+        // on or off the wall, so clicking either one always means "choose
+        // its image," never "place it here."
         this._openWallImagePicker(drag.entryId);
         return;
       }
@@ -4820,9 +4345,46 @@
       }
     }
 
+    // Creating the very first wall doesn't need its own dedicated flow --
+    // there's already an empty draft wall showing (see _init/_openWall), so
+    // Save Layout just names and persists it on first use. Only the naming
+    // prompt is deferred; nothing else about the save differs.
     async _saveWallLayout() {
       const fb  = this.shadowRoot.getElementById('wall-fb');
       const btn = this.shadowRoot.getElementById('wall-save-layout-btn');
+
+      if (!this._activeWallId) {
+        const name = window.prompt('Name this wall (e.g. "Living Room"):');
+        if (!name || !name.trim()) return;
+
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+        try {
+          const resp = await fetch('/api/fraimic/walls', {
+            method: 'POST',
+            headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name.trim(), placements: this._wallPlacements }),
+          });
+          const result = await resp.json().catch(() => ({}));
+          if (!resp.ok || !result.success) {
+            throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+          }
+          await this._loadWalls();
+          this._activeWallId = result.wall.wall_id;
+          this._renderWallsSubview();
+          fb.className = 'feedback ok';
+          fb.textContent = 'Layout saved.';
+          fb.style.display = 'block';
+          setTimeout(() => { fb.style.display = 'none'; }, 3000);
+        } catch (err) {
+          fb.className = 'feedback err';
+          fb.textContent = `Couldn't save layout: ${err.message}`;
+          fb.style.display = 'block';
+        }
+        btn.disabled = false;
+        btn.textContent = 'Save Layout';
+        return;
+      }
 
       const wall = this._walls.find(w => w.wall_id === this._activeWallId);
       if (!wall) {
@@ -4863,15 +4425,18 @@
 
     _renderWallScenePicker() {
       const select = this.shadowRoot.getElementById('wall-scene-select');
-      select.innerHTML = '<option value="">— None —</option>' +
+      select.innerHTML = '<option value="">Create New…</option>' +
         this._scenes.map(s => `<option value="${this._esc(s.scene_id)}">${this._esc(s.name)}</option>`).join('');
       select.value = this._wallActiveSceneId || '';
+      this.shadowRoot.getElementById('wall-delete-scene-btn').style.display = this._wallActiveSceneId ? '' : 'none';
     }
 
     _loadSceneOntoWall(sceneId) {
       this._wallActiveSceneId = sceneId || null;
       this._wallPendingMappings = {};
       this._wallPendingPickAlbum = {};
+      // Toggles the Delete Scene button too -- see _renderWallScenePicker.
+      this._renderWallScenePicker();
       this._renderWallCanvas();
     }
 
@@ -4888,10 +4453,11 @@
 
     // True once any *currently pending* image pick was made while the
     // picker's album filter was set away from the scene's locked album --
-    // this is what disables Save to Scene (Save As New Scene is never
-    // affected, since forking into a user-owned scene is always allowed).
-    // Clearing a tile's image doesn't count -- only actually picking an
-    // off-album image does.
+    // this is what disables Save Scene for an existing add-on scene
+    // (switching the picker to "Create New…" is never affected, since
+    // forking into a new user-owned scene is always allowed). Clearing a
+    // tile's image doesn't count -- only actually picking an off-album
+    // image does.
     _wallHasOffAlbumPick() {
       const lockedAlbum = this._wallSceneAlbumLock();
       if (!lockedAlbum) return false;
@@ -4909,6 +4475,8 @@
         this._renderWallCanvas();
       });
       this.shadowRoot.getElementById('wall-image-picker-album').addEventListener('change', () => this._loadWallImagePickerImages());
+      this.shadowRoot.getElementById('wall-image-picker-portrait').addEventListener('click', () => this._setWallImagePickerOrientation('portrait'));
+      this.shadowRoot.getElementById('wall-image-picker-landscape').addEventListener('click', () => this._setWallImagePickerOrientation('landscape'));
       // Clicking the transparent backdrop (not the panel itself) closes the
       // picker -- e.target is only the overlay element when the click lands
       // outside .wall-picker-box, same as a normal modal's "click outside
@@ -4988,8 +4556,47 @@
       const lockedAlbum = this._wallSceneAlbumLock();
       albumSelect.value = lockedAlbum || '';
 
+      this._updateWallImagePickerOrientationButtons();
       overlay.style.display = 'block';
       await this._loadWallImagePickerImages();
+    }
+
+    // Small portrait/landscape icon buttons in the picker header, right
+    // where the user is already looking at this frame -- selecting a frame
+    // to change its image is also the moment to change its orientation.
+    // Same underlying select.select_option service call the Frames tab's
+    // orientation dropdown uses; applies to the next image sent, not
+    // whatever's already on the physical frame.
+    _updateWallImagePickerOrientationButtons() {
+      const entryId = this._wallImagePickerEntryId;
+      const frame = entryId && this._frames.find(f => f.entryId === entryId);
+      const portraitBtn  = this.shadowRoot.getElementById('wall-image-picker-portrait');
+      const landscapeBtn = this.shadowRoot.getElementById('wall-image-picker-landscape');
+      const has = !!(frame && frame.orientationEntityId);
+      portraitBtn.style.display  = has ? '' : 'none';
+      landscapeBtn.style.display = has ? '' : 'none';
+      portraitBtn.classList.toggle('active', !!frame && frame.orientation === 'portrait');
+      landscapeBtn.classList.toggle('active', !!frame && frame.orientation === 'landscape');
+    }
+
+    async _setWallImagePickerOrientation(orientation) {
+      const entryId = this._wallImagePickerEntryId;
+      const frame = entryId && this._frames.find(f => f.entryId === entryId);
+      if (!frame || !frame.orientationEntityId) return;
+
+      try {
+        await this._hass.callService('select', 'select_option', {
+          entity_id: frame.orientationEntityId,
+          option: orientation === 'portrait' ? 'Portrait' : 'Landscape',
+        });
+        frame.orientation = orientation;
+        this._updateWallImagePickerOrientationButtons();
+        // The tile's on-canvas size is orientation-aware (see _wallTileDims).
+        this._renderWallCanvas();
+      } catch (err) {
+        console.error('[fraimic-panel] failed to set orientation:', err);
+        alert('Failed to change orientation.');
+      }
     }
 
     // Separated from _openWallImagePicker so the album <select> can re-run
@@ -5018,8 +4625,8 @@
         hint.style.display = 'block';
       } else {
         hint.className = 'wall-lock-hint warn';
-        hint.textContent = `Picking outside "${lockedAlbum}" will disable Save to Scene for this session -- ` +
-          `you can still use Save As New Scene.`;
+        hint.textContent = `Picking outside "${lockedAlbum}" will disable Save Scene for this session -- ` +
+          `switch the scene picker to "Create New…" to keep this pick as a new scene instead.`;
         hint.style.display = 'block';
       }
 
@@ -5073,23 +4680,66 @@
       this._wallImagePickerEntryId = null;
     }
 
-    // Merges this wall's tile assignments into the scene's *current* full
-    // mappings -- a scene can span multiple walls, so this must never
-    // clobber mappings for frames that aren't placed on this one.
-    async _saveWallToScene() {
+    // "Create New…" (no active scene) prompts for a name and creates one;
+    // an existing scene selected in the picker gets updated in place. Every
+    // known frame's current effective mapping (see _wallEffectiveMapping)
+    // is what gets saved -- not just frames placed on this wall's canvas,
+    // since a frame works the same on or off it.
+    async _saveWallScene() {
       const fb = this.shadowRoot.getElementById('wall-scene-fb');
+
       if (!this._wallActiveSceneId) {
-        fb.className = 'feedback err';
-        fb.textContent = 'Load a scene first.';
-        fb.style.display = 'block';
+        const name = window.prompt('Name for the new scene:');
+        if (!name || !name.trim()) return;
+
+        const mappings = {};
+        for (const frame of this._frames) {
+          const imageId = this._wallEffectiveMapping(frame.entryId);
+          if (imageId) mappings[frame.entryId] = imageId;
+        }
+        if (!Object.keys(mappings).length) {
+          fb.className = 'feedback err';
+          fb.textContent = 'Assign an image to at least one frame first.';
+          fb.style.display = 'block';
+          return;
+        }
+
+        try {
+          const resp = await fetch('/api/fraimic/scenes', {
+            method: 'POST',
+            headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name.trim(), mappings }),
+          });
+          const result = await resp.json().catch(() => ({}));
+          if (!resp.ok || !result.success) {
+            throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+          }
+
+          await this._loadScenes();
+          this._wallActiveSceneId = result.scene.scene_id;
+          this._wallPendingMappings = {};
+          this._wallPendingPickAlbum = {};
+          this._renderWallScenePicker();
+          this._renderWallCanvas();
+
+          fb.className = 'feedback ok';
+          fb.textContent = `Created scene "${result.scene.name}".`;
+          fb.style.display = 'block';
+          setTimeout(() => { fb.style.display = 'none'; }, 3000);
+        } catch (err) {
+          fb.className = 'feedback err';
+          fb.textContent = `Couldn't create scene: ${err.message}`;
+          fb.style.display = 'block';
+        }
         return;
       }
+
       // The button is already disabled for this -- this is a backstop, not
       // the primary guard, in case this ever gets invoked some other way.
       if (this._wallHasOffAlbumPick()) {
         fb.className = 'feedback err';
         fb.textContent = `This add-on scene is locked to the "${this._wallSceneAlbumLock()}" album -- ` +
-          'use Save As New Scene to keep a pick from outside it.';
+          'switch the scene picker to "Create New…" to keep a pick from outside it.';
         fb.style.display = 'block';
         return;
       }
@@ -5098,9 +4748,9 @@
         await this._loadScenes();
         const scene = this._scenes.find(s => s.scene_id === this._wallActiveSceneId);
         if (!scene) {
-          // Don't just dead-end here -- whatever the user picked for this
-          // wall's tiles (this._wallPendingMappings) is still intact, so
-          // point them at "Save As New Scene" instead of discarding it.
+          // Don't just dead-end here -- whatever the user picked is still
+          // intact in this._wallPendingMappings, so point them at
+          // "Create New…" instead of discarding it.
           console.error(
             '[fraimic-panel] wall scene save: active scene not found after reload',
             { activeSceneId: this._wallActiveSceneId, availableSceneIds: this._scenes.map(s => s.scene_id) }
@@ -5109,25 +4759,21 @@
           this._renderWallScenePicker();
           throw new Error(
             "that scene isn't available anymore (renamed or deleted elsewhere). " +
-            'Your image choices are still applied here -- use "Save As New Scene" to keep them.'
+            'Your image choices are still applied here -- switch to "Create New…" to save them as a new scene.'
           );
         }
 
-        // Touched = placed on this wall (may have been assigned/cleared via
-        // the canvas tiles) union pending edits (covers the off-wall "Also
-        // assigned in this scene" clear button, which touches a frame that
-        // isn't a placement on this wall at all).
-        const touchedEntryIds = new Set([
-          ...Object.keys(this._wallPlacements),
-          ...Object.keys(this._wallPendingMappings),
-        ]);
+        // Every currently known frame's effective mapping replaces its
+        // entry in the scene (deleted if empty) -- mappings for an entry_id
+        // that isn't a known frame at all (e.g. a since-removed frame) are
+        // left untouched, since this session has no opinion on them.
         const mergedMappings = { ...scene.mappings };
-        for (const entryId of touchedEntryIds) {
-          const imageId = this._wallEffectiveMapping(entryId);
+        for (const frame of this._frames) {
+          const imageId = this._wallEffectiveMapping(frame.entryId);
           if (imageId) {
-            mergedMappings[entryId] = imageId;
+            mergedMappings[frame.entryId] = imageId;
           } else {
-            delete mergedMappings[entryId];
+            delete mergedMappings[frame.entryId];
           }
         }
 
@@ -5145,10 +4791,9 @@
         this._wallPendingMappings = {};
         this._wallPendingPickAlbum = {};
         this._renderWallCanvas();
-        this._renderScenes();
 
         fb.className = 'feedback ok';
-        fb.textContent = `Saved to scene "${scene.name}".`;
+        fb.textContent = `Saved scene "${scene.name}".`;
         fb.style.display = 'block';
         setTimeout(() => { fb.style.display = 'none'; }, 3000);
       } catch (err) {
@@ -5158,49 +4803,29 @@
       }
     }
 
-    async _saveWallAsNewScene() {
+    async _deleteWallScene() {
+      const scene = this._scenes.find(s => s.scene_id === this._wallActiveSceneId);
+      if (!scene) return;
+      if (!window.confirm(`Delete scene "${scene.name}"? This can't be undone.`)) return;
+
       const fb = this.shadowRoot.getElementById('wall-scene-fb');
-      const name = window.prompt('Name for the new scene:');
-      if (!name || !name.trim()) return;
-
-      const mappings = {};
-      for (const entryId of Object.keys(this._wallPlacements)) {
-        const imageId = this._wallEffectiveMapping(entryId);
-        if (imageId) mappings[entryId] = imageId;
-      }
-      if (!Object.keys(mappings).length) {
-        fb.className = 'feedback err';
-        fb.textContent = 'Assign an image to at least one frame on this wall first.';
-        fb.style.display = 'block';
-        return;
-      }
-
       try {
-        const resp = await fetch('/api/fraimic/scenes', {
-          method: 'POST',
-          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name.trim(), mappings }),
+        const resp = await fetch(`/api/fraimic/scenes/${scene.scene_id}`, {
+          method: 'DELETE', headers: this._authHeaders(),
         });
         const result = await resp.json().catch(() => ({}));
         if (!resp.ok || !result.success) {
           throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
         }
-
         await this._loadScenes();
-        this._wallActiveSceneId = result.scene.scene_id;
+        this._wallActiveSceneId = null;
         this._wallPendingMappings = {};
         this._wallPendingPickAlbum = {};
         this._renderWallScenePicker();
         this._renderWallCanvas();
-        this._renderScenes();
-
-        fb.className = 'feedback ok';
-        fb.textContent = `Created scene "${result.scene.name}".`;
-        fb.style.display = 'block';
-        setTimeout(() => { fb.style.display = 'none'; }, 3000);
       } catch (err) {
         fb.className = 'feedback err';
-        fb.textContent = `Couldn't create scene: ${err.message}`;
+        fb.textContent = `Couldn't delete scene: ${err.message}`;
         fb.style.display = 'block';
       }
     }
@@ -5728,7 +5353,7 @@
         await this._loadAlbums();
         this._renderLibrary();
         await this._loadScenes();
-        this._renderScenes();
+        this._renderWallScenePicker();
         await this._loadScenePacks();
         this._renderScenePacks();
 
@@ -5821,7 +5446,7 @@
         await this._loadAlbums();
         this._renderLibrary();
         await this._loadScenes();
-        this._renderScenes();
+        this._renderWallScenePicker();
         await this._loadScenePacks();
         this._renderScenePacks();
       } catch (err) {

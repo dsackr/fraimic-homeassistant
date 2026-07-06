@@ -1,20 +1,23 @@
 // Add-on scenes ship bound to the single album their images were installed
 // into (see ScenePackManager -- every pack image is uploaded into, and the
 // pack's auto-built scene is scoped to, the same album name). User-made
-// scenes have no such binding. On the wall:
+// scenes have no such binding, and neither does the default "Create New…"
+// selection (there's no scene loaded yet to be locked to anything). On the
+// wall:
 //   - opening the picker for a tile defaults the album filter to the addon
 //     scene's own album instead of "All Photos"
 //   - the filter can still be changed freely
 //   - but picking an image while filtered to a different album disables
-//     Save to Scene for the rest of this session (Save As New Scene never is)
+//     Save Scene for the rest of this session
 //   - re-picking from the locked album re-enables it (this is live derived
 //     state, not a one-way latch)
+//   - none of this applies while the scene picker is on "Create New…"
 
 const { test, expect } = require('@playwright/test');
 const { createMockServer } = require('./fixtures/mock-server');
 const {
   gotoPanel,
-  openWallsSubTab,
+  openScenesTab,
   createWall,
   dragFirstPaletteItemTo,
   clickTile,
@@ -42,7 +45,7 @@ function getAlbumSelectValue(page) {
   return page.evaluate(() => document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-album').value);
 }
 
-function getSaveToSceneState(page) {
+function getSaveSceneState(page) {
   return page.evaluate(() => {
     const btn = document.getElementById('panel').shadowRoot.getElementById('wall-save-scene-btn');
     return { disabled: btn.disabled, title: btn.title };
@@ -50,7 +53,7 @@ function getSaveToSceneState(page) {
 }
 
 async function buildWallOnFirstFrame(page) {
-  await openWallsSubTab(page);
+  await openScenesTab(page);
   await createWall(page, 'Living Room');
   const canvasBox = await page.evaluate(() => {
     const r = document.getElementById('panel').shadowRoot.getElementById('wall-canvas').getBoundingClientRect();
@@ -114,7 +117,7 @@ test.describe('Add-on scene album lock', () => {
     expect(await getAlbumSelectValue(page)).toBe('');
   });
 
-  test('picking from the locked album keeps Save to Scene enabled', async ({ page }) => {
+  test('picking from the locked album keeps Save Scene enabled', async ({ page }) => {
     await gotoPanel(page, baseUrl, { frames: FRAMES });
     await buildWallOnFirstFrame(page);
     await selectWallScene(page, 'addon_scene');
@@ -125,10 +128,10 @@ test.describe('Add-on scene album lock', () => {
     await pickImageInWallPicker(page, 'image_pack_2'); // still within "Holiday Pack"
     await page.waitForTimeout(150);
 
-    expect((await getSaveToSceneState(page)).disabled).toBe(false);
+    expect((await getSaveSceneState(page)).disabled).toBe(false);
   });
 
-  test('picking from a different album disables Save to Scene but not Save As New Scene', async ({ page }) => {
+  test('picking from a different album disables Save Scene, but only while that scene is loaded', async ({ page }) => {
     await gotoPanel(page, baseUrl, { frames: FRAMES });
     await buildWallOnFirstFrame(page);
     await selectWallScene(page, 'addon_scene');
@@ -143,25 +146,26 @@ test.describe('Add-on scene album lock', () => {
     await pickImageInWallPicker(page, 'image_other');
     await page.waitForTimeout(150);
 
-    const saveToScene = await getSaveToSceneState(page);
-    expect(saveToScene.disabled).toBe(true);
-    expect(saveToScene.title).toContain('Holiday Pack');
+    const saveScene = await getSaveSceneState(page);
+    expect(saveScene.disabled).toBe(true);
+    expect(saveScene.title).toContain('Holiday Pack');
 
-    const saveAsNewDisabled = await page.evaluate(
-      () => document.getElementById('panel').shadowRoot.getElementById('wall-save-new-scene-btn').disabled
-    );
-    expect(saveAsNewDisabled).toBe(false);
-
-    // Backstop check inside _saveWallToScene itself, in case it's ever
+    // Backstop check inside _saveWallScene itself, in case it's ever
     // invoked some other way than clicking the (now-disabled) button.
-    await page.evaluate(() => document.getElementById('panel')._saveWallToScene());
+    await page.evaluate(() => document.getElementById('panel')._saveWallScene());
     await page.waitForTimeout(150);
     const fb = await getFeedback(page, 'wall-scene-fb');
     expect(fb.className).toContain('err');
     expect(fb.text).toContain('Holiday Pack');
+
+    // Switching to "Create New…" drops the lock entirely -- there's no
+    // scene loaded to be locked to anymore.
+    await selectWallScene(page, '');
+    await page.waitForTimeout(100);
+    expect((await getSaveSceneState(page)).disabled).toBe(false);
   });
 
-  test('re-picking from the locked album re-enables Save to Scene', async ({ page }) => {
+  test('re-picking from the locked album re-enables Save Scene', async ({ page }) => {
     await gotoPanel(page, baseUrl, { frames: FRAMES });
     await buildWallOnFirstFrame(page);
     await selectWallScene(page, 'addon_scene');
@@ -176,7 +180,7 @@ test.describe('Add-on scene album lock', () => {
     );
     await pickImageInWallPicker(page, 'image_other');
     await page.waitForTimeout(150);
-    expect((await getSaveToSceneState(page)).disabled).toBe(true);
+    expect((await getSaveSceneState(page)).disabled).toBe(true);
 
     // Re-open the same tile and pick back from the locked album.
     await clickTile(page, 'entry_1');
@@ -185,30 +189,30 @@ test.describe('Add-on scene album lock', () => {
     await pickImageInWallPicker(page, 'image_pack_2');
     await page.waitForTimeout(150);
 
-    expect((await getSaveToSceneState(page)).disabled).toBe(false);
+    expect((await getSaveSceneState(page)).disabled).toBe(false);
   });
 
-  test('Save As New Scene succeeds even with an off-album pick', async ({ page }) => {
+  test('Create New… is never locked, even with an "off-album" pick', async ({ page }) => {
     await gotoPanel(page, baseUrl, { frames: FRAMES });
     // buildWallOnFirstFrame's createWall() consumes its own dialog (the
     // wall name prompt) -- registering the scene-name dialog handler only
     // now, right before it's actually needed, keeps page.once() from
     // answering the wrong prompt.
-    await buildWallOnFirstFrame(page);
-    await selectWallScene(page, 'addon_scene');
-    await page.waitForTimeout(150);
+    await buildWallOnFirstFrame(page); // scene picker defaults to "Create New…"
 
     await clickTile(page, 'entry_1');
     await waitForPickerOpen(page);
+    expect(await getAlbumSelectValue(page)).toBe(''); // no lock -- no scene loaded
     await selectPickerAlbum(page, 'Vacation');
     await page.waitForFunction(
       () => document.getElementById('panel').shadowRoot.querySelectorAll('#wall-image-picker-grid .image-picker-cell').length === 1
     );
     await pickImageInWallPicker(page, 'image_other');
     await page.waitForTimeout(150);
+    expect((await getSaveSceneState(page)).disabled).toBe(false);
 
     page.once('dialog', (dialog) => dialog.accept('My Holiday Remix'));
-    await clickPanelButton(page, 'wall-save-new-scene-btn');
+    await clickPanelButton(page, 'wall-save-scene-btn');
     await page.waitForTimeout(300);
 
     const fb = await getFeedback(page, 'wall-scene-fb');

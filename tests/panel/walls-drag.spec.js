@@ -9,7 +9,7 @@ const { test, expect } = require('@playwright/test');
 const { createMockServer } = require('./fixtures/mock-server');
 const {
   gotoPanel,
-  openWallsSubTab,
+  openScenesTab,
   createWall,
   dragFirstPaletteItemTo,
   dragTileBy,
@@ -35,7 +35,7 @@ test.afterEach(async () => {
 
 test('dragging a frame from the palette places it on the canvas', async ({ page }) => {
   const { pageErrors } = await gotoPanel(page, baseUrl, { frames: FRAMES });
-  await openWallsSubTab(page);
+  await openScenesTab(page);
   await createWall(page, 'Living Room');
 
   const canvasBox = await page.evaluate(() => {
@@ -65,7 +65,7 @@ test('dragging a frame from the palette places it on the canvas', async ({ page 
 
 test('dragging a placed tile repositions it instead of re-adding it', async ({ page }) => {
   const { pageErrors } = await gotoPanel(page, baseUrl, { frames: FRAMES });
-  await openWallsSubTab(page);
+  await openScenesTab(page);
   await createWall(page, 'Living Room');
 
   const canvasBox = await page.evaluate(() => {
@@ -89,7 +89,7 @@ test('dragging a placed tile repositions it instead of re-adding it', async ({ p
 
 test('clicking the remove button on a placed tile removes it from the canvas', async ({ page }) => {
   const { pageErrors } = await gotoPanel(page, baseUrl, { frames: FRAMES });
-  await openWallsSubTab(page);
+  await openScenesTab(page);
   await createWall(page, 'Living Room');
 
   const canvasBox = await page.evaluate(() => {

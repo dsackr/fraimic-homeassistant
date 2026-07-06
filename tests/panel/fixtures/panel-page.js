@@ -25,11 +25,10 @@ async function gotoPanel(page, baseUrl, { frames = [], query = '' } = {}) {
   return { pageErrors };
 }
 
-async function openWallsSubTab(page) {
+// The Scenes tab *is* the wall canvas -- no sub-nav to drill into anymore.
+async function openScenesTab(page) {
   await page.evaluate(() => {
-    const root = document.getElementById('panel').shadowRoot;
-    root.querySelector('.tab-btn[data-tab="frames"]').click();
-    root.querySelector('.subnav-btn[data-framesub="walls"]').click();
+    document.getElementById('panel').shadowRoot.querySelector('.tab-btn[data-tab="scenes"]').click();
   });
 }
 
@@ -83,6 +82,21 @@ async function clickTile(page, entryId) {
     const root = document.getElementById('panel').shadowRoot;
     const tile = [...root.querySelectorAll('.wall-tile')].find((t) => t.dataset.entryId === id);
     const r = tile.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  }, entryId);
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down();
+  await page.mouse.up();
+}
+
+// Same as clickTile, but for a frame still sitting in the palette (not
+// placed on the canvas) -- a frame works the same on or off the wall, so
+// this also opens the image picker instead of "placing" it.
+async function clickPaletteItem(page, entryId) {
+  const box = await page.evaluate((id) => {
+    const root = document.getElementById('panel').shadowRoot;
+    const item = [...root.querySelectorAll('.wall-palette-item')].find((t) => t.dataset.entryId === id);
+    const r = item.getBoundingClientRect();
     return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
   }, entryId);
   await page.mouse.move(box.x, box.y);
@@ -166,23 +180,14 @@ async function getWallTiles(page) {
   });
 }
 
-async function getWallOffWallEntries(page) {
+async function getWallPaletteItems(page) {
   return page.evaluate(() => {
     const root = document.getElementById('panel').shadowRoot;
-    return [...root.querySelectorAll('.wall-offwall-item')].map((item) => ({
+    return [...root.querySelectorAll('.wall-palette-item')].map((item) => ({
       entryId: item.dataset.entryId,
-      title: item.querySelector('.wall-offwall-title').textContent,
-      hasImg: !!item.querySelector('.wall-offwall-thumb img'),
+      hasImg: !!item.querySelector('.wall-palette-thumb img'),
     }));
   });
-}
-
-async function clickWallOffWallClear(page, entryId) {
-  await page.evaluate((id) => {
-    const root = document.getElementById('panel').shadowRoot;
-    const item = [...root.querySelectorAll('.wall-offwall-item')].find((el) => el.dataset.entryId === id);
-    item.querySelector('button').click();
-  }, entryId);
 }
 
 async function clickPanelButton(page, id) {
@@ -200,11 +205,12 @@ async function getFeedback(page, id) {
 
 module.exports = {
   gotoPanel,
-  openWallsSubTab,
+  openScenesTab,
   createWall,
   dragFirstPaletteItemTo,
   dragTileBy,
   clickTile,
+  clickPaletteItem,
   pickImageInWallPicker,
   getPickerGridImageIds,
   selectPickerAlbum,
@@ -212,8 +218,7 @@ module.exports = {
   dragPickerBy,
   selectWallScene,
   getWallTiles,
-  getWallOffWallEntries,
-  clickWallOffWallClear,
+  getWallPaletteItems,
   clickPanelButton,
   getFeedback,
 };

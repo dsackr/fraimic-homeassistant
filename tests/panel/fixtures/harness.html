@@ -24,7 +24,8 @@
           { device_id: f.entry_id, unique_id: `${f.entry_id}_orientation`, entity_id: orientationId },
         );
       }
-      return {
+      window.__serviceCalls = [];
+      const hass = {
         auth: { data: { access_token: 'test-token' } },
         states,
         callWS: async (msg) => {
@@ -39,7 +40,18 @@
           }
           return [];
         },
+        // Real HA re-renders states on the next hass= assignment after a
+        // service call resolves; this harness just mutates the shared
+        // states object in place, which the panel reads live off
+        // hass.states[entityId] with no extra plumbing needed.
+        callService: async (domain, service, data) => {
+          window.__serviceCalls.push({ domain, service, data });
+          if (domain === 'select' && service === 'select_option' && states[data.entity_id]) {
+            states[data.entity_id].state = data.option;
+          }
+        },
       };
+      return hass;
     };
   </script>
 </body>

@@ -61,10 +61,11 @@ function parseMultipartFields(buf) {
 // scenes: [{ scene_id, name, mappings, album, source }]
 // images: [{ image_id, filename, albums: [albumName, ...] }]
 // albums: [{ name, count, cover_image_id }]
-function createMockServer({ frames = [], scenes = [], images = [], albums = [] } = {}) {
+// walls: [{ wall_id, name, placements }]
+function createMockServer({ frames = [], scenes = [], images = [], albums = [], walls = [] } = {}) {
   let sceneList = scenes.map((s) => ({ created_at: 0, album: null, source: 'user', ...s }));
-  let wallList = [];
-  let nextWallId = 1;
+  let wallList = walls.map((w) => ({ created_at: 0, placements: {}, ...w }));
+  let nextWallId = wallList.length + 1;
   let nextSceneId = sceneList.length + 1;
   const requestLog = [];
   const sends = []; // { entity_id, image_id, packer } per /library/send POST

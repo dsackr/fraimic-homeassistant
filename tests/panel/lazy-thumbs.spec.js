@@ -1,7 +1,8 @@
 // Regression coverage for lazy thumbnail loading: grid tiles fetch their
 // thumbnail only when they (can) come into view. A hidden tab's grid is
-// display:none, which never intersects, so e.g. scene covers must not cost
-// any network at init -- they load when the Scenes tab is first opened.
+// display:none, which never intersects, so e.g. the wall canvas/palette's
+// thumbnails must not cost any network at init -- they load once the Scenes
+// tab is open AND a scene mapping is actually selected.
 
 const { test, expect } = require('@playwright/test');
 const { createMockServer } = require('./fixtures/mock-server');
@@ -36,23 +37,35 @@ test.describe('Lazy thumbnail loading', () => {
     await mockServer.stop();
   });
 
-  test('hidden-tab thumbnails are not fetched at init, only when the tab opens', async ({ page }) => {
+  test('hidden-tab thumbnails are not fetched at init, only once selected', async ({ page }) => {
     await gotoPanel(page, baseUrl, { frames: FRAMES });
-    // Give any (wrong) eager fetch time to fire. The scene card's cover is
-    // the only _loadThumbnail consumer in this fixture, and it lives in the
-    // hidden Scenes tab.
+    // Give any (wrong) eager fetch time to fire. The wall palette's thumbnail
+    // is the only _loadThumbnail consumer in this fixture, and it lives in
+    // the hidden Scenes tab -- and isn't even showing an image yet, since no
+    // scene is selected by default ("Create New…").
     await page.waitForTimeout(400);
     expect(imageFetches(mockServer, 'image_1')).toBe(0);
 
     await page.evaluate(() => {
       document.getElementById('panel').shadowRoot.querySelector('.tab-btn[data-tab="scenes"]').click();
     });
+    await page.waitForTimeout(200);
+    expect(imageFetches(mockServer, 'image_1')).toBe(0); // tab open, but still no scene selected
 
-    // Now the grid is visible: the observer fires and the cover loads.
+    await page.waitForFunction(() => {
+      const sel = document.getElementById('panel').shadowRoot.getElementById('wall-scene-select');
+      return [...sel.options].some((o) => o.value === 'scene_1');
+    }, { timeout: 5000 });
+    await page.evaluate(() => {
+      const sel = document.getElementById('panel').shadowRoot.getElementById('wall-scene-select');
+      sel.value = 'scene_1';
+      sel.dispatchEvent(new Event('change'));
+    });
+
+    // Now the palette thumbnail is showing: the observer fires and it loads.
     await page.waitForFunction(() => {
       const root = document.getElementById('panel').shadowRoot;
-      const thumb = root.querySelector('#scene-grid .lib-thumb img');
-      return !!thumb;
+      return !!root.querySelector('.wall-palette-thumb img');
     }, { timeout: 5000 });
     expect(imageFetches(mockServer, 'image_1')).toBe(1);
   });
