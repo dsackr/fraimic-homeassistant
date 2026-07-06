@@ -682,6 +682,52 @@
     }
     .wall-tile.dragging { opacity: .5; z-index: 10; cursor: grabbing; }
     .wall-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .tile-remove-btn {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      border: none;
+      font-size: 10px;
+      font-weight: bold;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+      opacity: 0;
+      transition: opacity 0.15s ease, background 0.15s ease;
+      padding: 0;
+      line-height: 1;
+    }
+    .wall-tile:hover .tile-remove-btn {
+      opacity: 1;
+    }
+    .tile-remove-btn:hover {
+      background: rgba(239, 68, 68, 0.9);
+    }
+    .wall-palette-thumb {
+      width: 28px;
+      height: 28px;
+      border-radius: 4px;
+      overflow: hidden;
+      background: var(--secondary-background-color, #ccc);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .wall-palette-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
     .wall-drag-ghost {
       position: fixed;
       pointer-events: none;
@@ -4412,7 +4458,22 @@
           const item = document.createElement('div');
           item.className = 'wall-palette-item';
           item.dataset.entryId = frame.entryId;
-          item.textContent = frame.title;
+
+          const imageId = this._wallEffectiveMapping(frame.entryId);
+          if (imageId) {
+            item.style.display = 'flex';
+            item.style.alignItems = 'center';
+            item.style.gap = '8px';
+            item.style.cursor = 'grab';
+            item.innerHTML = `
+              <div class="wall-palette-thumb">🖼</div>
+              <div style="flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this._esc(frame.title)}</div>
+            `;
+            this._loadThumbnail(imageId, item.querySelector('.wall-palette-thumb'));
+          } else {
+            item.textContent = frame.title;
+          }
+
           item.addEventListener('pointerdown', (e) => this._wallBeginDrag(e, frame.entryId, 'palette'));
           palette.appendChild(item);
         }
@@ -4436,6 +4497,19 @@
         canvas.appendChild(tile);
 
         this._renderWallTileContent(tile, entryId, frame);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'tile-remove-btn';
+        removeBtn.innerHTML = '✕';
+        removeBtn.title = 'Remove frame from wall';
+        removeBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+        removeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          delete this._wallPlacements[entryId];
+          this._renderWallCanvas();
+        });
+        tile.appendChild(removeBtn);
+
         tile.addEventListener('pointerdown', (e) => this._wallBeginDrag(e, entryId, 'tile'));
       }
 

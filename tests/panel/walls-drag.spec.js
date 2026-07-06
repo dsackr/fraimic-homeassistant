@@ -86,3 +86,36 @@ test('dragging a placed tile repositions it instead of re-adding it', async ({ p
   expect(tiles[0].left).not.toBe(before.left);
   expect(tiles[0].top).not.toBe(before.top);
 });
+
+test('clicking the remove button on a placed tile removes it from the canvas', async ({ page }) => {
+  const { pageErrors } = await gotoPanel(page, baseUrl, { frames: FRAMES });
+  await openWallsSubTab(page);
+  await createWall(page, 'Living Room');
+
+  const canvasBox = await page.evaluate(() => {
+    const r = document.getElementById('panel').shadowRoot.getElementById('wall-canvas').getBoundingClientRect();
+    return { x: r.x, y: r.y };
+  });
+
+  await dragFirstPaletteItemTo(page, canvasBox.x + 120, canvasBox.y + 100);
+  await page.waitForTimeout(200);
+
+  let tiles = await getWallTiles(page);
+  expect(tiles).toHaveLength(1);
+
+  // Click the remove button
+  await page.evaluate(() => {
+    const root = document.getElementById('panel').shadowRoot;
+    const btn = root.querySelector('.tile-remove-btn');
+    btn.click();
+  });
+  await page.waitForTimeout(200);
+
+  tiles = await getWallTiles(page);
+  expect(tiles).toHaveLength(0); // removed!
+
+  const paletteCount = await page.evaluate(
+    () => document.getElementById('panel').shadowRoot.querySelectorAll('.wall-palette-item').length
+  );
+  expect(paletteCount).toBe(2); // both frames back in palette
+});
