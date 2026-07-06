@@ -48,7 +48,7 @@ _LOGGER = logging.getLogger(__name__)
 _STORAGE_KEY = f"{DOMAIN}_scene_packs"
 _STORAGE_VERSION = 1
 
-_INDEX_CACHE_TTL = 3600  # seconds -- avoid re-fetching the catalog on every panel load
+_INDEX_CACHE_TTL = 60  # seconds -- avoid re-fetching the catalog on every panel load
 _FETCH_TIMEOUT = aiohttp.ClientTimeout(total=15)
 _DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(total=30)
 
