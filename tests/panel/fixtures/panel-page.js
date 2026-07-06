@@ -166,6 +166,25 @@ async function getWallTiles(page) {
   });
 }
 
+async function getWallOffWallEntries(page) {
+  return page.evaluate(() => {
+    const root = document.getElementById('panel').shadowRoot;
+    return [...root.querySelectorAll('.wall-offwall-item')].map((item) => ({
+      entryId: item.dataset.entryId,
+      title: item.querySelector('.wall-offwall-title').textContent,
+      hasImg: !!item.querySelector('.wall-offwall-thumb img'),
+    }));
+  });
+}
+
+async function clickWallOffWallClear(page, entryId) {
+  await page.evaluate((id) => {
+    const root = document.getElementById('panel').shadowRoot;
+    const item = [...root.querySelectorAll('.wall-offwall-item')].find((el) => el.dataset.entryId === id);
+    item.querySelector('button').click();
+  }, entryId);
+}
+
 async function clickPanelButton(page, id) {
   await page.evaluate((elId) => {
     document.getElementById('panel').shadowRoot.getElementById(elId).click();
@@ -193,6 +212,8 @@ module.exports = {
   dragPickerBy,
   selectWallScene,
   getWallTiles,
+  getWallOffWallEntries,
+  clickWallOffWallClear,
   clickPanelButton,
   getFeedback,
 };

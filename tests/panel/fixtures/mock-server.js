@@ -27,10 +27,34 @@ function readJsonBody(req) {
 
 function readFormBody(req) {
   return new Promise((resolve) => {
-    let body = '';
-    req.on('data', (c) => (body += c));
-    req.on('end', () => resolve(Object.fromEntries(new URLSearchParams(body))));
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      const buf = Buffer.concat(chunks);
+      const contentType = req.headers['content-type'] || '';
+      // The panel posts plain FormData (multipart) for real "send to frame"
+      // actions, and URL-encoded only from the ?packtest modal (see that
+      // modal's own comment for why). Real request.post() on the Python side
+      // parses both identically -- this mirrors that so tests can drive
+      // either sender.
+      resolve(contentType.includes('multipart/form-data')
+        ? parseMultipartFields(buf)
+        : Object.fromEntries(new URLSearchParams(buf.toString())));
+    });
   });
+}
+
+// Minimal multipart/form-data parser -- just enough to pull simple text
+// field values (entity_id, image_id, packer) out of a FormData POST body.
+function parseMultipartFields(buf) {
+  const text = buf.toString('latin1');
+  const result = {};
+  const re = /name="([^"]+)"\r\n\r\n([\s\S]*?)\r\n--/g;
+  let m;
+  while ((m = re.exec(text))) {
+    result[m[1]] = m[2];
+  }
+  return result;
 }
 
 // frames: [{ entry_id, title, width, height, orientation, ... }]

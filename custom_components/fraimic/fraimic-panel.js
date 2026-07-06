@@ -759,6 +759,34 @@
       color: var(--warning-color, #b45309);
       background: rgba(180, 83, 9, .1);
     }
+    .wall-offwall-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 0;
+    }
+    .wall-offwall-thumb {
+      width: 40px;
+      height: 40px;
+      border-radius: 6px;
+      overflow: hidden;
+      background: var(--secondary-background-color, #f1f5f9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      font-size: 16px;
+    }
+    .wall-offwall-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .wall-offwall-title {
+      flex: 1;
+      min-width: 0;
+      font-size: 13px;
+      color: var(--primary-text-color);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
 
     /* ---- scene packs ---- */
     .pack-cover {
@@ -1488,7 +1516,20 @@
             <select id="wall-scene-select"><option value="">— None —</option></select>
           </div>
           <div class="wall-lock-hint" id="wall-lock-hint" style="display:none"></div>
+
+          <div id="wall-offwall-wrap" style="display:none;margin-top:14px">
+            <h4 style="margin:0 0 4px;font-size:13px;color:var(--secondary-text-color)">
+              Also assigned in this scene (not on this wall)
+            </h4>
+            <p style="font-size:12px;color:var(--secondary-text-color);margin:0 0 6px">
+              These frames aren't placed on this wall, but this scene still has photos
+              assigned to them.
+            </p>
+            <div id="wall-offwall-list"></div>
+          </div>
+
           <div class="btns" style="margin-top:10px">
+            <button class="btn-primary" id="wall-send-btn">▶ Send to Frames</button>
             <button class="btn-primary" id="wall-save-scene-btn">Save to Scene</button>
             <button class="btn-ghost" id="wall-save-new-scene-btn">Save As New Scene</button>
           </div>
@@ -4238,6 +4279,7 @@
       });
       this.shadowRoot.getElementById('wall-save-scene-btn').addEventListener('click', () => this._saveWallToScene());
       this.shadowRoot.getElementById('wall-save-new-scene-btn').addEventListener('click', () => this._saveWallAsNewScene());
+      this.shadowRoot.getElementById('wall-send-btn').addEventListener('click', () => this._sendWallToFrames());
     }
 
     async _loadWalls() {
@@ -4396,6 +4438,123 @@
       }
 
       this._updateWallSaveToSceneAvailability();
+      this._renderWallOffWallSection();
+    }
+
+    // Frames the active preview scene has an image assigned to that aren't
+    // placed on *this* wall -- e.g. a scene spanning two walls, or a frame
+    // that used to be on this wall and was dragged off/reconfigured. Shown
+    // read-only (plus a clear button) so the user isn't surprised those
+    // mappings still exist when they hit Save to Scene.
+    _wallOffWallEntries() {
+      const scene = this._wallActiveSceneId && this._scenes.find(s => s.scene_id === this._wallActiveSceneId);
+      if (!scene || !scene.mappings) return [];
+      const placed = new Set(Object.keys(this._wallPlacements));
+      return Object.keys(scene.mappings)
+        .filter(entryId => !placed.has(entryId))
+        .map(entryId => ({
+          entryId,
+          frame: this._frames.find(f => f.entryId === entryId),
+          imageId: this._wallEffectiveMapping(entryId),
+        }))
+        .filter(e => e.frame && e.imageId); // dropped once cleared, or if the frame no longer exists
+    }
+
+    _renderWallOffWallSection() {
+      const wrap = this.shadowRoot.getElementById('wall-offwall-wrap');
+      const list = this.shadowRoot.getElementById('wall-offwall-list');
+      const entries = this._wallOffWallEntries();
+
+      wrap.style.display = entries.length ? '' : 'none';
+      list.innerHTML = '';
+      for (const { entryId, frame, imageId } of entries) {
+        const item = document.createElement('div');
+        item.className = 'wall-offwall-item';
+        item.dataset.entryId = entryId;
+        item.innerHTML = `
+          <div class="wall-offwall-thumb">🖼</div>
+          <div class="wall-offwall-title">${this._esc(frame.title)}</div>
+          <button class="btn-ghost" title="Clear this frame's image from the scene">✕ Clear</button>
+        `;
+        this._loadThumbnail(imageId, item.querySelector('.wall-offwall-thumb'));
+        item.querySelector('button').addEventListener('click', () => {
+          this._wallPendingMappings[entryId] = '';
+          this._renderWallCanvas();
+        });
+        list.appendChild(item);
+      }
+    }
+
+    // Sends whatever's currently previewed on this wall's placed tiles
+    // (pending edits take priority over the loaded scene's own mapping, per
+    // _wallEffectiveMapping) straight to the physical frames -- same
+    // per-image endpoint the Library tab's "Send to frame" button uses, so
+    // this works whether or not the preview has been saved back to a scene
+    // yet.
+    async _sendWallToFrames() {
+      const fb  = this.shadowRoot.getElementById('wall-scene-fb');
+      const btn = this.shadowRoot.getElementById('wall-send-btn');
+
+      const targets = Object.keys(this._wallPlacements)
+        .map(entryId => ({
+          entryId,
+          frame: this._frames.find(f => f.entryId === entryId),
+          imageId: this._wallEffectiveMapping(entryId),
+        }))
+        .filter(t => t.frame && t.frame.entityId && t.imageId);
+
+      if (!targets.length) {
+        fb.className = 'feedback err';
+        fb.textContent = 'No frames on this wall have an image assigned yet.';
+        fb.style.display = 'block';
+        return;
+      }
+
+      const prevText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '⏳ Sending…';
+
+      const results = await Promise.all(targets.map(async (t) => {
+        const form = new FormData();
+        form.append('entity_id', t.frame.entityId);
+        form.append('image_id', t.imageId);
+        try {
+          const resp = await fetch('/api/fraimic/library/send', {
+            method: 'POST', headers: this._authHeaders(), body: form,
+          });
+          const result = await resp.json().catch(() => ({}));
+          if (!resp.ok || !result.success) {
+            throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+          }
+          return { ...t, success: true };
+        } catch (err) {
+          return { ...t, success: false, message: err.message };
+        }
+      }));
+
+      const ok     = results.filter(r => r.success);
+      const failed = results.filter(r => !r.success);
+
+      if (ok.length) {
+        for (const r of ok) r.frame.lastImageId = r.imageId;
+        this._renderFrames();
+      }
+
+      if (!failed.length) {
+        fb.className = 'feedback ok';
+        fb.textContent = `✓ Sent to ${ok.length} frame${ok.length === 1 ? '' : 's'}`;
+      } else if (ok.length) {
+        fb.className = 'feedback err';
+        fb.textContent = `Sent to ${ok.length}/${results.length} frames — failed: `
+          + failed.map(f => `${f.frame.title}: ${f.message}`).join(', ');
+      } else {
+        fb.className = 'feedback err';
+        fb.textContent = `Send failed: ${failed.map(f => `${f.frame.title}: ${f.message}`).join(', ')}`;
+      }
+      fb.style.display = 'block';
+
+      btn.disabled = false;
+      btn.textContent = prevText;
     }
 
     // Keeps the Save to Scene button (and the explanatory hint above it) in
@@ -4878,8 +5037,16 @@
           );
         }
 
+        // Touched = placed on this wall (may have been assigned/cleared via
+        // the canvas tiles) union pending edits (covers the off-wall "Also
+        // assigned in this scene" clear button, which touches a frame that
+        // isn't a placement on this wall at all).
+        const touchedEntryIds = new Set([
+          ...Object.keys(this._wallPlacements),
+          ...Object.keys(this._wallPendingMappings),
+        ]);
         const mergedMappings = { ...scene.mappings };
-        for (const entryId of Object.keys(this._wallPlacements)) {
+        for (const entryId of touchedEntryIds) {
           const imageId = this._wallEffectiveMapping(entryId);
           if (imageId) {
             mergedMappings[entryId] = imageId;
