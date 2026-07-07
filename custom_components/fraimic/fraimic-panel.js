@@ -5089,6 +5089,7 @@
       
       fb.style.display = 'none';
       title.textContent = `${pack.installed ? 'Configure' : 'Install'} ${pack.name}`;
+      submitBtn.disabled = false;
       submitBtn.textContent = pack.installed ? 'Save Settings' : 'Install Add-on';
       
       let html = '';
