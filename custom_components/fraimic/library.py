@@ -270,8 +270,24 @@ class LocalLibraryBackend(LibraryBackend):
 
     async def async_setup(self) -> None:
         await self.hass.async_add_executor_job(self._ensure_dirs)
+        await self.hass.async_add_executor_job(self._migrate_stale_cache)
 
     # -- sync helpers (always run via executor) --
+
+    def _migrate_stale_cache(self) -> None:
+        marker_path = os.path.join(self._root, "bin", ".migrated_v0.9.1")
+        if not os.path.exists(marker_path):
+            _LOGGER.info("Clearing stale image bin cache for layout updates")
+            bin_dir = os.path.join(self._root, "bin")
+            if os.path.exists(bin_dir):
+                import shutil
+                try:
+                    shutil.rmtree(bin_dir)
+                except Exception as err:
+                    _LOGGER.warning("Failed to clear stale bin cache directory: %s", err)
+            os.makedirs(bin_dir, exist_ok=True)
+            with open(marker_path, "w") as f:
+                f.write("migrated")
 
     def _ensure_dirs(self) -> None:
         os.makedirs(self._root, exist_ok=True)
