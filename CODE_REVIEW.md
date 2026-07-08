@@ -188,9 +188,9 @@ A second `pointerdown` before the first drag's `pointerup` overwrites `this._wal
 
 `CARD_VERSION = '0.1.4'` and `PANEL_VERSION = '0.10.2'` vs. `manifest.json`'s `0.12.25`. `PANEL_VERSION` is shown to users in a modal footer, so it actively misleads anyone trying to match panel version to integration version for support purposes.
 
-### 28. Wall placements aren't cleaned up when a frame's config entry is deleted (`walls.py`)
+### 28. ~~Wall placements aren't cleaned up when a frame's config entry is deleted~~ — RESOLVED
 
-Orphaned placement records referencing a nonexistent frame. Low impact since walls don't drive sends directly.
+**Resolved** by the dashboard-consolidation work: `__init__.py` gained an `async_remove_entry` hook that calls `WallManager.async_prune_entry`, dropping the deleted entry's placement from every wall (default and custom). The default wall's reconcile pass (`async_ensure_default_wall`) also prunes stale placements at startup as belt-and-braces.
 
 ### 29. Cloud library backends always rewrite the remote manifest on `async_save_bin` (`library.py:445`)
 

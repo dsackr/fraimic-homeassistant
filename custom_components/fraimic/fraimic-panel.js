@@ -1152,6 +1152,14 @@
       border: 1px solid color-mix(in srgb, var(--primary-color, #03a9f4) 35%, transparent);
       font-size: 14px;
     }
+    .wall-drag-ghost.colliding {
+      outline: 2px solid #ef4444;
+      background: rgba(239, 68, 68, .25) !important;
+    }
+    .wall-tile.selected {
+      outline: 3px solid var(--primary-color, #03a9f4);
+      outline-offset: 2px;
+    }
     .discovery-banner .banner-add-btn {
       padding: 6px 14px;
       border-radius: 8px;
@@ -1244,8 +1252,11 @@
                                           // pending pick was made ('' = "All Photos") -- see _wallSceneAlbumLock
       this._wallImagePickerEntryId = null; // entry_id whose "choose an image" picker is open, or null
       this._wallImagePickerToken = 0;      // incremented per open -- lets a stale fetch detect it's superseded
+      this._wallSelectedEntryId = null;    // tile selected for arrow-key nudging, or null
+      this._wallSaveTimer = null;          // pending debounced layout auto-save, or null
       this._onWallPointerMove = this._onWallPointerMove.bind(this);
       this._onWallPointerUp   = this._onWallPointerUp.bind(this);
+      this._onWallKeydown     = this._onWallKeydown.bind(this);
 
       // Embedded config/options flow state (the panel drives HA's own
       // data_entry_flow REST API instead of navigating to Settings).
@@ -1351,6 +1362,9 @@
     // them under the replacement AbortController.
     _addGlobalListeners() {
       const signal = this._abort.signal;
+      // Arrow-key nudging for the selected wall tile. Window-level (a tile
+      // needs no focus) with its own guards -- see _onWallKeydown.
+      window.addEventListener('keydown', this._onWallKeydown, { signal });
       if (this._sweepUploadInput) {
         window.addEventListener('focus', this._sweepUploadInput, { signal });
         document.addEventListener('visibilitychange', this._onDocVisibility, { signal });
@@ -1429,13 +1443,12 @@
       await Promise.all([backendP, albumsP]);
       this._renderLibrary();
       await Promise.all([scenesP, wallsP]);
-      // Don't make the user pick a wall first -- default straight to the
-      // first one that exists. If none exist yet, _renderWallsSubview shows
-      // an empty draft wall ready to lay out; it only gets named/created
-      // once "Save Layout" is clicked.
+      // Land on the default "All Frames" wall (backend-guaranteed to exist
+      // and to hold a placement for every configured frame).
       if (!this._activeWallId && this._walls.length) {
-        this._activeWallId = this._walls[0].wall_id;
-        this._wallPlacements = JSON.parse(JSON.stringify(this._walls[0].placements || {}));
+        const initial = this._defaultWall() || this._walls[0];
+        this._activeWallId = initial.wall_id;
+        this._wallPlacements = JSON.parse(JSON.stringify(initial.placements || {}));
       }
       this._renderWallsSubview();
       await packsP;
@@ -1592,16 +1605,14 @@
           <h3 style="margin:16px 0 6px;font-size:14px">Layout</h3>
           <p style="font-size:12px;color:var(--secondary-text-color);margin:0 0 10px">
             Drag a frame from the palette onto the wall, then drag a placed frame to
-            reposition it. Positions snap to a grid. A frame works the same whether
-            it's on the wall or still in the palette -- click it either way to choose
-            its image.
+            reposition it — positions snap to a grid, save automatically, and tiles
+            can't overlap. Click a tile to select it, then nudge it with the arrow
+            keys. A frame works the same whether it's on the wall or still in the
+            palette — click it either way to choose its image.
           </p>
           <div class="wall-layout-row">
             <div class="wall-palette" id="wall-palette"></div>
             <div class="wall-canvas" id="wall-canvas"></div>
-          </div>
-          <div class="btns" style="margin-top:10px">
-            <button class="btn-primary" id="wall-save-layout-btn">Save Layout</button>
           </div>
 
           <h3 style="margin:22px 0 6px;font-size:14px">Select a Scene</h3>
@@ -4558,19 +4569,14 @@
     // -----------------------------------------------------------------------
 
     _wireWallToolbar() {
+      // No unsaved-changes guard: layout edits auto-save (debounced), so
+      // switching walls never discards anything -- a pending save fires
+      // with its own snapshot of the wall it belongs to.
       this.shadowRoot.getElementById('wall-select').addEventListener('change', (e) => {
-        const nextId = e.target.value || null;
-        if (this._wallLayoutIsDirty() && !window.confirm(
-          'You have unsaved layout changes on this wall. Switch walls and discard them?'
-        )) {
-          e.target.value = this._activeWallId || '';
-          return;
-        }
-        this._openWall(nextId);
+        this._openWall(e.target.value || null);
       });
       this.shadowRoot.getElementById('wall-new-btn').addEventListener('click', () => this._createWall());
       this.shadowRoot.getElementById('wall-delete-btn').addEventListener('click', () => this._deleteWall());
-      this.shadowRoot.getElementById('wall-save-layout-btn').addEventListener('click', () => this._saveWallLayout());
       this.shadowRoot.getElementById('wall-scene-select').addEventListener('change', (e) => {
         this._loadSceneOntoWall(e.target.value || null);
       });
@@ -4590,39 +4596,49 @@
       }
     }
 
+    _activeWall() {
+      return this._walls.find(w => w.wall_id === this._activeWallId) || null;
+    }
+
+    _defaultWall() {
+      return this._walls.find(w => w.kind === 'default') || null;
+    }
+
     _renderWallsSubview() {
       const select = this.shadowRoot.getElementById('wall-select');
-      const hasWalls = !!this._walls.length;
-      select.innerHTML = hasWalls
-        ? this._walls.map(w => `<option value="${this._esc(w.wall_id)}">${this._esc(w.name)}</option>`).join('')
+      // Default wall always listed first; custom walls in creation order.
+      const walls = [...this._walls].sort((a, b) => {
+        if (a.kind === 'default') return -1;
+        if (b.kind === 'default') return 1;
+        return (a.created_at || 0) - (b.created_at || 0);
+      });
+      select.innerHTML = walls.length
+        ? walls.map(w => `<option value="${this._esc(w.wall_id)}">${this._esc(w.name)}</option>`).join('')
         : '<option value="">Untitled (unsaved)</option>';
       select.value = this._activeWallId || '';
 
-      const hasActive = !!(this._activeWallId && this._walls.some(w => w.wall_id === this._activeWallId));
-      this.shadowRoot.getElementById('wall-delete-btn').style.display = hasActive ? '' : 'none';
+      // The default wall is permanent -- no delete affordance.
+      const active = this._activeWall();
+      this.shadowRoot.getElementById('wall-delete-btn').style.display =
+        (active && active.kind !== 'default') ? '' : 'none';
 
       this._renderWallScenePicker();
       this._renderWallCanvas();
     }
 
-    // Whether the working copy of the active wall's placements (mutated by
-    // dragging tiles) has diverged from what's actually persisted -- used to
-    // warn before switching walls silently discards unsaved drag edits.
-    _wallLayoutIsDirty() {
-      if (!this._activeWallId) return Object.keys(this._wallPlacements || {}).length > 0;
-      const wall = this._walls.find(w => w.wall_id === this._activeWallId);
-      if (!wall) return false;
-      return JSON.stringify(wall.placements || {}) !== JSON.stringify(this._wallPlacements || {});
-    }
-
     _openWall(wallId) {
-      this._activeWallId = wallId || null;
-      const wall = wallId && this._walls.find(w => w.wall_id === wallId);
-      // Deep-copy so canvas edits don't mutate this._walls until Save Layout.
+      // With the backend-guaranteed default wall there's no "no wall"
+      // state anymore -- fall back to it instead of an unsaveable draft.
+      let wall = wallId && this._walls.find(w => w.wall_id === wallId);
+      if (!wall) wall = this._defaultWall() || this._walls[0] || null;
+      this._activeWallId = wall ? wall.wall_id : null;
+      // Deep-copy so in-progress canvas edits never mutate this._walls
+      // directly -- the local record only updates when a save round-trips.
       this._wallPlacements = wall ? JSON.parse(JSON.stringify(wall.placements || {})) : {};
       this._wallActiveSceneId = null;
       this._wallPendingMappings = {};
       this._wallPendingPickAlbum = {};
+      this._wallSelectedEntryId = null;
       this._renderWallsSubview();
     }
 
@@ -4672,6 +4688,7 @@
         return;
       }
       await this._loadWalls();
+      // Land on the default wall -- it always exists.
       this._openWall(null);
     }
 
@@ -4688,6 +4705,95 @@
       const targetLongest = 140;
       const scale = targetLongest / Math.max(w, h);
       return { width: Math.round(w * scale), height: Math.round(h * scale) };
+    }
+
+    // Would placing entryId's tile at (x, y) overlap any other placed tile?
+    // Strict AABB overlap -- tiles sharing an edge at a grid boundary are
+    // legal, so a tight gallery layout is still possible.
+    _wallCollidesAt(entryId, x, y) {
+      const frame = this._frames.find(f => f.entryId === entryId);
+      const dims = this._wallTileDims(frame);
+      for (const [otherId, pos] of Object.entries(this._wallPlacements)) {
+        if (otherId === entryId) continue;
+        const otherFrame = this._frames.find(f => f.entryId === otherId);
+        if (!otherFrame) continue;
+        const otherDims = this._wallTileDims(otherFrame);
+        if (
+          x < pos.x + otherDims.width && pos.x < x + dims.width
+          && y < pos.y + otherDims.height && pos.y < y + dims.height
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // The canvas position a drag would snap to if dropped at the pointer's
+    // current location -- one shared implementation for the actual drop
+    // (_onWallPointerUp) and the ghost's live collision hint.
+    _wallSnapCandidate(drag, clientX, clientY) {
+      const canvas = this.shadowRoot.getElementById('wall-canvas');
+      const canvasRect = canvas.getBoundingClientRect();
+      const rawX = drag.kind === 'palette'
+        ? (clientX - canvasRect.left + canvas.scrollLeft - drag.dims.width / 2)
+        : (drag.startLeft + (clientX - drag.startClientX));
+      const rawY = drag.kind === 'palette'
+        ? (clientY - canvasRect.top + canvas.scrollTop - drag.dims.height / 2)
+        : (drag.startTop + (clientY - drag.startClientY));
+      const GRID = 20;
+      return {
+        x: Math.max(0, Math.round(rawX / GRID) * GRID),
+        y: Math.max(0, Math.round(rawY / GRID) * GRID),
+      };
+    }
+
+    _wallSelectTile(entryId) {
+      this._wallSelectedEntryId = entryId || null;
+      const canvas = this.shadowRoot.getElementById('wall-canvas');
+      if (!canvas) return;
+      for (const tile of canvas.querySelectorAll('.wall-tile')) {
+        tile.classList.toggle('selected', tile.dataset.entryId === this._wallSelectedEntryId);
+      }
+    }
+
+    _onWallKeydown(e) {
+      if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Escape'].includes(e.key)) return;
+      if (this._activeTab !== 'scenes') return;
+      const entryId = this._wallSelectedEntryId;
+      if (!entryId || !(entryId in this._wallPlacements)) return;
+      // Never steal keys from form fields or an open modal.
+      const target = e.composedPath ? e.composedPath()[0] : e.target;
+      const tag = target && target.tagName;
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(tag)) return;
+      for (const overlay of this.shadowRoot.querySelectorAll('.modal-overlay, .editor-overlay')) {
+        if (overlay.style.display && overlay.style.display !== 'none') return;
+      }
+
+      if (e.key === 'Escape') {
+        this._wallSelectTile(null);
+        return;
+      }
+
+      e.preventDefault();
+      const GRID = 20;
+      const pos = this._wallPlacements[entryId];
+      let x = pos.x, y = pos.y;
+      if (e.key === 'ArrowLeft')  x = Math.max(0, x - GRID);
+      if (e.key === 'ArrowRight') x = x + GRID;
+      if (e.key === 'ArrowUp')    y = Math.max(0, y - GRID);
+      if (e.key === 'ArrowDown')  y = y + GRID;
+      if (x === pos.x && y === pos.y) return;
+      // A nudge into a neighbor is a no-op, never a shove.
+      if (this._wallCollidesAt(entryId, x, y)) return;
+
+      this._wallPlacements[entryId] = { x, y };
+      const canvas = this.shadowRoot.getElementById('wall-canvas');
+      const tileEl = this._wallTileEl(canvas, entryId);
+      if (tileEl) {
+        tileEl.style.left = `${x}px`;
+        tileEl.style.top  = `${y}px`;
+      }
+      this._scheduleWallLayoutSave();
     }
 
     _renderWallCanvas() {
@@ -4741,21 +4847,29 @@
         tile.style.width  = `${dims.width}px`;
         tile.style.height = `${dims.height}px`;
         tile.title = frame.title;
+        if (entryId === this._wallSelectedEntryId) tile.classList.add('selected');
         canvas.appendChild(tile);
 
         this._renderWallTileContent(tile, entryId, frame);
 
-        const removeBtn = document.createElement('button');
-        removeBtn.className = 'tile-remove-btn';
-        removeBtn.innerHTML = '✕';
-        removeBtn.title = 'Remove frame from wall';
-        removeBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
-        removeBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          delete this._wallPlacements[entryId];
-          this._renderWallCanvas();
-        });
-        tile.appendChild(removeBtn);
+        // Every frame is permanently placed on the default wall (the
+        // backend re-adds it anyway) -- only custom walls get the ✕.
+        const activeWall = this._activeWall();
+        if (!activeWall || activeWall.kind !== 'default') {
+          const removeBtn = document.createElement('button');
+          removeBtn.className = 'tile-remove-btn';
+          removeBtn.innerHTML = '✕';
+          removeBtn.title = 'Remove frame from wall';
+          removeBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+          removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            delete this._wallPlacements[entryId];
+            if (this._wallSelectedEntryId === entryId) this._wallSelectedEntryId = null;
+            this._renderWallCanvas();
+            this._scheduleWallLayoutSave();
+          });
+          tile.appendChild(removeBtn);
+        }
 
         tile.addEventListener('pointerdown', (e) => this._wallBeginDrag(e, entryId, 'tile'));
       }
@@ -4926,6 +5040,10 @@
     _applyWallGhost(drag) {
       drag.ghost.style.left = `${drag.lastX - drag.dims.width / 2}px`;
       drag.ghost.style.top  = `${drag.lastY - drag.dims.height / 2}px`;
+      // Live hint: tint the ghost red when the drop it represents would be
+      // rejected for overlapping another tile. Runs at most once per rAF.
+      const { x, y } = this._wallSnapCandidate(drag, drag.lastX, drag.lastY);
+      drag.ghost.classList.toggle('colliding', this._wallCollidesAt(drag.entryId, x, y));
     }
 
     _wallBeginDrag(e, entryId, kind) {
@@ -4987,11 +5105,13 @@
       if (tileEl) tileEl.classList.remove('dragging');
 
       if (!drag.moved) {
-        // A click, not a drag -- open the image picker for this frame
-        // instead of "repositioning"/"placing" it. Applies to a palette
-        // item exactly the same as a placed tile: a frame works the same
-        // on or off the wall, so clicking either one always means "choose
-        // its image," never "place it here."
+        // A click, not a drag -- select the tile (for arrow-key nudging)
+        // and open the image picker for this frame instead of
+        // "repositioning"/"placing" it. Applies to a palette item exactly
+        // the same as a placed tile: a frame works the same on or off the
+        // wall, so clicking either one always means "choose its image,"
+        // never "place it here."
+        if (drag.kind === 'tile') this._wallSelectTile(drag.entryId);
         this._openWallImagePicker(drag.entryId);
         return;
       }
@@ -5009,16 +5129,19 @@
         }
       }
 
-      const rawX = drag.kind === 'palette'
-        ? (e.clientX - canvasRect.left + canvas.scrollLeft - drag.dims.width / 2)
-        : (drag.startLeft + (e.clientX - drag.startClientX));
-      const rawY = drag.kind === 'palette'
-        ? (e.clientY - canvasRect.top + canvas.scrollTop - drag.dims.height / 2)
-        : (drag.startTop + (e.clientY - drag.startClientY));
+      const { x, y } = this._wallSnapCandidate(drag, e.clientX, e.clientY);
 
-      const GRID = 20;
-      const x = Math.max(0, Math.round(rawX / GRID) * GRID);
-      const y = Math.max(0, Math.round(rawY / GRID) * GRID);
+      if (this._wallCollidesAt(drag.entryId, x, y)) {
+        // Tiles never overlap: a colliding tile-drag snaps back to where
+        // it started; a colliding palette-drop cancels.
+        if (drag.kind === 'tile' && tileEl) {
+          tileEl.style.left = `${drag.startLeft}px`;
+          tileEl.style.top  = `${drag.startTop}px`;
+        } else {
+          this._renderWallCanvas();
+        }
+        return;
+      }
 
       this._wallPlacements[drag.entryId] = { x, y };
       if (drag.kind === 'tile' && tileEl) {
@@ -5030,84 +5153,47 @@
       } else {
         this._renderWallCanvas();
       }
+      this._scheduleWallLayoutSave();
     }
 
-    // Creating the very first wall doesn't need its own dedicated flow --
-    // there's already an empty draft wall showing (see _init/_openWall), so
-    // Save Layout just names and persists it on first use. Only the naming
-    // prompt is deferred; nothing else about the save differs.
-    async _saveWallLayout() {
-      const fb  = this.shadowRoot.getElementById('wall-fb');
-      const btn = this.shadowRoot.getElementById('wall-save-layout-btn');
+    // Layout persistence is automatic: every drop/nudge/remove schedules a
+    // debounced save of a snapshot taken at schedule time, so a save in
+    // flight always belongs to the wall (and state) it was scheduled for --
+    // switching walls mid-debounce can't cross-write.
+    _scheduleWallLayoutSave() {
+      const wall = this._activeWall();
+      if (!wall) return;
+      if (this._wallSaveTimer) clearTimeout(this._wallSaveTimer);
+      const wallId = wall.wall_id;
+      const name = wall.name;
+      const snapshot = JSON.parse(JSON.stringify(this._wallPlacements));
+      this._wallSaveTimer = setTimeout(() => {
+        this._wallSaveTimer = null;
+        this._persistWallLayout(wallId, name, snapshot);
+      }, 800);
+    }
 
-      if (!this._activeWallId) {
-        const name = window.prompt('Name this wall (e.g. "Living Room"):');
-        if (!name || !name.trim()) return;
-
-        btn.disabled = true;
-        btn.textContent = 'Saving…';
-        try {
-          const resp = await fetch('/api/fraimic/walls', {
-            method: 'POST',
-            headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: name.trim(), placements: this._wallPlacements }),
-          });
-          const result = await resp.json().catch(() => ({}));
-          if (!resp.ok || !result.success) {
-            throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
-          }
-          await this._loadWalls();
-          this._activeWallId = result.wall.wall_id;
-          this._renderWallsSubview();
-          fb.className = 'feedback ok';
-          fb.textContent = 'Layout saved.';
-          fb.style.display = 'block';
-          setTimeout(() => { fb.style.display = 'none'; }, 3000);
-        } catch (err) {
-          fb.className = 'feedback err';
-          fb.textContent = `Couldn't save layout: ${err.message}`;
-          fb.style.display = 'block';
-        }
-        btn.disabled = false;
-        btn.textContent = 'Save Layout';
-        return;
-      }
-
-      const wall = this._walls.find(w => w.wall_id === this._activeWallId);
-      if (!wall) {
-        // Previously silent -- e.g. this wall was deleted from another tab
-        // since it was opened here. A no-op click with no feedback reads as
-        // "Save Layout doesn't do anything", so surface it instead.
-        fb.className = 'feedback err';
-        fb.textContent = "Couldn't save layout: this wall is no longer available. Pick a wall again.";
-        fb.style.display = 'block';
-        return;
-      }
-
-      btn.disabled = true;
-      btn.textContent = 'Saving…';
+    async _persistWallLayout(wallId, name, placements) {
+      const fb = this.shadowRoot.getElementById('wall-fb');
       try {
-        const resp = await fetch(`/api/fraimic/walls/${wall.wall_id}`, {
+        const resp = await fetch(`/api/fraimic/walls/${wallId}`, {
           method: 'POST',
           headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: wall.name, placements: this._wallPlacements }),
+          body: JSON.stringify({ name, placements }),
         });
         const result = await resp.json().catch(() => ({}));
         if (!resp.ok || !result.success) {
           throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
         }
-        await this._loadWalls();
-        fb.className = 'feedback ok';
-        fb.textContent = 'Layout saved.';
-        fb.style.display = 'block';
-        setTimeout(() => { fb.style.display = 'none'; }, 3000);
+        // Sync the local record so a wall switch round-trip shows what was
+        // just saved, without refetching the whole list.
+        const wall = this._walls.find(w => w.wall_id === wallId);
+        if (wall) wall.placements = result.wall.placements;
       } catch (err) {
         fb.className = 'feedback err';
         fb.textContent = `Couldn't save layout: ${err.message}`;
         fb.style.display = 'block';
       }
-      btn.disabled = false;
-      btn.textContent = 'Save Layout';
     }
 
     _renderWallScenePicker() {
