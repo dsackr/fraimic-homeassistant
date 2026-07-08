@@ -1108,6 +1108,65 @@
     .editor-actions .btn-primary { background: #f97316; border-color: #f97316; color: #fff; }
     .editor-actions .editor-danger { color: #f87171; border-color: rgba(248,113,113,.4); }
     #editor-fb { margin-top: 10px; }
+
+    /* Embedded config/options flow modal */
+    .flow-desc {
+      font-size: 13px;
+      color: var(--secondary-text-color);
+      margin: 0 0 14px;
+      white-space: pre-line;
+    }
+    .flow-field-error {
+      color: var(--error-color, #db4437);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+    .flow-loading {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 18px 4px;
+      color: var(--secondary-text-color);
+      font-size: 14px;
+    }
+    .flow-loading::before {
+      content: '';
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--divider-color, #444);
+      border-top-color: var(--primary-color, #03a9f4);
+      border-radius: 50%;
+      animation: flow-spin .8s linear infinite;
+      flex: 0 0 auto;
+    }
+    @keyframes flow-spin { to { transform: rotate(360deg); } }
+    .discovery-banner {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 0 0 14px;
+      padding: 12px 16px;
+      border-radius: var(--ha-card-border-radius, 12px);
+      background: color-mix(in srgb, var(--primary-color, #03a9f4) 12%, transparent);
+      border: 1px solid color-mix(in srgb, var(--primary-color, #03a9f4) 35%, transparent);
+      font-size: 14px;
+    }
+    .discovery-banner .banner-add-btn {
+      padding: 6px 14px;
+      border-radius: 8px;
+      border: none;
+      background: var(--primary-color, #03a9f4);
+      color: var(--text-primary-color, #fff);
+      font-weight: 600;
+      cursor: pointer;
+      flex: 0 0 auto;
+    }
+    .modal-row input[type="checkbox"] {
+      width: auto;
+      transform: scale(1.2);
+      margin-right: auto;
+    }
   `;
 
   // -------------------------------------------------------------------------
@@ -1188,6 +1247,14 @@
       this._onWallPointerMove = this._onWallPointerMove.bind(this);
       this._onWallPointerUp   = this._onWallPointerUp.bind(this);
 
+      // Embedded config/options flow state (the panel drives HA's own
+      // data_entry_flow REST API instead of navigating to Settings).
+      this._flowModal = null;         // { base, flowId, userInitiated, onDone, step } while open, else null
+      this._flowTranslations = null;  // merged config+options translation resources, fetched once
+      this._frameSettingsTarget = null;  // frame whose settings menu is open, else null
+      this._discoveredFlows = {};     // flow_id → in-progress discovery flow (banner data)
+      this._flowSubUnsub = null;      // unsubscribe fn for config_entries/flow/subscribe, else null
+
       this._editorState = null;   // active crop-editor session, or null when closed
       this._editorDrag  = null;   // in-progress pointer drag, or null
       this._editorRenderRaf = null; // pending crop-box render frame, or null
@@ -1233,6 +1300,13 @@
     _dispose() {
       this._disposed = true;
       this._abort.abort();
+      if (this._flowSubUnsub) {
+        // The flow subscription lives on the shared hass websocket, not
+        // this element -- left connected it would fire renders against a
+        // detached shadow tree forever.
+        try { this._flowSubUnsub(); } catch (err) { /* connection already gone */ }
+        this._flowSubUnsub = null;
+      }
       if (this._thumbObserver) this._thumbObserver.disconnect();
       if (this._wallDrag) {
         if (this._wallDrag.ghost) this._wallDrag.ghost.remove();
@@ -1260,6 +1334,7 @@
       this._abort = new AbortController();
       this._thumbObserver = this._makeThumbObserver();
       this._addGlobalListeners();
+      this._subscribeDiscoveredFlows();
       if (!this._loaded) return;
       // Grid <img>s still point at revoked blob: URLs -- re-render from
       // in-memory state so tiles re-register with the observer and refetch
@@ -1328,10 +1403,13 @@
       this._wireUploadModal();
       this._wireAlbumPicker();
       this._wireAlbumCreate();
+      this._wireFlowModal();
+      this._wireFrameSettingsMenu();
       this._wireWallToolbar();
       this._wireWallImagePicker();
       this._wirePackTest();
       this._addGlobalListeners();
+      this._subscribeDiscoveredFlows();
       // Fire every tab's data load concurrently and render each section as
       // its data lands -- these are independent endpoints, and awaiting
       // them serially made first paint wait on the sum of all round trips
@@ -1417,9 +1495,10 @@
       });
       const addBtn = this.shadowRoot.getElementById('frame-add-btn');
       if (addBtn) {
-        addBtn.addEventListener('click', () => {
-          this._navigate('/config/integrations/dashboard/add?domain=fraimic');
-        });
+        addBtn.addEventListener('click', () => this._openAddFrameFlow());
+        // Admin-gated: the config-entry APIs behind the embedded flow are
+        // @require_admin server-side.
+        if (!this._isAdmin()) addBtn.style.display = 'none';
       }
       this._setTab('library');
     }
@@ -1484,6 +1563,7 @@
         </div><!-- /tab-library -->
 
         <div class="tab-content" id="tab-frames">
+        <div class="discovery-banner" id="discovery-banner" style="display:none"></div>
         <div class="lib-toolbar" style="justify-content:flex-end">
           <button class="btn-primary" id="frame-add-btn" style="flex:0 0 auto">＋ Add Frame</button>
         </div>
@@ -1617,6 +1697,44 @@
             <div class="modal-actions">
               <button class="btn-primary" id="album-create-save">Create Album</button>
               <button class="btn-ghost" id="album-create-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Embedded config/options flow: a generic renderer for HA's
+             data_entry_flow steps (add frame, reconfigure), so device
+             management never has to leave the panel. Body content is
+             rebuilt per step by _renderFlowStep. -->
+        <div class="modal-overlay" id="flow-modal-overlay">
+          <div class="modal-box">
+            <h3 id="flow-modal-title">Add Frame</h3>
+            <div id="flow-modal-body"></div>
+            <div class="feedback" id="flow-modal-fb"></div>
+            <div class="modal-actions">
+              <button class="btn-primary" id="flow-modal-submit">Next</button>
+              <button class="btn-ghost" id="flow-modal-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Per-frame management: rename / reconfigure / remove without
+             leaving the panel. Rename writes entry.title directly via the
+             config_entries/update WS command (never the options flow's
+             broken name field); Configure drives FraimicOptionsFlow through
+             the flow modal above. -->
+        <div class="modal-overlay" id="frame-settings-overlay">
+          <div class="modal-box" style="max-width:440px">
+            <h3 id="frame-settings-title">Frame Settings</h3>
+            <div class="modal-row">
+              <label>Name</label>
+              <input type="text" id="frame-settings-name">
+            </div>
+            <div class="feedback" id="frame-settings-fb"></div>
+            <div class="modal-actions" style="flex-wrap:wrap">
+              <button class="btn-primary" id="frame-settings-rename">Save Name</button>
+              <button class="btn-ghost" id="frame-settings-configure">⚙ Configure…</button>
+              <button class="btn-ghost" id="frame-settings-remove">🗑 Remove</button>
+              <button class="btn-ghost" id="frame-settings-close">Close</button>
             </div>
           </div>
         </div>
@@ -1907,16 +2025,19 @@
         });
       });
 
-      // Wire the Options button: no documented URL opens the options dialog
-      // for one specific entry directly, so this lands on the integration's
-      // page (same place "Add entry" lives) where the kebab menu on this
-      // frame's row opens Options -- reliable, uses the same navigate()
-      // path as the Add Frame button above.
+      // Wire the Options button: opens the embedded rename/configure/remove
+      // menu -- no trip to HA Settings. Hidden for non-admins since every
+      // action inside is @require_admin server-side.
       grid.querySelectorAll('.btn-options').forEach(btn => {
+        if (!this._isAdmin()) {
+          btn.style.display = 'none';
+          return;
+        }
         btn.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
-          this._navigate('/config/integrations/integration/fraimic');
+          const frame = this._frames.find(f => f.entryId === btn.dataset.entryId);
+          if (frame) this._openFrameSettingsMenu(frame);
         });
       });
 
@@ -2060,6 +2181,532 @@
       if (statusEl._fraimicLastStatus === html) return;
       statusEl._fraimicLastStatus = html;
       statusEl.innerHTML = html;
+    }
+
+    // -----------------------------------------------------------------------
+    // Embedded config/options flows: a generic renderer for HA's
+    // data_entry_flow REST API, so adding/reconfiguring a frame never leaves
+    // the panel. Drives both the config flow (add) and the options flow
+    // (reconfigure) -- their wire formats are identical.
+    // -----------------------------------------------------------------------
+
+    _isAdmin() {
+      // Every config-entry endpoint below is @require_admin server-side;
+      // hide the affordances client-side so non-admins never see dead
+      // buttons. No capability regression: those actions previously lived
+      // behind HA Settings, which non-admins can't reach either.
+      return !!(this._hass && this._hass.user && this._hass.user.is_admin);
+    }
+
+    async _loadFlowTranslations() {
+      // The flow API returns raw field names/step ids; human strings live
+      // in the frontend translation store. Fetched once, merged across the
+      // config + options categories. Failure is non-fatal -- the renderer
+      // falls back to raw names.
+      if (this._flowTranslations) return this._flowTranslations;
+      const resources = {};
+      for (const category of ['config', 'options']) {
+        try {
+          const resp = await this._hass.callWS({
+            type: 'frontend/get_translations',
+            language: (this._hass.language || 'en'),
+            category,
+            integration: 'fraimic',
+          });
+          Object.assign(resources, (resp && resp.resources) || {});
+        } catch (err) {
+          console.warn(`[fraimic-panel] flow translations (${category}) unavailable:`, err);
+        }
+      }
+      this._flowTranslations = resources;
+      return resources;
+    }
+
+    _flowText(key, fallback, placeholders) {
+      let text = (this._flowTranslations || {})[key];
+      if (!text) return fallback;
+      for (const [name, value] of Object.entries(placeholders || {})) {
+        text = text.split(`{${name}}`).join(value);
+      }
+      return text;
+    }
+
+    async _flowRequest(method, url, body) {
+      const resp = await fetch(url, {
+        method,
+        headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        const detail = await resp.json().catch(() => ({}));
+        throw new Error(detail.message || detail.error || `HTTP ${resp.status}`);
+      }
+      // DELETE returns 200 with no meaningful body.
+      return resp.json().catch(() => ({}));
+    }
+
+    _startConfigFlow() {
+      return this._flowRequest('POST', '/api/config/config_entries/flow', {
+        handler: 'fraimic',
+        show_advanced_options: false,
+      });
+    }
+
+    _startOptionsFlow(entryId) {
+      return this._flowRequest('POST', '/api/config/config_entries/options/flow', {
+        handler: entryId,
+        show_advanced_options: false,
+      });
+    }
+
+    _flowGet(base, flowId)            { return this._flowRequest('GET',    `${base}/${flowId}`); }
+    _flowSubmit(base, flowId, values) { return this._flowRequest('POST',   `${base}/${flowId}`, values); }
+    _flowDelete(base, flowId)         { return this._flowRequest('DELETE', `${base}/${flowId}`); }
+
+    _wireFlowModal() {
+      const overlay = this.shadowRoot.getElementById('flow-modal-overlay');
+      const submit  = this.shadowRoot.getElementById('flow-modal-submit');
+      const cancel  = this.shadowRoot.getElementById('flow-modal-cancel');
+      submit.addEventListener('click', () => this._submitFlowStep());
+      cancel.addEventListener('click', () => this._closeFlowModal());
+      overlay.addEventListener('click', (e) => {
+        // Backdrop click closes like Cancel; clicks inside the box don't.
+        if (e.target === overlay) this._closeFlowModal();
+      });
+    }
+
+    // start: a promise for the flow's first step (from _startConfigFlow /
+    // _startOptionsFlow / _flowGet on a discovered flow_id).
+    // userInitiated: user-started flows are DELETEd on cancel; discovered
+    // flows must stay pending so their banner/Discovered card survives.
+    async _openFlowModal({ title, base, start, userInitiated, onDone, loadingText }) {
+      const overlay = this.shadowRoot.getElementById('flow-modal-overlay');
+      const body    = this.shadowRoot.getElementById('flow-modal-body');
+      const fb      = this.shadowRoot.getElementById('flow-modal-fb');
+      this.shadowRoot.getElementById('flow-modal-title').textContent = title;
+      fb.style.display = 'none';
+      body.innerHTML = `<div class="flow-loading">${this._esc(loadingText || 'Loading…')}</div>`;
+      this._setFlowButtons({ submit: false, cancel: true });
+      overlay.style.display = 'flex';
+
+      this._flowModal = { base, flowId: null, userInitiated: !!userInitiated, onDone, step: null };
+
+      const translationsP = this._loadFlowTranslations();
+      let result;
+      try {
+        result = await start();
+      } catch (err) {
+        if (!this._flowModal) return;   // closed while loading
+        body.innerHTML = '';
+        this._showFlowError(`Couldn't start: ${err.message}`);
+        return;
+      }
+      await translationsP;
+      if (!this._flowModal) return;     // closed while loading
+      this._renderFlowStep(result);
+    }
+
+    _closeFlowModal() {
+      const modal = this._flowModal;
+      this._flowModal = null;
+      this.shadowRoot.getElementById('flow-modal-overlay').style.display = 'none';
+      if (modal && modal.userInitiated && modal.flowId && !modal.finished) {
+        // Abandon the half-completed flow server-side, or it lingers in
+        // flow/progress forever. Never done for discovered flows.
+        this._flowDelete(modal.base, modal.flowId).catch(() => {});
+      }
+      // Without a live flow subscription (older HA), this is the moment
+      // discovered-flow state most plausibly changed -- refresh the banner.
+      if (modal && !this._flowSubUnsub) this._refreshDiscoveredFlowsOnce();
+    }
+
+    _setFlowButtons({ submit, cancel, submitLabel, cancelLabel }) {
+      const submitBtn = this.shadowRoot.getElementById('flow-modal-submit');
+      const cancelBtn = this.shadowRoot.getElementById('flow-modal-cancel');
+      submitBtn.style.display = submit ? '' : 'none';
+      cancelBtn.style.display = cancel ? '' : 'none';
+      submitBtn.disabled = false;
+      cancelBtn.disabled = false;
+      submitBtn.textContent = submitLabel || 'Next';
+      cancelBtn.textContent = cancelLabel || 'Cancel';
+    }
+
+    _showFlowError(message) {
+      const fb = this.shadowRoot.getElementById('flow-modal-fb');
+      fb.className = 'feedback err';
+      fb.textContent = message;
+      fb.style.display = 'block';
+    }
+
+    _renderFlowStep(result) {
+      const modal = this._flowModal;
+      if (!modal) return;
+      modal.flowId = result.flow_id || modal.flowId;
+      modal.step = result;
+      const body = this.shadowRoot.getElementById('flow-modal-body');
+      const fb   = this.shadowRoot.getElementById('flow-modal-fb');
+      fb.style.display = 'none';
+      body.innerHTML = '';
+
+      const category = modal.base.includes('/options/') ? 'options' : 'config';
+      const keyBase  = `component.fraimic.${category}`;
+
+      if (result.type === 'create_entry') {
+        modal.finished = true;
+        this._closeFlowModal();
+        if (modal.onDone) modal.onDone(result);
+        return;
+      }
+
+      if (result.type === 'abort') {
+        modal.finished = true;   // nothing left to cancel server-side
+        const reason = this._flowText(
+          `${keyBase}.abort.${result.reason}`,
+          result.reason,
+          result.description_placeholders,
+        );
+        body.innerHTML = `<p class="flow-desc">${this._esc(reason)}</p>`;
+        this._setFlowButtons({ submit: false, cancel: true, cancelLabel: 'Close' });
+        return;
+      }
+
+      if (result.type !== 'form') {
+        // Our flows only emit form/create_entry/abort; menu/progress would
+        // mean a future backend change this renderer predates.
+        body.innerHTML = `<p class="flow-desc">Unsupported step type "${this._esc(result.type)}" — use HA Settings for this one.</p>`;
+        this._setFlowButtons({ submit: false, cancel: true, cancelLabel: 'Close' });
+        return;
+      }
+
+      const stepKey = `${keyBase}.step.${result.step_id}`;
+      const title = this._flowText(`${stepKey}.title`, null, result.description_placeholders);
+      if (title) this.shadowRoot.getElementById('flow-modal-title').textContent = title;
+      const desc = this._flowText(`${stepKey}.description`, '', result.description_placeholders);
+      if (desc) {
+        const p = document.createElement('p');
+        p.className = 'flow-desc';
+        p.textContent = desc;
+        body.appendChild(p);
+      }
+
+      const errors = result.errors || {};
+      for (const field of (result.data_schema || [])) {
+        body.appendChild(this._buildFlowField(field, stepKey, errors[field.name]));
+      }
+      if (errors.base) {
+        this._showFlowError(this._flowText(`${keyBase}.error.${errors.base}`, errors.base));
+      }
+
+      const isLast = result.last_step !== false;   // null/true → likely final
+      this._setFlowButtons({ submit: true, cancel: true, submitLabel: isLast ? 'Submit' : 'Next' });
+      const firstInput = body.querySelector('input[type="text"], input[type="number"]');
+      if (firstInput) firstInput.focus();
+    }
+
+    _buildFlowField(field, stepKey, errorCode) {
+      const row = document.createElement('div');
+      row.className = 'modal-row';
+
+      const label = document.createElement('label');
+      label.textContent = this._flowText(`${stepKey}.data.${field.name}`, field.name);
+      row.appendChild(label);
+
+      let input;
+      if (field.type === 'select') {
+        input = document.createElement('select');
+        for (const opt of (field.options || [])) {
+          // voluptuous_serialize emits [value, label] pairs.
+          const [value, text] = Array.isArray(opt) ? opt : [opt, opt];
+          const el = document.createElement('option');
+          el.value = value;
+          el.textContent = text;
+          input.appendChild(el);
+        }
+        if (field.default !== undefined) input.value = field.default;
+      } else if (field.type === 'boolean') {
+        input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = !!field.default;
+      } else if (field.type === 'integer') {
+        input = document.createElement('input');
+        input.type = 'number';
+        if (field.valueMin !== undefined) input.min = field.valueMin;
+        if (field.valueMax !== undefined) input.max = field.valueMax;
+        if (field.default !== undefined) input.value = field.default;
+      } else {
+        // 'string' plus any future type we don't know -- a text box is the
+        // safest degradation.
+        input = document.createElement('input');
+        input.type = 'text';
+        if (field.default !== undefined) input.value = field.default;
+      }
+      input.id = `flow-field-${field.name}`;
+      input.dataset.flowField = field.name;
+      input.dataset.flowType = field.type || 'string';
+      input.dataset.flowOptional = field.optional ? '1' : '';
+      row.appendChild(input);
+
+      const hint = this._flowText(`${stepKey}.data_description.${field.name}`, '');
+      if (hint) {
+        const p = document.createElement('div');
+        p.className = 'modal-file-summary';
+        p.textContent = hint;
+        row.appendChild(p);
+      }
+      if (errorCode) {
+        const category = stepKey.includes('.options.') ? 'options' : 'config';
+        const err = document.createElement('div');
+        err.className = 'flow-field-error';
+        err.textContent = this._flowText(`component.fraimic.${category}.error.${errorCode}`, errorCode);
+        row.appendChild(err);
+      }
+      return row;
+    }
+
+    _collectFlowValues() {
+      const body = this.shadowRoot.getElementById('flow-modal-body');
+      const values = {};
+      for (const input of body.querySelectorAll('[data-flow-field]')) {
+        const name = input.dataset.flowField;
+        switch (input.dataset.flowType) {
+          case 'boolean':
+            values[name] = input.checked;
+            break;
+          case 'integer': {
+            const n = parseInt(input.value, 10);
+            if (!isNaN(n)) values[name] = n;
+            break;
+          }
+          default:
+            // Empty optional strings are sent as "" on purpose: an empty
+            // host is the "scan my network instead" signal in
+            // async_step_user.
+            values[name] = input.value;
+        }
+      }
+      return values;
+    }
+
+    async _submitFlowStep() {
+      const modal = this._flowModal;
+      if (!modal || !modal.step || modal.step.type !== 'form') return;
+      const submitBtn = this.shadowRoot.getElementById('flow-modal-submit');
+      const values = this._collectFlowValues();
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Working…';
+      try {
+        const result = await this._flowSubmit(modal.base, modal.flowId, values);
+        if (this._flowModal !== modal) return;   // closed mid-flight
+        this._renderFlowStep(result);
+      } catch (err) {
+        if (this._flowModal !== modal) return;
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Next';
+        this._showFlowError(err.message);
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Frame management: embedded add / rename / reconfigure / remove
+    // -----------------------------------------------------------------------
+
+    _openAddFrameFlow() {
+      this._openFlowModal({
+        title: 'Add Frame',
+        base: '/api/config/config_entries/flow',
+        start: () => this._startConfigFlow(),
+        userInitiated: true,
+        // async_step_user auto-scans the subnet before its first form.
+        loadingText: 'Scanning your network for frames…',
+        onDone: () => this._refreshAfterEntryChange(),
+      });
+    }
+
+    async _refreshAfterEntryChange() {
+      // HA sets the new entry up asynchronously after create_entry -- give
+      // it a beat before re-reading, same pattern as the reload button.
+      await new Promise((r) => setTimeout(r, 2000));
+      if (this._disposed) return;
+      await this._discoverFrames();
+      this._renderFrames();
+      await this._loadWalls();
+      this._renderWallsSubview();
+    }
+
+    _wireFrameSettingsMenu() {
+      const overlay = this.shadowRoot.getElementById('frame-settings-overlay');
+      const fb      = this.shadowRoot.getElementById('frame-settings-fb');
+
+      const close = () => {
+        this._frameSettingsTarget = null;
+        overlay.style.display = 'none';
+      };
+      this.shadowRoot.getElementById('frame-settings-close')
+        .addEventListener('click', close);
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+      this.shadowRoot.getElementById('frame-settings-rename')
+        .addEventListener('click', async (e) => {
+          const frame = this._frameSettingsTarget;
+          if (!frame) return;
+          const name = this.shadowRoot.getElementById('frame-settings-name').value.trim();
+          if (!name || name === frame.title) { close(); return; }
+          e.target.disabled = true;
+          try {
+            // Sets entry.title directly -- propagates to the device name
+            // and everywhere else HA shows it.
+            await this._hass.callWS({
+              type: 'config_entries/update',
+              entry_id: frame.entryId,
+              title: name,
+            });
+            close();
+            await this._refreshAfterEntryChange();
+          } catch (err) {
+            fb.className = 'feedback err';
+            fb.textContent = `Rename failed: ${err.message || err.code || err}`;
+            fb.style.display = 'block';
+          } finally {
+            e.target.disabled = false;
+          }
+        });
+
+      this.shadowRoot.getElementById('frame-settings-configure')
+        .addEventListener('click', () => {
+          const frame = this._frameSettingsTarget;
+          if (!frame) return;
+          close();
+          this._openFlowModal({
+            title: `Configure ${frame.title}`,
+            base: '/api/config/config_entries/options/flow',
+            start: () => this._startOptionsFlow(frame.entryId),
+            userInitiated: true,
+            onDone: () => this._refreshAfterEntryChange(),
+          });
+        });
+
+      this.shadowRoot.getElementById('frame-settings-remove')
+        .addEventListener('click', async (e) => {
+          const frame = this._frameSettingsTarget;
+          if (!frame) return;
+          if (!window.confirm(`Remove "${frame.title}" from Home Assistant? Its images and scenes stay in the library.`)) return;
+          e.target.disabled = true;
+          try {
+            await this._flowRequest(
+              'DELETE', `/api/config/config_entries/entry/${frame.entryId}`
+            );
+            close();
+            await this._refreshAfterEntryChange();
+          } catch (err) {
+            fb.className = 'feedback err';
+            fb.textContent = `Remove failed: ${err.message}`;
+            fb.style.display = 'block';
+          } finally {
+            e.target.disabled = false;
+          }
+        });
+    }
+
+    _openFrameSettingsMenu(frame) {
+      this._frameSettingsTarget = frame;
+      this.shadowRoot.getElementById('frame-settings-title').textContent = frame.title;
+      this.shadowRoot.getElementById('frame-settings-name').value = frame.title;
+      const fb = this.shadowRoot.getElementById('frame-settings-fb');
+      fb.style.display = 'none';
+      this.shadowRoot.getElementById('frame-settings-overlay').style.display = 'flex';
+    }
+
+    // -----------------------------------------------------------------------
+    // Discovered-frames banner: frames found by the backend's periodic scan
+    // (or DHCP) surface here too, not just on HA's Settings page. Clicking
+    // Add resumes that exact pending flow -- straight to the naming step.
+    // -----------------------------------------------------------------------
+
+    _isDiscoveryFlow(flow) {
+      const source = flow && flow.context && flow.context.source;
+      return flow && flow.handler === 'fraimic'
+        && !['user', 'import', 'reconfigure'].includes(source);
+    }
+
+    async _subscribeDiscoveredFlows() {
+      if (!this._isAdmin()) return;   // flow/progress APIs are admin-only
+      try {
+        this._flowSubUnsub = await this._hass.connection.subscribeMessage(
+          (events) => {
+            for (const ev of (Array.isArray(events) ? events : [events])) {
+              if (ev.type === 'removed') {
+                delete this._discoveredFlows[ev.flow_id];
+              } else if (ev.flow && this._isDiscoveryFlow(ev.flow)) {
+                this._discoveredFlows[ev.flow.flow_id] = ev.flow;
+              }
+            }
+            this._renderDiscoveryBanner();
+          },
+          { type: 'config_entries/flow/subscribe' },
+        );
+      } catch (err) {
+        // Older HA cores don't have flow/subscribe -- fall back to a
+        // one-shot snapshot, refreshed whenever a flow modal closes (see
+        // _closeFlowModal).
+        await this._refreshDiscoveredFlowsOnce();
+      }
+    }
+
+    async _refreshDiscoveredFlowsOnce() {
+      if (!this._isAdmin()) return;
+      try {
+        const flows = await this._hass.callWS({ type: 'config_entries/flow/progress' });
+        this._discoveredFlows = {};
+        for (const flow of (flows || [])) {
+          if (this._isDiscoveryFlow(flow)) this._discoveredFlows[flow.flow_id] = flow;
+        }
+        this._renderDiscoveryBanner();
+      } catch (err) {
+        console.warn('[fraimic-panel] discovered-flow refresh failed:', err);
+      }
+    }
+
+    _renderDiscoveryBanner() {
+      const banner = this.shadowRoot.getElementById('discovery-banner');
+      if (!banner) return;
+      const flows = Object.values(this._discoveredFlows);
+      if (!flows.length || !this._isAdmin()) {
+        banner.style.display = 'none';
+        banner.innerHTML = '';
+        return;
+      }
+      banner.innerHTML = '';
+      const label = document.createElement('span');
+      label.textContent = flows.length === 1
+        ? '📡 1 frame found on your network:'
+        : `📡 ${flows.length} frames found on your network:`;
+      banner.appendChild(label);
+      for (const flow of flows) {
+        const name = (flow.context && flow.context.title_placeholders
+          && flow.context.title_placeholders.name) || 'frame';
+        const btn = document.createElement('button');
+        btn.className = 'banner-add-btn';
+        btn.textContent = `＋ Add ${name}`;
+        btn.addEventListener('click', () => this._openDiscoveredFlow(flow));
+        banner.appendChild(btn);
+      }
+      banner.style.display = 'flex';
+    }
+
+    _openDiscoveredFlow(flow) {
+      this._openFlowModal({
+        title: 'Add Frame',
+        base: '/api/config/config_entries/flow',
+        // GET on a pending flow re-serves its current step (the naming
+        // form) without restarting anything.
+        start: () => this._flowGet('/api/config/config_entries/flow', flow.flow_id),
+        userInitiated: false,   // cancel must NOT delete a discovered flow
+        onDone: () => {
+          delete this._discoveredFlows[flow.flow_id];
+          this._renderDiscoveryBanner();
+          this._refreshAfterEntryChange();
+        },
+      });
     }
 
     // -----------------------------------------------------------------------
