@@ -1332,6 +1332,10 @@
       // data_entry_flow REST API instead of navigating to Settings).
       this._flowModal = null;         // { base, flowId, userInitiated, onDone, step } while open, else null
       this._flowTranslations = null;  // merged config+options translation resources, fetched once
+
+      // First-run onboarding: { step: 1|2 } while the wizard is open, else
+      // null. Opens automatically when the panel loads with zero frames.
+      this._onboarding = null;
       this._frameSettingsTarget = null;  // frame whose settings menu is open, else null
       this._discoveredFlows = {};     // flow_id → in-progress discovery flow (banner data)
       this._flowSubUnsub = null;      // unsubscribe fn for config_entries/flow/subscribe, else null
@@ -1492,6 +1496,7 @@
       this._wireFlowModal();
       this._wireFrameSettingsMenu();
       this._wireSettingsModal();
+      this._wireOnboarding();
       this._wireWallToolbar();
       this._wireWallImagePicker();
       this._wirePackTest();
@@ -1525,6 +1530,9 @@
       // Deep links target wall tiles, so this must wait for the walls
       // render above.
       this._handleDeepLink();
+      // Zero frames configured? Offer the first-run wizard (admins) or a
+      // pointer to one (everyone else), on top of the rendered dashboard.
+      this._maybeOpenOnboarding();
       await packsP;
       this._renderScenePacks();
 
@@ -1735,6 +1743,21 @@
             <div class="modal-actions">
               <button class="btn-primary" id="album-create-save">Create Album</button>
               <button class="btn-ghost" id="album-create-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- First-run onboarding: opens automatically when zero frames are
+             configured. A thin shell over the proven pieces -- step 1
+             launches the embedded Add-Frame flow (which stacks above at the
+             standard modal z-index), step 2 offers storage setup via the
+             Settings modal, then it lands on the dashboard. -->
+        <div class="modal-overlay" id="onboarding-overlay" style="z-index:1000">
+          <div class="modal-box" style="max-width:560px">
+            <h3 id="onboarding-title">Welcome to Fraimic 👋</h3>
+            <div id="onboarding-body"></div>
+            <div class="modal-actions">
+              <button class="btn-ghost" id="onboarding-skip">Set up later</button>
             </div>
           </div>
         </div>
@@ -2445,7 +2468,10 @@
         userInitiated: true,
         // async_step_user auto-scans the subnet before its first form.
         loadingText: 'Scanning your network for frames…',
-        onDone: () => this._refreshAfterEntryChange(),
+        onDone: () => {
+          this._onboardingFrameAdded();
+          this._refreshAfterEntryChange();
+        },
       });
     }
 
@@ -2675,6 +2701,7 @@
       if (!flows.length || !this._isAdmin()) {
         banner.style.display = 'none';
         banner.innerHTML = '';
+        if (this._onboarding && this._onboarding.step === 1) this._renderOnboardingStep();
         return;
       }
       banner.innerHTML = '';
@@ -2693,6 +2720,9 @@
         banner.appendChild(btn);
       }
       banner.style.display = 'flex';
+      // The wizard's step 1 mirrors this list -- keep it in sync as
+      // subscribe events arrive.
+      if (this._onboarding && this._onboarding.step === 1) this._renderOnboardingStep();
     }
 
     _openDiscoveredFlow(flow) {
@@ -2706,9 +2736,122 @@
         onDone: () => {
           delete this._discoveredFlows[flow.flow_id];
           this._renderDiscoveryBanner();
+          this._onboardingFrameAdded();
           this._refreshAfterEntryChange();
         },
       });
+    }
+
+    // -----------------------------------------------------------------------
+    // First-run onboarding: auto-opens when the panel loads with zero
+    // frames. A shell over the proven pieces -- the embedded Add-Frame flow
+    // and the Settings modal do the real work, stacking above the wizard.
+    // -----------------------------------------------------------------------
+
+    _wireOnboarding() {
+      this.shadowRoot.getElementById('onboarding-skip')
+        .addEventListener('click', () => this._dismissOnboarding());
+      // Deliberately no backdrop-click dismiss: this overlay IS the page's
+      // content at zero frames; "Set up later" is the explicit exit.
+    }
+
+    _maybeOpenOnboarding() {
+      if (this._frames.length) {
+        // Frames exist (again) -- a previous dismissal shouldn't suppress
+        // the wizard if the user ever ends up back at zero.
+        try { localStorage.removeItem('fraimic_onboarding_dismissed'); } catch (err) { /* private mode */ }
+        return;
+      }
+      if (!this._isAdmin()) {
+        const fb = this.shadowRoot.getElementById('wall-fb');
+        fb.className = 'feedback';
+        fb.textContent = 'No frames configured yet — ask your Home Assistant administrator to add one.';
+        fb.style.display = 'block';
+        return;
+      }
+      let dismissed = false;
+      try { dismissed = localStorage.getItem('fraimic_onboarding_dismissed') === '1'; } catch (err) { /* private mode */ }
+      if (dismissed) return;
+      this._onboarding = { step: 1 };
+      this._renderOnboardingStep();
+      this.shadowRoot.getElementById('onboarding-overlay').style.display = 'flex';
+    }
+
+    _renderOnboardingStep() {
+      const wizard = this._onboarding;
+      if (!wizard) return;
+      const body  = this.shadowRoot.getElementById('onboarding-body');
+      const title = this.shadowRoot.getElementById('onboarding-title');
+      const skip  = this.shadowRoot.getElementById('onboarding-skip');
+
+      if (wizard.step === 1) {
+        title.textContent = 'Welcome to Fraimic 👋';
+        body.innerHTML = `
+          <p class="flow-desc">Let's put a picture on your wall. First, add a frame — make sure it's awake (tap it) and on the same network as Home Assistant.</p>
+          <div class="modal-row">
+            <button class="btn-primary" id="onboarding-add-btn">＋ Add your first frame</button>
+          </div>
+          <div id="onboarding-discovered"></div>
+        `;
+        body.querySelector('#onboarding-add-btn')
+          .addEventListener('click', () => this._openAddFrameFlow());
+
+        // Frames the background scan already found get one-click adds,
+        // exactly like the dashboard's discovery banner.
+        const discovered = Object.values(this._discoveredFlows || {});
+        const list = body.querySelector('#onboarding-discovered');
+        if (discovered.length) {
+          const p = document.createElement('p');
+          p.className = 'flow-desc';
+          p.textContent = 'Already spotted on your network:';
+          list.appendChild(p);
+          for (const flow of discovered) {
+            const name = (flow.context && flow.context.title_placeholders
+              && flow.context.title_placeholders.name) || 'frame';
+            const btn = document.createElement('button');
+            btn.className = 'banner-add-btn';
+            btn.style.margin = '0 6px 6px 0';
+            btn.textContent = `＋ Add ${name}`;
+            btn.addEventListener('click', () => this._openDiscoveredFlow(flow));
+            list.appendChild(btn);
+          }
+        }
+        skip.style.display = '';
+        return;
+      }
+
+      title.textContent = 'Frame added 🎉';
+      body.innerHTML = `
+        <p class="flow-desc">Your frame is on the dashboard — click its tile any time to choose what it shows. One last thing: where should your photo library live? Local storage on this Home Assistant is already set up and works great; Google Drive and Dropbox are options too.</p>
+        <div class="modal-actions" style="justify-content:flex-start">
+          <button class="btn-primary" id="onboarding-finish">Continue with current storage</button>
+          <button class="btn-ghost" id="onboarding-storage-btn">⚙ Choose photo storage…</button>
+        </div>
+      `;
+      body.querySelector('#onboarding-finish')
+        .addEventListener('click', () => this._finishOnboarding());
+      body.querySelector('#onboarding-storage-btn')
+        .addEventListener('click', () => this._openSettingsModal());
+      skip.style.display = 'none';
+    }
+
+    // Called from every add-frame completion path (manual flow, discovered
+    // flow) -- advances the wizard past step 1 if it's what started the add.
+    _onboardingFrameAdded() {
+      if (this._onboarding && this._onboarding.step === 1) {
+        this._onboarding.step = 2;
+        this._renderOnboardingStep();
+      }
+    }
+
+    _finishOnboarding() {
+      this._onboarding = null;
+      this.shadowRoot.getElementById('onboarding-overlay').style.display = 'none';
+    }
+
+    _dismissOnboarding() {
+      try { localStorage.setItem('fraimic_onboarding_dismissed', '1'); } catch (err) { /* private mode */ }
+      this._finishOnboarding();
     }
 
     // -----------------------------------------------------------------------
