@@ -120,9 +120,12 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
         if matched is not None:
             return self.async_abort(reason="already_configured")
 
-        # Genuinely new frame — start the normal setup flow.
+        # Genuinely new frame — start the normal setup flow. The title
+        # placeholder keeps DHCP-discovered cards visually identical to the
+        # periodic scan's ("Fraimic Frame (<ip>)" instead of bare "Fraimic").
         await self.async_set_unique_id(key)
         self._abort_if_unique_id_configured()
+        self.context["title_placeholders"] = {"name": ip}
         return await self._async_use_device(ip, info)
 
     # ------------------------------------------------------------------
@@ -390,7 +393,6 @@ class FraimicOptionsFlow(OptionsFlow):
 
             return self.async_create_entry(title="", data=user_input)
 
-        current_name: str = self.config_entry.data.get(CONF_NAME, "")
         current_interval: int = self.config_entry.options.get(
             CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
         )
@@ -424,9 +426,11 @@ class FraimicOptionsFlow(OptionsFlow):
             EDGE_RIGHT: "Right edge up",
         }
 
+        # No name field here: renaming goes through config_entries/update
+        # (entry.title), driven by the panel's frame-settings menu. The old
+        # CONF_NAME option was written but never read (CODE_REVIEW #14).
         schema = vol.Schema(
             {
-                vol.Optional(CONF_NAME, default=current_name): str,
                 vol.Optional(
                     CONF_SCAN_INTERVAL, default=current_interval
                 ): vol.All(int, vol.Range(min=30)),

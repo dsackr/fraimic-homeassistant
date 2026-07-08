@@ -132,9 +132,9 @@ Malformed input crashes with a raw 500 instead of a clean 400 `HomeAssistantErro
 
 The original finding (raw image uploads) is still open, and the same unbounded-body pattern now also applies to the newer multi-file Library upload endpoint.
 
-### 14. Options-flow "name" field is still silently ignored (`config_flow.py:405, 441`; `sensor.py:76`) — unfixed since the v0.1.6 review
+### 14. ~~Options-flow "name" field is silently ignored~~ — RESOLVED
 
-`FraimicOptionsFlow` still saves a name into `entry.options`, but `frame_device_info` (`sensor.py:76`) still reads only `entry.data[CONF_NAME]`. CLAUDE.md already documents this as a known dead path.
+**Resolved** by the dashboard-consolidation work: the dead `CONF_NAME` field was removed from `FraimicOptionsFlow`'s schema entirely. Renaming now happens through the panel's frame-settings menu, which calls the `config_entries/update {title}` WS command — the mechanism that actually propagates to the entry title and device name.
 
 ### 15. `FraimicChargingSensor` is still a plain `SensorEntity`, not `BinarySensorEntity` (`sensor.py:183-208`) — unfixed since the v0.1.6 review
 

@@ -49,7 +49,6 @@
     "step": {
       "init": {
         "data": {
-          "name": "Frame Name",
           "scan_interval": "Update Interval (seconds)",
           "resolution": "Physical Size",
           "rotation_edge": "Rotated hanging (which edge is up)",
