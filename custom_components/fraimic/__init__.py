@@ -178,6 +178,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     await wall_manager.async_load()
     hass.data.setdefault(DOMAIN, {})["_walls"] = wall_manager
 
+    # The default "All Frames" wall: guaranteed to exist and to track the
+    # configured frames (config entries are already loaded at this point).
+    await wall_manager.async_ensure_default_wall()
+
     from .walls_http import FraimicWallsView, FraimicWallView  # noqa: PLC0415
 
     hass.http.register_view(FraimicWallsView())
@@ -289,6 +293,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: "ConfigEntry") -> bool:
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
+    # Every configured frame is guaranteed a spot on the default wall --
+    # this hook covers embedded adds, discovery adds, and plain restarts.
+    wall_manager = hass.data[DOMAIN].get("_walls")
+    if wall_manager is not None:
+        await wall_manager.async_ensure_placement(entry)
+
     # Keep the coordinator in sync if DHCP discovery updates the host
     # in entry.data without triggering a full reload.
     entry.async_on_unload(
@@ -336,6 +346,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: "ConfigEntry") -> bool:
                 scene_packs.unload()
 
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: "ConfigEntry") -> None:
+    """Clean up when a frame's config entry is deleted (not just unloaded):
+    drop its placement from every wall, or removed frames haunt wall
+    layouts forever (CODE_REVIEW #28)."""
+    if entry.data.get("kind") == KIND_SCENES_HUB:
+        return
+    wall_manager = hass.data.get(DOMAIN, {}).get("_walls")
+    if wall_manager is not None:
+        await wall_manager.async_prune_entry(entry.entry_id)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: "ConfigEntry") -> None:

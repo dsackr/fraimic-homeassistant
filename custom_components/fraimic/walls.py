@@ -10,6 +10,7 @@ automations, voice control, or any entity platform.
 
 from __future__ import annotations
 
+import math
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -18,13 +19,52 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 
-from .const import DOMAIN, SIGNAL_WALLS_UPDATED
+from .const import (
+    CONF_HEIGHT,
+    CONF_ORIENTATION,
+    CONF_WIDTH,
+    DOMAIN,
+    KIND_SCENES_HUB,
+    ORIENTATION_LANDSCAPE,
+    ORIENTATION_PORTRAIT,
+    SIGNAL_WALLS_UPDATED,
+)
 
 if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
 
 _STORAGE_KEY = f"{DOMAIN}_walls"
 _STORAGE_VERSION = 1
+
+# The default wall: a real Wall record with a fixed sentinel id, guaranteed
+# to exist and to hold a placement for every configured frame. Non-deletable
+# and non-renamable; otherwise behaves exactly like a custom wall.
+DEFAULT_WALL_ID = "default"
+DEFAULT_WALL_NAME = "All Frames"
+KIND_DEFAULT = "default"
+KIND_CUSTOM = "custom"
+
+# Mirror of fraimic-panel.js's _wallTileDims normalization and GRID snap --
+# auto-appended placements must use the same tile geometry the canvas
+# renders with, or a new tile could land overlapping an existing one.
+# Keep these in sync with the panel.
+_TILE_TARGET_LONGEST = 140
+_GRID = 20
+
+
+def tile_dims(entry: "ConfigEntry") -> tuple[int, int]:
+    """A frame's on-canvas tile size (px), aspect-correct and orientation-
+    aware -- the backend twin of the panel's _wallTileDims."""
+    width = entry.data.get(CONF_WIDTH) or 1200
+    height = entry.data.get(CONF_HEIGHT) or 1600
+    orientation = entry.options.get(CONF_ORIENTATION)
+    if orientation == ORIENTATION_PORTRAIT and width > height:
+        width, height = height, width
+    if orientation == ORIENTATION_LANDSCAPE and height > width:
+        width, height = height, width
+    scale = _TILE_TARGET_LONGEST / max(width, height)
+    return round(width * scale), round(height * scale)
 
 
 class WallError(Exception):
@@ -43,6 +83,9 @@ class Wall:
     # grid unit is purely a client-side drag convenience.
     placements: dict[str, dict[str, float]] = field(default_factory=dict)
     created_at: float = 0.0
+    # KIND_DEFAULT for the auto-synced default wall, KIND_CUSTOM otherwise.
+    # Walls stored before this field existed deserialize as custom.
+    kind: str = KIND_CUSTOM
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -50,6 +93,7 @@ class Wall:
             "name": self.name,
             "placements": self.placements,
             "created_at": self.created_at,
+            "kind": self.kind,
         }
 
     @classmethod
@@ -59,6 +103,7 @@ class Wall:
             name=data["name"],
             placements=dict(data.get("placements") or {}),
             created_at=data.get("created_at", 0.0),
+            kind=data.get("kind") or KIND_CUSTOM,
         )
 
 
@@ -80,6 +125,89 @@ class WallManager:
         await self._store.async_save(
             {"walls": [wall.to_dict() for wall in self._walls.values()]}
         )
+
+    def _frame_entries(self) -> list["ConfigEntry"]:
+        return [
+            entry
+            for entry in self.hass.config_entries.async_entries(DOMAIN)
+            if entry.data.get("kind") != KIND_SCENES_HUB
+        ]
+
+    def _append_placement(self, wall: Wall, entry: "ConfigEntry") -> None:
+        """Place *entry* in the next open spot: grid-snapped just right of
+        the rightmost existing tile, top row. Deterministic and collision-
+        free by construction (the canvas is free-form and horizontally
+        scrollable, so growing rightward never runs out of room); the user
+        drags it wherever they want afterwards."""
+        if not wall.placements:
+            wall.placements[entry.entry_id] = {"x": 0.0, "y": 0.0}
+            return
+        right_edge = 0.0
+        for entry_id, pos in wall.placements.items():
+            placed = self.hass.config_entries.async_get_entry(entry_id)
+            width = tile_dims(placed)[0] if placed else _TILE_TARGET_LONGEST
+            right_edge = max(right_edge, pos["x"] + width)
+        x = math.ceil(right_edge / _GRID) * _GRID + _GRID
+        wall.placements[entry.entry_id] = {"x": float(x), "y": 0.0}
+
+    async def async_ensure_default_wall(self) -> None:
+        """Create the default wall if missing, then reconcile its placements
+        against the configured frame entries (add missing, prune stale).
+        Called once from async_setup; safe to call repeatedly."""
+        changed = False
+        wall = self._walls.get(DEFAULT_WALL_ID)
+        if wall is None:
+            wall = Wall(
+                wall_id=DEFAULT_WALL_ID,
+                name=DEFAULT_WALL_NAME,
+                kind=KIND_DEFAULT,
+                created_at=time.time(),
+            )
+            self._walls[DEFAULT_WALL_ID] = wall
+            changed = True
+
+        entries = self._frame_entries()
+        entry_ids = {entry.entry_id for entry in entries}
+        for stale_id in [eid for eid in wall.placements if eid not in entry_ids]:
+            del wall.placements[stale_id]
+            changed = True
+        for entry in entries:
+            if entry.entry_id not in wall.placements:
+                self._append_placement(wall, entry)
+                changed = True
+
+        if changed:
+            await self._async_persist()
+            async_dispatcher_send(self.hass, SIGNAL_WALLS_UPDATED)
+
+    async def async_ensure_placement(self, entry: "ConfigEntry") -> None:
+        """Guarantee *entry* has a spot on the default wall. Called from
+        async_setup_entry, so it covers every way a frame arrives (embedded
+        add, discovery flow, HA restart). Idempotent."""
+        wall = self._walls.get(DEFAULT_WALL_ID)
+        if wall is None:
+            # async_setup creates the default wall before any entry sets up;
+            # this is belt-and-braces for a reload racing that.
+            await self.async_ensure_default_wall()
+            return
+        if entry.entry_id in wall.placements:
+            return
+        self._append_placement(wall, entry)
+        await self._async_persist()
+        async_dispatcher_send(self.hass, SIGNAL_WALLS_UPDATED)
+
+    async def async_prune_entry(self, entry_id: str) -> None:
+        """Drop *entry_id*'s placement from every wall (default and custom)
+        when its config entry is removed -- otherwise deleted frames haunt
+        wall layouts forever (CODE_REVIEW #28)."""
+        changed = False
+        for wall in self._walls.values():
+            if entry_id in wall.placements:
+                del wall.placements[entry_id]
+                changed = True
+        if changed:
+            await self._async_persist()
+            async_dispatcher_send(self.hass, SIGNAL_WALLS_UPDATED)
 
     async def async_list_walls(self) -> list[dict[str, Any]]:
         return [wall.to_dict() for wall in self._walls.values()]
@@ -123,8 +251,14 @@ class WallManager:
 
         if wall_id is not None:
             wall = self._walls[wall_id]
-            wall.name = name
-            wall.placements = placements
+            if wall.kind == KIND_DEFAULT:
+                # The default wall accepts layout changes but keeps its
+                # identity -- a rename would break the panel's "this is
+                # every frame" anchor.
+                wall.placements = placements
+            else:
+                wall.name = name
+                wall.placements = placements
         else:
             wall = Wall(
                 wall_id=uuid.uuid4().hex[:12],
@@ -139,7 +273,11 @@ class WallManager:
         return wall.to_dict()
 
     async def async_delete_wall(self, wall_id: str) -> None:
-        if wall_id in self._walls:
-            del self._walls[wall_id]
-            await self._async_persist()
-            async_dispatcher_send(self.hass, SIGNAL_WALLS_UPDATED)
+        wall = self._walls.get(wall_id)
+        if wall is None:
+            return
+        if wall.kind == KIND_DEFAULT:
+            raise WallError("The default wall can't be deleted")
+        del self._walls[wall_id]
+        await self._async_persist()
+        async_dispatcher_send(self.hass, SIGNAL_WALLS_UPDATED)

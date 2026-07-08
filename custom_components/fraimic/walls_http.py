@@ -111,8 +111,13 @@ class FraimicWallView(HomeAssistantView):
     async def delete(self, request: web.Request, wall_id: str) -> web.Response:
         hass = request.app["hass"]
         manager = _get_wall_manager(hass)
+
+        from .walls import WallError  # noqa: PLC0415
+
         try:
             await manager.async_delete_wall(wall_id)
+        except WallError as err:
+            return self.json_message(str(err), status_code=400)
         except Exception as err:  # noqa: BLE001
             _LOGGER.error("Failed to delete wall '%s': %s", wall_id, err)
             return self.json_message(f"Delete failed: {err}", status_code=500)
