@@ -52,6 +52,17 @@ KIND_CUSTOM = "custom"
 _TILE_TARGET_LONGEST = 140
 _GRID = 20
 
+# Auto-layout-only geometry for the default wall (custom walls have no such
+# limit -- users free-place those). A tile's longest edge is always scaled
+# to _TILE_TARGET_LONGEST regardless of orientation, so this cell size fits
+# any tile without vertical collisions between rows.
+_MAX_FRAMES_PER_ROW = 4
+_CELL = _TILE_TARGET_LONGEST + _GRID
+# Two rows/columns of empty breathing room above and left of the first
+# auto-placed tile, instead of starting flush in the corner.
+_MARGIN_LEFT = _CELL * 2
+_MARGIN_TOP = _CELL * 2
+
 
 def tile_dims(entry: "ConfigEntry") -> tuple[int, int]:
     """A frame's on-canvas tile size (px), aspect-correct and orientation-
@@ -141,21 +152,27 @@ class WallManager:
         ]
 
     def _append_placement(self, wall: Wall, entry: "ConfigEntry") -> None:
-        """Place *entry* in the next open spot: grid-snapped just right of
-        the rightmost existing tile, top row. Deterministic and collision-
-        free by construction (the canvas is free-form and horizontally
-        scrollable, so growing rightward never runs out of room); the user
-        drags it wherever they want afterwards."""
-        if not wall.placements:
-            wall.placements[entry.entry_id] = {"x": 0.0, "y": 0.0}
-            return
-        right_edge = 0.0
-        for entry_id, pos in wall.placements.items():
-            placed = self.hass.config_entries.async_get_entry(entry_id)
-            width = tile_dims(placed)[0] if placed else _TILE_TARGET_LONGEST
-            right_edge = max(right_edge, pos["x"] + width)
-        x = math.ceil(right_edge / _GRID) * _GRID + _GRID
-        wall.placements[entry.entry_id] = {"x": float(x), "y": 0.0}
+        """Place *entry* in the next open grid slot: rows of up to
+        _MAX_FRAMES_PER_ROW tiles, filled left-to-right and wrapping onto a
+        new row underneath, starting _MARGIN_LEFT/_MARGIN_TOP in from the
+        canvas edges rather than flush in the corner. Deterministic and
+        collision-free by construction; the user drags it wherever they
+        want afterwards. This shape is specific to auto-populating the
+        default wall -- custom walls have no such row limit."""
+        row, col = divmod(len(wall.placements), _MAX_FRAMES_PER_ROW)
+        y = _MARGIN_TOP + row * _CELL
+        if col == 0:
+            x = _MARGIN_LEFT
+        else:
+            right_edge = _MARGIN_LEFT
+            for entry_id, pos in wall.placements.items():
+                if pos["y"] != y:
+                    continue
+                placed = self.hass.config_entries.async_get_entry(entry_id)
+                width = tile_dims(placed)[0] if placed else _TILE_TARGET_LONGEST
+                right_edge = max(right_edge, pos["x"] + width)
+            x = math.ceil(right_edge / _GRID) * _GRID + _GRID
+        wall.placements[entry.entry_id] = {"x": float(x), "y": float(y)}
 
     async def async_ensure_default_wall(self) -> None:
         """Create the default wall if missing, then reconcile its placements

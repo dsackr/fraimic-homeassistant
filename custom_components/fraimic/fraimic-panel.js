@@ -610,6 +610,10 @@
       display: flex;
       gap: 16px;
       align-items: flex-start;
+      /* Cap the row's width so ultra-wide monitors don't stretch the
+         canvas into a mostly-empty ribbon -- the canvas already scrolls
+         (see .wall-canvas overflow) for layouts wider than this. */
+      max-width: 1200px;
     }
     .wall-palette {
       flex: 0 0 160px;
