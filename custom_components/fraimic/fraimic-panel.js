@@ -1302,6 +1302,7 @@
                                           // pending pick was made ('' = "All Photos") -- see _wallSceneAlbumLock
       this._wallImagePickerEntryId = null; // entry_id whose "choose an image" picker is open, or null
       this._wallImagePickerToken = 0;      // incremented per open -- lets a stale fetch detect it's superseded
+      this._wallPickerSelectedFile = null; // raw photo staged for the picker's Send button, or null
       this._wallSelectedEntryId = null;    // tile selected for arrow-key nudging, or null
       this._wallSaveTimer = null;          // pending debounced layout auto-save, or null
       this._onWallPointerMove = this._onWallPointerMove.bind(this);
@@ -1882,10 +1883,15 @@
                 <select id="wall-image-picker-album"></select>
               </div>
               <div class="wall-lock-hint" id="wall-image-picker-lock-hint" style="display:none"></div>
-              <div class="modal-row" style="flex-direction:row;gap:8px">
+              <!-- Nothing transmits to the physical frame until the Send
+                   button: clicking a thumbnail (or choosing a file) only
+                   selects/stages. Sending is always its own deliberate
+                   click. -->
+              <div class="modal-row" style="flex-direction:row;gap:8px;flex-wrap:wrap">
+                <button class="btn-primary" id="wall-picker-send-btn" style="flex:1 1 100%" disabled>▶ Send</button>
                 <!-- Single-MIME accept on purpose: companion-app WebView
                      file choosers are unreliable with multi-MIME lists. -->
-                <button class="btn-primary" id="wall-picker-upload-btn" style="flex:1 1 auto">⬆ Upload a photo…</button>
+                <button class="btn-ghost" id="wall-picker-upload-btn" style="flex:1 1 auto">⬆ Upload a photo…</button>
                 <input type="file" id="wall-picker-upload-input" accept="image/*" style="display:none">
                 <button class="btn-ghost" id="wall-image-picker-clear" style="flex:1 1 auto">✕ Remove Image</button>
               </div>
@@ -5275,46 +5281,28 @@
         if (e.target.id === 'wall-image-picker-overlay') this._closeWallImagePicker();
       });
 
-      // "Upload a photo…": raw file → convert → send to this frame right
-      // now (the send_image endpoint). Deliberately not a library import;
-      // the Manage Library modal is for that.
+      // "Upload a photo…" only STAGES the file (deliberately not a library
+      // import; the Manage Library modal is for that) -- the Send button is
+      // the one and only transmit action, same as library picks.
       const uploadBtn   = this.shadowRoot.getElementById('wall-picker-upload-btn');
       const uploadInput = this.shadowRoot.getElementById('wall-picker-upload-input');
       uploadBtn.addEventListener('click', () => uploadInput.click());
-      uploadInput.addEventListener('change', async () => {
+      uploadInput.addEventListener('change', () => {
         const file = uploadInput.files && uploadInput.files[0];
-        const entryId = this._wallImagePickerEntryId;
         uploadInput.value = '';   // same file can be re-picked next time
-        if (!file || !entryId) return;
-        const frame = this._frames.find(f => f.entryId === entryId);
-        if (!frame || !frame.entityId) return;
-        this._closeWallImagePicker();
-
-        const fb = this.shadowRoot.getElementById('wall-scene-fb');
+        if (!file) return;
+        this._wallPickerSelectedFile = file;
+        const grid = this.shadowRoot.getElementById('wall-image-picker-grid');
+        grid.querySelectorAll('.image-picker-cell.selected').forEach(c => c.classList.remove('selected'));
+        const fb = this.shadowRoot.getElementById('wall-image-picker-fb');
         fb.className = 'feedback ok';
-        fb.textContent = `⏳ Sending photo to ${frame.title}…`;
+        fb.textContent = `"${file.name}" ready — press Send below.`;
         fb.style.display = 'block';
-        try {
-          const form = new FormData();
-          form.append('entity_id', frame.entityId);
-          form.append('image', file);
-          const resp = await fetch('/api/fraimic/send_image', {
-            method: 'POST', headers: this._authHeaders(), body: form,
-          });
-          const result = await resp.json().catch(() => ({}));
-          if (result.queued) {
-            fb.textContent = `⏳ ${frame.title} is asleep — photo queued for delivery on wake.`;
-          } else if (!resp.ok || !result.success) {
-            throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
-          } else {
-            fb.textContent = `✓ Sent to ${frame.title}.`;
-          }
-        } catch (err) {
-          fb.className = 'feedback err';
-          fb.textContent = `Upload failed: ${err.message}`;
-        }
-        setTimeout(() => { fb.style.display = 'none'; }, 4000);
+        this._updateWallPickerSendButton();
       });
+
+      this.shadowRoot.getElementById('wall-picker-send-btn')
+        .addEventListener('click', () => this._sendFromWallPicker());
 
       this._wireWallImagePickerDrag();
     }
@@ -5372,6 +5360,8 @@
 
     async _openWallImagePicker(entryId) {
       this._wallImagePickerEntryId = entryId;
+      this._wallPickerSelectedFile = null;
+      this._updateWallPickerSendButton();
 
       const overlay     = this.shadowRoot.getElementById('wall-image-picker-overlay');
       const albumSelect = this.shadowRoot.getElementById('wall-image-picker-album');
@@ -5493,44 +5483,99 @@
 
         this._loadThumbnail(image.image_id, cell.querySelector('.image-picker-thumb'));
 
-        cell.addEventListener('click', async () => {
+        if (image.image_id === this._wallEffectiveMapping(entryId)) {
+          cell.classList.add('selected');
+        }
+        cell.addEventListener('click', () => {
+          // Selecting only STAGES: highlight here, live preview on the
+          // tile behind the transparent backdrop, and the pending-mapping
+          // write that Save Scene has always merged from. Nothing reaches
+          // the physical frame until the Send button below -- sending is
+          // always its own deliberate click.
+          grid.querySelectorAll('.image-picker-cell.selected').forEach(c => c.classList.remove('selected'));
+          cell.classList.add('selected');
+          this._wallPickerSelectedFile = null;
           this._wallPendingMappings[entryId] = image.image_id;
           // Recorded at the moment of picking, from whichever album filter
           // was active right now -- not the image's own album tags -- so
           // this stays a simple, predictable "did you leave the scene's
           // locked album to make this pick" check (see _wallHasOffAlbumPick).
           this._wallPendingPickAlbum[entryId] = album;
-          this._closeWallImagePicker();
           this._renderWallCanvas();
-
-          // Consolidated-dashboard semantics: picking an image sends it to
-          // the physical frame immediately -- no wall save or scene
-          // required. The pending-mapping write above is unchanged, so
-          // Save Scene's merge behavior stays exactly as before.
-          const frame = this._frames.find(f => f.entryId === entryId);
-          if (!frame || !frame.entityId) return;
-          const fb = this.shadowRoot.getElementById('wall-scene-fb');
-          try {
-            const r = await this._sendLibraryImageToFrame(frame, image.image_id);
-            if (!r.queued) frame.lastImageId = image.image_id;
-            fb.className = 'feedback ok';
-            fb.textContent = r.queued
-              ? `⏳ ${frame.title} is asleep — image queued for delivery on wake.`
-              : `✓ Sent to ${frame.title}.`;
-          } catch (err) {
-            fb.className = 'feedback err';
-            fb.textContent = `Send to ${frame.title} failed: ${err.message}`;
-          }
-          fb.style.display = 'block';
-          setTimeout(() => { fb.style.display = 'none'; }, 4000);
+          this._updateWallPickerSendButton();
         });
         grid.appendChild(cell);
       }
+      this._updateWallPickerSendButton();
+    }
+
+    _updateWallPickerSendButton() {
+      const btn = this.shadowRoot.getElementById('wall-picker-send-btn');
+      const entryId = this._wallImagePickerEntryId;
+      const frame = entryId && this._frames.find(f => f.entryId === entryId);
+      if (!frame) {
+        btn.disabled = true;
+        btn.textContent = '▶ Send';
+        return;
+      }
+      if (this._wallPickerSelectedFile) {
+        btn.disabled = false;
+        btn.textContent = `▶ Send "${this._wallPickerSelectedFile.name}" to ${frame.title}`;
+        return;
+      }
+      const imageId = this._wallEffectiveMapping(entryId);
+      btn.disabled = !imageId;
+      btn.textContent = `▶ Send to ${frame.title}`;
+    }
+
+    // The picker's one transmit action: sends whatever is staged (a library
+    // selection, or an uploaded file) to this frame, then closes.
+    async _sendFromWallPicker() {
+      const entryId = this._wallImagePickerEntryId;
+      const frame = entryId && this._frames.find(f => f.entryId === entryId);
+      if (!frame || !frame.entityId) return;
+      const file = this._wallPickerSelectedFile;
+      const imageId = this._wallEffectiveMapping(entryId);
+      if (!file && !imageId) return;
+      this._closeWallImagePicker();
+
+      const fb = this.shadowRoot.getElementById('wall-scene-fb');
+      fb.className = 'feedback ok';
+      fb.textContent = `⏳ Sending to ${frame.title}…`;
+      fb.style.display = 'block';
+      try {
+        let queued = false;
+        if (file) {
+          const form = new FormData();
+          form.append('entity_id', frame.entityId);
+          form.append('image', file);
+          const resp = await fetch('/api/fraimic/send_image', {
+            method: 'POST', headers: this._authHeaders(), body: form,
+          });
+          const result = await resp.json().catch(() => ({}));
+          if (result.queued) queued = true;
+          else if (!resp.ok || !result.success) {
+            throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+          }
+        } else {
+          const r = await this._sendLibraryImageToFrame(frame, imageId);
+          queued = r.queued;
+          if (!queued) frame.lastImageId = imageId;
+        }
+        fb.textContent = queued
+          ? `⏳ ${frame.title} is asleep — image queued for delivery on wake.`
+          : `✓ Sent to ${frame.title}.`;
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Send to ${frame.title} failed: ${err.message}`;
+      }
+      setTimeout(() => { fb.style.display = 'none'; }, 4000);
     }
 
     _closeWallImagePicker() {
       this.shadowRoot.getElementById('wall-image-picker-overlay').style.display = 'none';
       this._wallImagePickerEntryId = null;
+      this._wallPickerSelectedFile = null;
     }
 
     // "Create New…" (no active scene) prompts for a name and creates one;

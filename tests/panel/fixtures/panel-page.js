@@ -117,10 +117,14 @@ async function pickImageInWallPicker(page, imageId) {
     imageId,
     { timeout: 5000 }
   );
+  // Clicking a cell only stages the pick (nothing sends until the picker's
+  // Send button); close the picker afterwards so specs keep the historical
+  // "pick = stage + dismiss" shape.
   await page.evaluate((id) => {
     const root = document.getElementById('panel').shadowRoot;
     const cell = [...root.querySelectorAll('#wall-image-picker-grid .image-picker-cell')].find((c) => c.dataset.imageId === id);
     cell.click();
+    document.getElementById('panel')._closeWallImagePicker();
   }, imageId);
 }
 

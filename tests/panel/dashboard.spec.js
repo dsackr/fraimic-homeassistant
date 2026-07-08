@@ -108,22 +108,52 @@ test.describe('Consolidated dashboard', () => {
     expect(state.configText).toContain('local storage');
   });
 
-  test('picking a library image sends it to the frame immediately', async ({ page }) => {
+  test('clicking an image only stages it -- the Send button is the transmit moment', async ({ page }) => {
     await clickTile(page, 'entry_1');
-    await pickImageInWallPicker(page, 'image_1');
+    await page.waitForFunction(
+      (id) => !!document.getElementById('panel').shadowRoot
+        .querySelector(`#wall-image-picker-grid .image-picker-cell[data-image-id="${id}"]`),
+      'image_1', { timeout: 5000 }
+    );
+    await page.evaluate(() => {
+      const root = document.getElementById('panel').shadowRoot;
+      [...root.querySelectorAll('#wall-image-picker-grid .image-picker-cell')]
+        .find((c) => c.dataset.imageId === 'image_1').click();
+    });
 
+    // Staged (highlight + pending mapping + enabled Send), NOT sent.
+    const staged = await page.evaluate(() => {
+      const panel = document.getElementById('panel');
+      const root = panel.shadowRoot;
+      const btn = root.getElementById('wall-picker-send-btn');
+      return {
+        selected: root.querySelectorAll('#wall-image-picker-grid .image-picker-cell.selected').length,
+        pending: panel._wallPendingMappings,
+        sendEnabled: !btn.disabled,
+        sendLabel: btn.textContent,
+      };
+    });
+    expect(staged.selected).toBe(1);
+    expect(staged.pending).toEqual({ entry_1: 'image_1' });
+    expect(staged.sendEnabled).toBe(true);
+    expect(staged.sendLabel).toContain('Living Room Frame');
+    expect(mockServer.sends).toEqual([]);
+
+    // The deliberate click.
+    await page.evaluate(() => {
+      document.getElementById('panel').shadowRoot.getElementById('wall-picker-send-btn').click();
+    });
     await expect.poll(() => mockServer.sends.map((s) => ({ entity_id: s.entity_id, image_id: s.image_id })))
       .toEqual([{ entity_id: 'sensor.entry_1_battery', image_id: 'image_1' }]);
 
-    // The scene-staging side is untouched: the pick is also a pending
-    // mapping, so Save Scene keeps working on top of immediate sends.
-    const pending = await page.evaluate(
-      () => document.getElementById('panel')._wallPendingMappings
+    // Sending closed the picker.
+    const pickerDisplay = await page.evaluate(
+      () => document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-overlay').style.display
     );
-    expect(pending).toEqual({ entry_1: 'image_1' });
+    expect(pickerDisplay).toBe('none');
   });
 
-  test('the picker "Upload a photo" posts the file straight to send_image', async ({ page }) => {
+  test('an uploaded photo also stages first and sends only on the Send click', async ({ page }) => {
     await clickTile(page, 'entry_1');
     await page.waitForFunction(
       () => document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-overlay').style.display === 'block'
@@ -138,10 +168,21 @@ test.describe('Consolidated dashboard', () => {
       buffer: Buffer.from('89504e470d0a1a0a', 'hex'),
     });
 
+    // Staged, not sent; the Send button names the file.
+    const staged = await page.evaluate(() => {
+      const btn = document.getElementById('panel').shadowRoot.getElementById('wall-picker-send-btn');
+      return { enabled: !btn.disabled, label: btn.textContent };
+    });
+    expect(staged.enabled).toBe(true);
+    expect(staged.label).toContain('photo.png');
+    expect(mockServer.rawSends).toEqual([]);
+
+    await page.evaluate(() => {
+      document.getElementById('panel').shadowRoot.getElementById('wall-picker-send-btn').click();
+    });
     await expect.poll(() => mockServer.rawSends)
       .toEqual([{ entity_id: 'sensor.entry_1_battery', has_image: true }]);
 
-    // The picker closed itself after handing the file off.
     const pickerDisplay = await page.evaluate(
       () => document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-overlay').style.display
     );
