@@ -1654,6 +1654,48 @@
       outline: 3px solid var(--primary-color, #03a9f4);
       outline-offset: 2px;
     }
+    /* Rubber-band multi-select rectangle, drawn while dragging on empty
+       canvas. pointer-events:none so it never eats its own pointerup. */
+    .wall-marquee {
+      position: absolute;
+      border: 1px dashed var(--primary-color, #03a9f4);
+      background: rgba(3, 169, 244, .10);
+      border-radius: 2px;
+      pointer-events: none;
+      z-index: 5;
+    }
+    .wall-align-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin: 0 0 8px;
+    }
+    .wall-align-toolbar .wall-align-count {
+      font-size: 12px;
+      color: var(--secondary-text-color);
+      margin-right: 4px;
+    }
+    .wall-align-toolbar .wall-align-sep {
+      width: 1px;
+      height: 18px;
+      background: var(--divider-color, #444);
+      margin: 0 4px;
+    }
+    .wall-align-toolbar button {
+      padding: 5px 10px;
+      border: 1px solid var(--divider-color, #444);
+      border-radius: 8px;
+      background: none;
+      color: var(--primary-text-color);
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .wall-align-toolbar button:hover {
+      border-color: var(--primary-color, #03a9f4);
+      color: var(--primary-color, #03a9f4);
+    }
     .wall-tile-media {
       position: absolute;
       inset: 0;
@@ -1824,11 +1866,15 @@
       this._wallImagePickerEntryId = null; // entry_id whose "choose an image" picker is open, or null
       this._wallImagePickerToken = 0;      // incremented per open -- lets a stale fetch detect it's superseded
       this._wallPickerSelectedFile = null; // raw photo staged for the picker's Send button, or null
-      this._wallSelectedEntryId = null;    // tile selected for arrow-key nudging, or null
+      this._wallSelection = new Set();     // entry_ids selected on the canvas (arrow-nudge/group-move/align);
+                                           // plain click = one, shift/ctrl-click toggles, marquee drags many
+      this._wallMarquee = null;            // in-progress rubber-band selection drag, or null
       this._wallSaveTimer = null;          // pending debounced layout auto-save, or null
       this._onWallPointerMove = this._onWallPointerMove.bind(this);
       this._onWallPointerUp   = this._onWallPointerUp.bind(this);
       this._onWallKeydown     = this._onWallKeydown.bind(this);
+      this._onWallMarqueeMove = this._onWallMarqueeMove.bind(this);
+      this._onWallMarqueeUp   = this._onWallMarqueeUp.bind(this);
 
       // Embedded config/options flow state (the panel drives HA's own
       // data_entry_flow REST API instead of navigating to Settings).
@@ -1898,7 +1944,12 @@
       if (this._thumbObserver) this._thumbObserver.disconnect();
       if (this._wallDrag) {
         if (this._wallDrag.ghost) this._wallDrag.ghost.remove();
+        if (this._wallDrag.group) for (const m of this._wallDrag.group) m.ghost.remove();
         this._wallDrag = null;
+      }
+      if (this._wallMarquee) {
+        this._wallMarquee.box.remove();
+        this._wallMarquee = null;
       }
       this._editorDrag = null;
       // blob: URLs are registered on the document, not this element -- left
@@ -2149,6 +2200,20 @@
             keys. A frame works the same whether it's on the wall or still in the
             palette — click it either way to choose its image.
           </p>
+          <!-- Appears when 2+ tiles are selected (shift-click or a
+               rubber-band drag on empty canvas). Alignment is to the
+               selection's own extent -- outermost edge, or the bounding
+               box midline for Middle/Center. -->
+          <div class="wall-align-toolbar" id="wall-align-toolbar" style="display:none">
+            <span class="wall-align-count" id="wall-align-count"></span>
+            <button data-align="left" title="Align left edges">⇤ Left</button>
+            <button data-align="center" title="Align horizontal centers">⇹ Center</button>
+            <button data-align="right" title="Align right edges">⇥ Right</button>
+            <span class="wall-align-sep"></span>
+            <button data-align="top" title="Align top edges">⤒ Top</button>
+            <button data-align="middle" title="Align vertical middles">⇳ Middle</button>
+            <button data-align="bottom" title="Align bottom edges">⤓ Bottom</button>
+          </div>
           <div class="wall-layout-row">
             <div class="wall-palette" id="wall-palette"></div>
             <div class="wall-canvas" id="wall-canvas"></div>
@@ -5687,6 +5752,170 @@
       this.shadowRoot.getElementById('wall-delete-scene-btn').addEventListener('click', () => this._deleteWallScene());
       this.shadowRoot.getElementById('wall-send-btn').addEventListener('click', () => this._sendWallToFrames());
       this.shadowRoot.getElementById('wall-schedule-btn').addEventListener('click', () => this._scheduleFromWall());
+
+      // Rubber-band multi-select starts on the canvas background (tiles
+      // handle their own pointerdown, so this only fires on empty space).
+      // The canvas element itself survives re-renders (only its children
+      // are rebuilt), so wiring once here is safe.
+      this.shadowRoot.getElementById('wall-canvas')
+        .addEventListener('pointerdown', (e) => this._wallBeginMarquee(e));
+      this.shadowRoot.querySelectorAll('#wall-align-toolbar [data-align]').forEach((btn) => {
+        btn.addEventListener('click', () => this._alignWallSelection(btn.dataset.align));
+      });
+    }
+
+    // Drag on empty canvas: draw a rubber-band and select every tile it
+    // touches. A no-movement click on empty canvas clears the selection.
+    // Holding shift/ctrl/cmd adds the swept tiles to the existing
+    // selection instead of replacing it.
+    _wallBeginMarquee(e) {
+      if (e.target !== e.currentTarget) return; // a tile's own drag, not empty space
+      e.preventDefault();
+      const canvas = e.currentTarget;
+      const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+      const box = document.createElement('div');
+      box.className = 'wall-marquee';
+      canvas.appendChild(box);
+      this._wallMarquee = {
+        box,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        additive,
+        baseSelection: additive ? new Set(this._wallSelection) : new Set(),
+        moved: false,
+      };
+      window.addEventListener('pointermove', this._onWallMarqueeMove, { signal: this._abort.signal });
+      window.addEventListener('pointerup', this._onWallMarqueeUp, { signal: this._abort.signal });
+    }
+
+    _onWallMarqueeMove(e) {
+      const marquee = this._wallMarquee;
+      if (!marquee) return;
+      if (!marquee.moved
+          && (Math.abs(e.clientX - marquee.startClientX) > 4 || Math.abs(e.clientY - marquee.startClientY) > 4)) {
+        marquee.moved = true;
+      }
+      if (!marquee.moved) return;
+
+      const canvas = this.shadowRoot.getElementById('wall-canvas');
+      const rect = canvas.getBoundingClientRect();
+      // Marquee rectangle in canvas coordinates (scroll-aware), clamped to
+      // the canvas so a drag that wanders outside still reads sensibly.
+      const x1 = Math.min(marquee.startClientX, e.clientX) - rect.left + canvas.scrollLeft;
+      const y1 = Math.min(marquee.startClientY, e.clientY) - rect.top + canvas.scrollTop;
+      const x2 = Math.max(marquee.startClientX, e.clientX) - rect.left + canvas.scrollLeft;
+      const y2 = Math.max(marquee.startClientY, e.clientY) - rect.top + canvas.scrollTop;
+      marquee.box.style.left   = `${Math.max(0, x1)}px`;
+      marquee.box.style.top    = `${Math.max(0, y1)}px`;
+      marquee.box.style.width  = `${Math.max(0, x2 - Math.max(0, x1))}px`;
+      marquee.box.style.height = `${Math.max(0, y2 - Math.max(0, y1))}px`;
+
+      // Live selection feedback: tiles light up as the band sweeps them.
+      const swept = new Set(marquee.baseSelection);
+      for (const [entryId, pos] of Object.entries(this._wallPlacements)) {
+        const frame = this._frames.find(f => f.entryId === entryId);
+        if (!frame) continue;
+        const dims = this._wallTileDims(frame);
+        if (x1 < pos.x + dims.width && pos.x < x2
+            && y1 < pos.y + dims.height && pos.y < y2) {
+          swept.add(entryId);
+        }
+      }
+      marquee.pending = swept;
+      for (const tile of canvas.querySelectorAll('.wall-tile')) {
+        tile.classList.toggle('selected', swept.has(tile.dataset.entryId));
+      }
+    }
+
+    _onWallMarqueeUp(e) {
+      const marquee = this._wallMarquee;
+      if (!marquee) return;
+      window.removeEventListener('pointermove', this._onWallMarqueeMove);
+      window.removeEventListener('pointerup', this._onWallMarqueeUp);
+      marquee.box.remove();
+      this._wallMarquee = null;
+
+      if (!marquee.moved) {
+        // A plain click on empty canvas deselects everything.
+        this._wallSelectTile(null);
+        return;
+      }
+      const ids = [...(marquee.pending || marquee.baseSelection)];
+      this._wallSetSelection(ids, ids[0] || null);
+    }
+
+    // Align every selected tile to the selection's own extent: outermost
+    // edge for top/bottom/left/right, the selection bounding box's midline
+    // for middle/center. Rejected outright (with a message naming the
+    // pair) if the result would overlap anything -- consistent with the
+    // wall's "a colliding move is a no-op, never a shove" rule everywhere
+    // else. Alignment intentionally beats the 20px grid: equal edges are
+    // the whole point, and mixed tile heights make bottom/middle land
+    // off-grid. A later drag re-snaps that tile.
+    _alignWallSelection(mode) {
+      const fb = this.shadowRoot.getElementById('wall-fb');
+      const rects = [];
+      for (const id of this._wallSelection) {
+        const pos = this._wallPlacements[id];
+        const frame = this._frames.find(f => f.entryId === id);
+        if (!pos || !frame) continue;
+        const dims = this._wallTileDims(frame);
+        rects.push({ id, title: frame.title, x: pos.x, y: pos.y, w: dims.width, h: dims.height });
+      }
+      if (rects.length < 2) return;
+
+      const minX = Math.min(...rects.map(r => r.x));
+      const minY = Math.min(...rects.map(r => r.y));
+      const maxRight  = Math.max(...rects.map(r => r.x + r.w));
+      const maxBottom = Math.max(...rects.map(r => r.y + r.h));
+
+      const targets = rects.map((r) => {
+        let { x, y } = r;
+        if (mode === 'top')    y = minY;
+        if (mode === 'bottom') y = maxBottom - r.h;
+        if (mode === 'middle') y = Math.round((minY + maxBottom) / 2 - r.h / 2);
+        if (mode === 'left')   x = minX;
+        if (mode === 'right')  x = maxRight - r.w;
+        if (mode === 'center') x = Math.round((minX + maxRight) / 2 - r.w / 2);
+        return { ...r, x, y };
+      });
+
+      // Unlike a group translation, aligning changes relative positions --
+      // members can newly overlap each other, so check pairwise at the
+      // target positions as well as against every non-selected tile.
+      for (let i = 0; i < targets.length; i++) {
+        for (let j = i + 1; j < targets.length; j++) {
+          const a = targets[i], b = targets[j];
+          if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) {
+            fb.className = 'feedback err';
+            fb.textContent = `Can't align: "${a.title}" and "${b.title}" would overlap. Space them out along the other axis first.`;
+            fb.style.display = 'block';
+            setTimeout(() => { fb.style.display = 'none'; }, 5000);
+            return;
+          }
+        }
+      }
+      for (const t of targets) {
+        const neighbor = this._wallCollidingNeighbor(t.id, t.x, t.y, this._wallSelection);
+        if (neighbor) {
+          fb.className = 'feedback err';
+          fb.textContent = `Can't align: "${t.title}" would overlap "${neighbor.title}". Move them apart first.`;
+          fb.style.display = 'block';
+          setTimeout(() => { fb.style.display = 'none'; }, 5000);
+          return;
+        }
+      }
+
+      const canvas = this.shadowRoot.getElementById('wall-canvas');
+      for (const t of targets) {
+        this._wallPlacements[t.id] = { x: t.x, y: t.y };
+        const tileEl = this._wallTileEl(canvas, t.id);
+        if (tileEl) {
+          tileEl.style.left = `${t.x}px`;
+          tileEl.style.top  = `${t.y}px`;
+        }
+      }
+      this._scheduleWallLayoutSave();
     }
 
     // Empty the send model in one click: every frame gets an explicit ''
@@ -5759,7 +5988,7 @@
       this._wallActiveSceneId = null;
       this._wallPendingMappings = {};
       this._wallPendingPickAlbum = {};
-      this._wallSelectedEntryId = null;
+      this._wallSelection = new Set();
       this._renderWallsSubview();
     }
 
@@ -5830,12 +6059,22 @@
 
     // Would placing entryId's tile at (x, y) overlap any other placed tile?
     // Strict AABB overlap -- tiles sharing an edge at a grid boundary are
-    // legal, so a tight gallery layout is still possible.
-    _wallCollidesAt(entryId, x, y) {
+    // legal, so a tight gallery layout is still possible. `ignoreIds` (a
+    // Set) skips tiles that are moving together with this one: a group
+    // translation preserves relative positions, so members can never newly
+    // collide with each other -- only with outsiders.
+    _wallCollidesAt(entryId, x, y, ignoreIds = null) {
+      return this._wallCollidingNeighbor(entryId, x, y, ignoreIds) !== null;
+    }
+
+    // Same check, but returns the first overlapped neighbor's frame (or
+    // null) so alignment rejections can say WHO would overlap.
+    _wallCollidingNeighbor(entryId, x, y, ignoreIds = null) {
       const frame = this._frames.find(f => f.entryId === entryId);
       const dims = this._wallTileDims(frame);
       for (const [otherId, pos] of Object.entries(this._wallPlacements)) {
         if (otherId === entryId) continue;
+        if (ignoreIds && ignoreIds.has(otherId)) continue;
         const otherFrame = this._frames.find(f => f.entryId === otherId);
         if (!otherFrame) continue;
         const otherDims = this._wallTileDims(otherFrame);
@@ -5843,10 +6082,10 @@
           x < pos.x + otherDims.width && pos.x < x + dims.width
           && y < pos.y + otherDims.height && pos.y < y + dims.height
         ) {
-          return true;
+          return otherFrame;
         }
       }
-      return false;
+      return null;
     }
 
     // The canvas position a drag would snap to if dropped at the pointer's
@@ -5868,22 +6107,52 @@
       };
     }
 
+    // Single select (entryId) or clear (null) -- the plain-click behavior.
     _wallSelectTile(entryId) {
-      this._wallSelectedEntryId = entryId || null;
+      this._wallSetSelection(entryId ? [entryId] : [], entryId);
+    }
+
+    // Replace the whole selection. `focusId` (when given and selected)
+    // pulls keyboard focus onto that tile. Without this, focus stays
+    // wherever it was -- in real HA that's usually the sidebar's list item
+    // (our pointerdown preventDefault blocks the normal click-focus
+    // transfer), and the sidebar's own arrow-key navigation eats the nudge
+    // keys before they reach us.
+    _wallSetSelection(entryIds, focusId = null) {
+      this._wallSelection = new Set(entryIds);
       const canvas = this.shadowRoot.getElementById('wall-canvas');
       if (!canvas) return;
+      if (focusId === null && this._wallSelection.size) {
+        focusId = entryIds[0];
+      }
       for (const tile of canvas.querySelectorAll('.wall-tile')) {
-        const isSelected = tile.dataset.entryId === this._wallSelectedEntryId;
+        const isSelected = this._wallSelection.has(tile.dataset.entryId);
         tile.classList.toggle('selected', isSelected);
-        if (isSelected) {
-          // Pull keyboard focus onto the tile. Without this, focus stays
-          // wherever it was -- in real HA that's usually the sidebar's
-          // list item (our pointerdown preventDefault blocks the normal
-          // click-focus transfer), and the sidebar's own arrow-key
-          // navigation eats the nudge keys before they reach us.
+        if (isSelected && tile.dataset.entryId === focusId) {
           tile.focus({ preventScroll: true });
         }
       }
+      this._updateWallAlignToolbar();
+    }
+
+    // Shift/Ctrl/Cmd-click: toggle one tile in and out of the selection
+    // without disturbing the rest (and without opening the image picker).
+    _wallToggleSelection(entryId) {
+      const next = new Set(this._wallSelection);
+      if (next.has(entryId)) next.delete(entryId);
+      else next.add(entryId);
+      this._wallSetSelection([...next], next.has(entryId) ? entryId : null);
+    }
+
+    // The align toolbar only makes sense for 2+ tiles -- it appears with
+    // the selection and disappears with it.
+    _updateWallAlignToolbar() {
+      const bar = this.shadowRoot.getElementById('wall-align-toolbar');
+      if (!bar) return;
+      const count = [...this._wallSelection].filter(id => id in this._wallPlacements).length;
+      bar.style.display = count >= 2 ? 'flex' : 'none';
+      const label = this.shadowRoot.getElementById('wall-align-count');
+      if (label) label.textContent = `${count} frames selected — align:`;
     }
 
     _onWallKeydown(e) {
@@ -5909,30 +6178,43 @@
         return;
       }
 
-      const entryId = this._wallSelectedEntryId;
-      if (!entryId || !(entryId in this._wallPlacements)) return;
+      const ids = [...this._wallSelection].filter(id => id in this._wallPlacements);
+      if (!ids.length) return;
       for (const overlay of this.shadowRoot.querySelectorAll('.modal-overlay, .editor-overlay')) {
         if (overlay.style.display && overlay.style.display !== 'none') return;
       }
 
       e.preventDefault();
       const GRID = 20;
-      const pos = this._wallPlacements[entryId];
-      let x = pos.x, y = pos.y;
-      if (e.key === 'ArrowLeft')  x = Math.max(0, x - GRID);
-      if (e.key === 'ArrowRight') x = x + GRID;
-      if (e.key === 'ArrowUp')    y = Math.max(0, y - GRID);
-      if (e.key === 'ArrowDown')  y = y + GRID;
-      if (x === pos.x && y === pos.y) return;
-      // A nudge into a neighbor is a no-op, never a shove.
-      if (this._wallCollidesAt(entryId, x, y)) return;
+      let dx = 0, dy = 0;
+      if (e.key === 'ArrowLeft')  dx = -GRID;
+      if (e.key === 'ArrowRight') dx = GRID;
+      if (e.key === 'ArrowUp')    dy = -GRID;
+      if (e.key === 'ArrowDown')  dy = GRID;
 
-      this._wallPlacements[entryId] = { x, y };
+      // The whole selection moves as one, all-or-nothing: any tile hitting
+      // the canvas edge or a non-selected neighbor blocks the nudge (a
+      // nudge into a neighbor is a no-op, never a shove). Selected tiles
+      // can't newly collide with each other -- the translation preserves
+      // their relative positions -- so they're skipped in the check.
+      const candidates = ids.map(id => ({
+        id,
+        x: this._wallPlacements[id].x + dx,
+        y: this._wallPlacements[id].y + dy,
+      }));
+      for (const c of candidates) {
+        if (c.x < 0 || c.y < 0) return;
+        if (this._wallCollidesAt(c.id, c.x, c.y, this._wallSelection)) return;
+      }
+
       const canvas = this.shadowRoot.getElementById('wall-canvas');
-      const tileEl = this._wallTileEl(canvas, entryId);
-      if (tileEl) {
-        tileEl.style.left = `${x}px`;
-        tileEl.style.top  = `${y}px`;
+      for (const c of candidates) {
+        this._wallPlacements[c.id] = { x: c.x, y: c.y };
+        const tileEl = this._wallTileEl(canvas, c.id);
+        if (tileEl) {
+          tileEl.style.left = `${c.x}px`;
+          tileEl.style.top  = `${c.y}px`;
+        }
       }
       this._scheduleWallLayoutSave();
     }
@@ -5991,7 +6273,7 @@
         // Focusable so _wallSelectTile can move keyboard focus here (out
         // of HA's sidebar) -- and for plain keyboard/tab accessibility.
         tile.tabIndex = 0;
-        if (entryId === this._wallSelectedEntryId) tile.classList.add('selected');
+        if (this._wallSelection.has(entryId)) tile.classList.add('selected');
         canvas.appendChild(tile);
 
         this._renderWallTileContent(tile, entryId, frame);
@@ -6041,6 +6323,7 @@
       }
 
       this._updateWallSaveToSceneAvailability();
+      this._updateWallAlignToolbar();
       if (this._hass) this._tickAllStatus();
     }
 
@@ -6262,6 +6545,27 @@
     }
 
     _applyWallGhost(drag) {
+      const canvasRect = this.shadowRoot.getElementById('wall-canvas').getBoundingClientRect();
+      const outside = drag.lastX < canvasRect.left || drag.lastX > canvasRect.right
+        || drag.lastY < canvasRect.top || drag.lastY > canvasRect.bottom;
+
+      if (drag.group) {
+        // Group drag: every member's ghost keeps its exact screen offset
+        // from where its tile started (no snap-to-cursor jump), so the
+        // formation visibly moves as one.
+        const dxRaw = drag.lastX - drag.startClientX;
+        const dyRaw = drag.lastY - drag.startClientY;
+        const bad = this._wallGroupDropCandidates(drag) === null;
+        for (const member of drag.group) {
+          member.ghost.style.left = `${member.screenLeft + dxRaw}px`;
+          member.ghost.style.top  = `${member.screenTop + dyRaw}px`;
+          member.ghost.classList.toggle('colliding', bad);
+          // A group dragged off-canvas cancels (it never mass-removes) --
+          // so no off-canvas removal hint for groups.
+        }
+        return;
+      }
+
       drag.ghost.style.left = `${drag.lastX - drag.dims.width / 2}px`;
       drag.ghost.style.top  = `${drag.lastY - drag.dims.height / 2}px`;
       // Live hints, at most once per rAF: red when the drop would be
@@ -6269,10 +6573,30 @@
       // outside the canvas (release there = remove from this wall).
       const { x, y } = this._wallSnapCandidate(drag, drag.lastX, drag.lastY);
       drag.ghost.classList.toggle('colliding', this._wallCollidesAt(drag.entryId, x, y));
-      const canvasRect = this.shadowRoot.getElementById('wall-canvas').getBoundingClientRect();
-      const outside = drag.lastX < canvasRect.left || drag.lastX > canvasRect.right
-        || drag.lastY < canvasRect.top || drag.lastY > canvasRect.bottom;
       drag.ghost.classList.toggle('off-canvas', drag.kind === 'tile' && outside);
+    }
+
+    // Where each member of a group drag would land if dropped at the
+    // pointer's current position: the anchor tile snaps to the grid and
+    // every other member follows by the same delta (all placements start
+    // on the grid, so the whole group stays on it). Returns null when any
+    // member would leave the canvas or overlap a non-selected tile --
+    // shared by the live ghost hint and the actual drop.
+    _wallGroupDropCandidates(drag) {
+      const { x, y } = this._wallSnapCandidate(drag, drag.lastX, drag.lastY);
+      const dx = x - drag.startLeft;
+      const dy = y - drag.startTop;
+      const selectedIds = new Set(drag.group.map(m => m.entryId));
+      const candidates = drag.group.map(m => ({
+        id: m.entryId,
+        x: m.startLeft + dx,
+        y: m.startTop + dy,
+      }));
+      for (const c of candidates) {
+        if (c.x < 0 || c.y < 0) return null;
+        if (this._wallCollidesAt(c.id, c.x, c.y, selectedIds)) return null;
+      }
+      return candidates;
     }
 
     _wallBeginDrag(e, entryId, kind) {
@@ -6282,12 +6606,50 @@
       if (!frame) return;
       const dims = this._wallTileDims(frame);
 
-      const ghost = document.createElement('div');
-      ghost.className = 'wall-drag-ghost';
-      ghost.style.width  = `${dims.width}px`;
-      ghost.style.height = `${dims.height}px`;
-      ghost.textContent = frame.title;
-      this.shadowRoot.appendChild(ghost);
+      // Pressing a member of a multi-selection drags the whole group; one
+      // ghost per member so the formation is visible while dragging.
+      // (Modifier-clicks toggle selection on pointerup instead -- if this
+      // press turns out to be a shift-click, the ghosts are discarded
+      // untouched since the pointer never moved.)
+      const isGroupDrag = kind === 'tile'
+        && this._wallSelection.has(entryId)
+        && [...this._wallSelection].filter(id => id in this._wallPlacements).length > 1;
+
+      let group = null;
+      let ghost = null;
+      if (isGroupDrag) {
+        group = [];
+        for (const id of this._wallSelection) {
+          if (!(id in this._wallPlacements)) continue;
+          const memberFrame = this._frames.find(f => f.entryId === id);
+          const tileEl = this._wallTileEl(canvas, id);
+          if (!memberFrame || !tileEl) continue;
+          const memberDims = this._wallTileDims(memberFrame);
+          const rect = tileEl.getBoundingClientRect();
+          const memberGhost = document.createElement('div');
+          memberGhost.className = 'wall-drag-ghost';
+          memberGhost.style.width  = `${memberDims.width}px`;
+          memberGhost.style.height = `${memberDims.height}px`;
+          memberGhost.textContent = memberFrame.title;
+          this.shadowRoot.appendChild(memberGhost);
+          tileEl.classList.add('dragging');
+          group.push({
+            entryId: id,
+            ghost: memberGhost,
+            startLeft: parseFloat(tileEl.style.left) || 0,
+            startTop:  parseFloat(tileEl.style.top) || 0,
+            screenLeft: rect.left,
+            screenTop:  rect.top,
+          });
+        }
+      } else {
+        ghost = document.createElement('div');
+        ghost.className = 'wall-drag-ghost';
+        ghost.style.width  = `${dims.width}px`;
+        ghost.style.height = `${dims.height}px`;
+        ghost.textContent = frame.title;
+        this.shadowRoot.appendChild(ghost);
+      }
 
       let startLeft = 0, startTop = 0;
       if (kind === 'tile') {
@@ -6300,7 +6662,7 @@
       }
 
       this._wallDrag = {
-        kind, entryId, dims, ghost,
+        kind, entryId, dims, ghost, group,
         startClientX: e.clientX, startClientY: e.clientY,
         startLeft, startTop,
         moved: false,
@@ -6326,14 +6688,28 @@
       if (!drag) return;
       window.removeEventListener('pointermove', this._onWallPointerMove);
       window.removeEventListener('pointerup', this._onWallPointerUp);
-      drag.ghost.remove();
+      if (drag.ghost) drag.ghost.remove();
+      if (drag.group) for (const member of drag.group) member.ghost.remove();
       this._wallDrag = null;
 
       const canvas = this.shadowRoot.getElementById('wall-canvas');
       const tileEl = this._wallTileEl(canvas, drag.entryId);
       if (tileEl) tileEl.classList.remove('dragging');
+      if (drag.group) {
+        for (const member of drag.group) {
+          const el = this._wallTileEl(canvas, member.entryId);
+          if (el) el.classList.remove('dragging');
+        }
+      }
 
       if (!drag.moved) {
+        // A modifier-click (shift/ctrl/cmd) on a placed tile toggles it in
+        // and out of the multi-selection -- and deliberately does NOT open
+        // the image picker, which would bury the selection being built.
+        if (drag.kind === 'tile' && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+          this._wallToggleSelection(drag.entryId);
+          return;
+        }
         // A click, not a drag -- select the tile (for arrow-key nudging)
         // and open the image picker for this frame instead of
         // "repositioning"/"placing" it. Applies to a palette item exactly
@@ -6348,6 +6724,26 @@
       const canvasRect = canvas.getBoundingClientRect();
       const withinCanvas = e.clientX >= canvasRect.left && e.clientX <= canvasRect.right
         && e.clientY >= canvasRect.top && e.clientY <= canvasRect.bottom;
+
+      if (drag.group) {
+        // Group drop: all-or-nothing, and off-canvas is a cancel -- the
+        // drag-off-to-remove gesture stays single-tile only, so a stray
+        // group drag can never mass-remove frames.
+        drag.lastX = e.clientX;
+        drag.lastY = e.clientY;
+        const candidates = withinCanvas ? this._wallGroupDropCandidates(drag) : null;
+        if (!candidates) return; // tiles never moved; ghosts already gone
+        for (const c of candidates) {
+          this._wallPlacements[c.id] = { x: c.x, y: c.y };
+          const el = this._wallTileEl(canvas, c.id);
+          if (el) {
+            el.style.left = `${c.x}px`;
+            el.style.top  = `${c.y}px`;
+          }
+        }
+        this._scheduleWallLayoutSave();
+        return;
+      }
 
       if (!withinCanvas) {
         if (drag.kind === 'palette') {
@@ -6405,8 +6801,9 @@
           && !this._wallExcluded.includes(entryId)) {
         this._wallExcluded.push(entryId);
       }
-      if (this._wallSelectedEntryId === entryId) this._wallSelectedEntryId = null;
+      this._wallSelection.delete(entryId);
       this._renderWallCanvas();
+      this._updateWallAlignToolbar();
       this._scheduleWallLayoutSave();
     }
 

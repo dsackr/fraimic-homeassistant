@@ -129,7 +129,7 @@ test.describe('Default wall collision and keyboard nudge', () => {
       const panel = document.getElementById('panel');
       return {
         pickerDisplay: panel.shadowRoot.getElementById('wall-image-picker-overlay').style.display,
-        selected: panel._wallSelectedEntryId,
+        selected: [...panel._wallSelection][0] || null,
       };
     });
     expect(afterFirst.pickerDisplay).toBe('none');
@@ -141,7 +141,10 @@ test.describe('Default wall collision and keyboard nudge', () => {
     expect(await tilePos(page, 'entry_1')).toEqual({ x: 0, y: 20 });
 
     await page.keyboard.press('Escape');
-    const selected = await page.evaluate(() => document.getElementById('panel')._wallSelectedEntryId);
+    const selected = await page.evaluate(() => {
+      const panel = document.getElementById('panel');
+      return [...panel._wallSelection][0] || null;
+    });
     expect(selected).toBe(null);
   });
 
