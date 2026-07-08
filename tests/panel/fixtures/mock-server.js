@@ -72,7 +72,7 @@ function parseMultipartFields(buf) {
 // onboardingComplete: the server-side first-run-wizard flag. Defaults to
 // true so every non-onboarding suite loads straight to the dashboard;
 // onboarding tests opt in with false.
-function createMockServer({ frames = [], scenes = [], images = [], albums = [], walls = [], scenePacks = [], schedules = [], discoveredFlows = [], onboardingComplete = true } = {}) {
+function createMockServer({ frames = [], scenes = [], images = [], albums = [], walls = [], scenePacks = [], schedules = [], discoveredFlows = [], onboardingComplete = true, failing = false, onboardingBroken = false } = {}) {
   let sceneList = scenes.map((s) => ({ created_at: 0, album: null, source: 'user', ...s }));
   let scheduleList = schedules.map((s) => ({
     enabled: true, status: 'pending', fired_late: false,
@@ -198,6 +198,13 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [], 
       return;
     }
 
+    // Simulated HA-restart window: every fraimic endpoint answers 503
+    // (with a JSON body -- deliberately, so tests prove an error status
+    // that PARSES still never reads as real data) until setFailing(false).
+    if (failing && p.startsWith('/api/fraimic/')) {
+      return json(res, 503, { message: 'Home Assistant is starting up' });
+    }
+
     if (p === '/api/fraimic/frames') {
       return json(res, 200, { frames });
     }
@@ -205,6 +212,9 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [], 
       return json(res, 200, { success: true });
     }
     if (p === '/api/fraimic/onboarding') {
+      // A broken flag endpoint that still returns JSON -- the panel must
+      // treat this as unknown (fail closed), never as complete: false.
+      if (onboardingBroken) return json(res, 500, { message: 'flag store unavailable' });
       if (req.method === 'POST') {
         onboardingComplete = true;
         return json(res, 200, { success: true, complete: true });
@@ -442,6 +452,7 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [], 
     get scenes() { return sceneList; },
     get schedules() { return scheduleList; },
     get walls() { return wallList; },
+    setFailing(value) { failing = value; },
     get onboardingComplete() { return onboardingComplete; },
     get libraryBackend() { return libraryBackend; },
   };

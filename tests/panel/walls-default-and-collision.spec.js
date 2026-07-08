@@ -108,6 +108,12 @@ test.describe('Default wall collision and keyboard nudge', () => {
 
   test('the realistic path works: click tile, dismiss picker by clicking outside, arrows nudge', async ({ page }) => {
     await clickTile(page, 'entry_1');
+    // The picker opens async (it fetches albums first) -- wait for its
+    // backdrop before "clicking outside", or the click lands on the empty
+    // canvas instead, which deselects (the multi-select clear gesture).
+    await page.waitForFunction(
+      () => document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-overlay').style.display === 'block'
+    );
     // The picker's transparent backdrop covers the viewport -- clicking
     // anywhere outside its box is how a user dismisses it.
     await page.mouse.click(600, 500);

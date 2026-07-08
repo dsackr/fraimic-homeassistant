@@ -1845,6 +1845,16 @@
       this._calMonth = null;           // Date (1st of month) shown in the calendar popup, else null
       this._calSelectedDay = null;     // 'YYYY-MM-DD' whose events are listed under the grid, else null
 
+      // Initial-load health. A transient HA restart/reconnect window must
+      // never paint a believably-empty dashboard (or trigger zero-state
+      // messaging like the onboarding tour) -- each init load retries with
+      // backoff, and a load that never recovered is recorded here so
+      // everything built on "emptiness" knows the data is UNKNOWN, not
+      // absent. Delays are an instance field so tests can shorten them.
+      this._initLoadErrors = new Set();   // loader names that exhausted their retries
+      this._initRetriesActive = 0;        // loads currently sleeping before a retry
+      this._initRetryDelays = [1000, 2000, 4000];
+
       this._scenePacks    = [];       // [{ id, name, description, categories, license, cover, images, installed, scene_created }]
       this._activeTab     = 'dashboard'; // 'dashboard' | 'addons'
       this._packCategory  = null;     // null = category-tile view; otherwise the category id being browsed
@@ -2063,12 +2073,12 @@
       // (the old behavior). Render order below still preserves each
       // section's data dependencies (walls also needs frames, which is
       // awaited first).
-      const framesP  = this._discoverFrames();
-      const packsP   = this._loadScenePacks();
-      const backendP = this._loadBackendSettings();
-      const albumsP  = this._loadAlbums();
-      const scenesP  = this._loadScenes();
-      const wallsP   = this._loadWalls();
+      const framesP  = this._withInitRetry('frames',  () => this._discoverFrames());
+      const packsP   = this._withInitRetry('packs',   () => this._loadScenePacks());
+      const backendP = this._withInitRetry('backend', () => this._loadBackendSettings());
+      const albumsP  = this._withInitRetry('albums',  () => this._loadAlbums());
+      const scenesP  = this._withInitRetry('scenes',  () => this._loadScenes());
+      const wallsP   = this._withInitRetry('walls',   () => this._loadWalls());
 
       await framesP;
       await Promise.all([backendP, albumsP]);
@@ -2746,7 +2756,64 @@
     // Frame discovery via HA WebSocket APIs
     // -----------------------------------------------------------------------
 
+    // Run one initial data load, retrying with backoff before believing a
+    // failure. HA restarting / the websocket reconnecting / views not yet
+    // registered all look like fetch failures for a few seconds -- without
+    // retries the panel painted a fully-empty dashboard (no frames, no
+    // library) indistinguishable from a truly empty install until a manual
+    // refresh. Loaders signal failure by returning false or throwing.
+    async _withInitRetry(name, loadFn) {
+      const delays = this._initRetryDelays;
+      for (let attempt = 0; ; attempt++) {
+        let ok = false;
+        try {
+          ok = (await loadFn()) !== false;
+        } catch (err) {
+          console.warn(`[fraimic-panel] init load '${name}' failed:`, err);
+        }
+        if (this._disposed) return;
+        if (ok) {
+          this._initLoadErrors.delete(name);
+          this._updateInitLoadNote();
+          return;
+        }
+        if (attempt >= delays.length) {
+          this._initLoadErrors.add(name);
+          this._updateInitLoadNote();
+          return;
+        }
+        this._initRetriesActive++;
+        this._updateInitLoadNote();
+        await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+        this._initRetriesActive--;
+        if (this._disposed) return;
+      }
+    }
+
+    // The dashboard's init-health note: "reconnecting" while any retry is
+    // pending, a persistent warning when a load never recovered, hidden
+    // when everything settled. Only ever clears its own text so it can't
+    // stomp another feature's feedback in #wall-fb.
+    _updateInitLoadNote() {
+      const fb = this.shadowRoot.getElementById('wall-fb');
+      if (!fb) return;
+      const RECONNECTING = '⏳ Reconnecting to Home Assistant…';
+      const INCOMPLETE = '⚠ Couldn\'t load everything from Home Assistant — what you see may be incomplete. Refresh to try again.';
+      if (this._initRetriesActive > 0) {
+        fb.className = 'feedback';
+        fb.textContent = RECONNECTING;
+        fb.style.display = 'block';
+      } else if (this._initLoadErrors.size) {
+        fb.className = 'feedback err';
+        fb.textContent = INCOMPLETE;
+        fb.style.display = 'block';
+      } else if (fb.textContent === RECONNECTING || fb.textContent === INCOMPLETE) {
+        fb.style.display = 'none';
+      }
+    }
+
     async _discoverFrames() {
+      let healthy = true;
       try {
         const [entries, devices, entities] = await Promise.all([
           this._hass.callWS({ type: 'config_entries/get', domain: 'fraimic' }),
@@ -2777,6 +2844,7 @@
       } catch (err) {
         console.error('[fraimic-panel] discovery failed:', err);
         this._frames = [];
+        healthy = false;
       }
 
       // The WS APIs above never expose entry.data (it's redacted), so a frame's
@@ -2784,28 +2852,29 @@
       // Used by the Library crop editor to filter "Send to" by matching size.
       try {
         const resp = await fetch('/api/fraimic/frames', { headers: this._authHeaders() });
-        if (resp.ok) {
-          const result = await resp.json();
-          const byEntry = {};
-          for (const f of (result.frames || [])) byEntry[f.entry_id] = f;
-          for (const frame of this._frames) {
-            const match = byEntry[frame.entryId];
-            if (match) {
-              frame.width    = match.width;
-              frame.height   = match.height;
-              frame.size     = match.size;
-              frame.host     = match.host;
-              frame.origin   = match.origin;
-              frame.platform = match.platform;
-              frame.orientation  = match.orientation;
-              frame.lastImageId  = match.last_image_id;
-              frame.hasThumbnail = match.has_thumbnail;
-            }
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const result = await resp.json();
+        const byEntry = {};
+        for (const f of (result.frames || [])) byEntry[f.entry_id] = f;
+        for (const frame of this._frames) {
+          const match = byEntry[frame.entryId];
+          if (match) {
+            frame.width    = match.width;
+            frame.height   = match.height;
+            frame.size     = match.size;
+            frame.host     = match.host;
+            frame.origin   = match.origin;
+            frame.platform = match.platform;
+            frame.orientation  = match.orientation;
+            frame.lastImageId  = match.last_image_id;
+            frame.hasThumbnail = match.has_thumbnail;
           }
         }
       } catch (err) {
         console.warn('[fraimic-panel] frame resolution lookup failed:', err);
+        healthy = false;
       }
+      return healthy;
     }
 
     // -----------------------------------------------------------------------
@@ -3494,6 +3563,11 @@
     }
 
     async _maybeOpenOnboarding() {
+      // An errored initial load means the data is UNKNOWN, not absent --
+      // no zero-state messaging of any kind until a healthy load says so.
+      // (Dashboard loads are all settled by the time this runs; only the
+      // Add-ons catalog may still be in flight, and it gates nothing here.)
+      if (this._initLoadErrors.size) return;
       if (!this._isAdmin()) {
         // The wizard's actions (config flows, backend switching) are
         // admin-only; at zero frames non-admins get a pointer instead.
@@ -3508,9 +3582,13 @@
       let complete;
       try {
         const resp = await fetch('/api/fraimic/onboarding', { headers: this._authHeaders() });
+        // Fail closed on ANY unhealthy read -- a thrown fetch, a non-JSON
+        // body, or an error status whose JSON body simply lacks `complete`
+        // must never read as "not completed" and flash the tour.
+        if (!resp.ok) return;
         complete = !!(await resp.json()).complete;
       } catch (err) {
-        return; // fail closed: never flash the wizard on a flaky flag read
+        return;
       }
       if (complete) return;
       this._onboarding = { step: 1, storage: this._backend || 'local', framesAdded: 0 };
@@ -3997,17 +4075,21 @@
     // -----------------------------------------------------------------------
 
     async _loadBackendSettings() {
+      let healthy = true;
       try {
         const resp = await fetch('/api/fraimic/library/settings', { headers: this._authHeaders() });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const result = await resp.json();
         this._backend = result.backend || 'local';
       } catch (err) {
         console.warn('[fraimic-panel] could not load library settings:', err);
+        healthy = false;
       }
       const sel = this.shadowRoot.getElementById('backend-select');
       if (sel) sel.value = this._backend;
       this._renderBackendConfig(this._backend);
       this._syncDiscoverButton();
+      return healthy;
     }
 
     // Only Dropbox can see files a user drops into its storage outside the
@@ -4223,11 +4305,14 @@
     async _loadAlbums() {
       try {
         const resp = await fetch('/api/fraimic/library/albums', { headers: this._authHeaders() });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const result = await resp.json();
         this._albums = result.albums || [];
+        return true;
       } catch (err) {
         console.error('[fraimic-panel] albums load failed:', err);
         this._albums = [];
+        return false;
       }
     }
 
@@ -5714,11 +5799,14 @@
     async _loadScenes() {
       try {
         const resp = await fetch('/api/fraimic/scenes', { headers: this._authHeaders() });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const result = await resp.json();
         this._scenes = result.scenes || [];
+        return true;
       } catch (err) {
         console.error('[fraimic-panel] scenes load failed:', err);
         this._scenes = [];
+        return false;
       }
     }
 
@@ -5937,11 +6025,14 @@
     async _loadWalls() {
       try {
         const resp = await fetch('/api/fraimic/walls', { headers: this._authHeaders() });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const result = await resp.json();
         this._walls = result.walls || [];
+        return true;
       } catch (err) {
         console.error('[fraimic-panel] walls load failed:', err);
         this._walls = [];
+        return false;
       }
     }
 
@@ -7385,12 +7476,14 @@
         const result = await resp.json().catch(() => ({}));
         if (!resp.ok) throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
         this._scenePacks = result.packs || [];
+        return true;
       } catch (err) {
         console.error('[fraimic-panel] scene packs load failed:', err);
         this._scenePacks = [];
         fb.className = 'feedback err';
         fb.textContent = `Couldn't load the scene pack catalog: ${err.message}`;
         fb.style.display = 'block';
+        return false;
       }
     }
 
