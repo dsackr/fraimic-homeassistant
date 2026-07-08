@@ -61,15 +61,8 @@ _PENDING_STORE_VERSION = 1
 # mismatch handling raises during load). Payloads written by v0.12.39/0.12.40
 # have no stamp and are discarded on load: those versions could persist a
 # stale-packed bin (see library.py's _migrate_stale_cache) and then redeliver
-# it forever, because they also predate the delivery-attempt cap below.
+# it forever.
 _PENDING_SCHEMA = 2
-
-# A queued send is only flushed after a successful poll, i.e. while the frame
-# is answering HTTP. If delivery still fails this many times in a row, stop
-# retrying and drop the queue entry: endless retries mean endless panel
-# refreshes (each one a full ~30s e-ink redraw), which risks damaging the
-# display for no benefit.
-_MAX_DELIVERY_ATTEMPTS = 3
 
 # While a send is queued, poll much more often than the user's configured
 # scan_interval so a frame that wakes gets its image promptly instead of
@@ -146,9 +139,6 @@ class FraimicCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             hass, _PENDING_STORE_VERSION, f"{DOMAIN}_pending_send_{config_entry.entry_id}"
         )
         self._flushing: bool = False
-        # Failed flush attempts for the current pending_send; reset whenever a
-        # new send replaces it. See _MAX_DELIVERY_ATTEMPTS.
-        self._delivery_attempts: int = 0
 
     async def async_load_last_image(self) -> None:
         """Hydrate last_image_id/last_thumbnail from disk. Call this once
@@ -207,7 +197,7 @@ class FraimicCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not data:
             return
         if data.get("schema") != _PENDING_SCHEMA:
-            # Written by a version without the schema stamp / attempt cap --
+            # Written by a version without the schema stamp --
             # possibly a stale-packed bin caught in a redelivery loop. Drop it
             # rather than resume delivering a payload we can't trust.
             _LOGGER.warning(
@@ -222,7 +212,6 @@ class FraimicCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _set_pending(self, payload: dict[str, Any]) -> None:
         self.pending_send = payload
-        self._delivery_attempts = 0
         self.update_interval = _FAST_POLL_INTERVAL
         await self._pending_store.async_save(payload)
         self.async_update_listeners()
@@ -286,7 +275,18 @@ class FraimicCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_flush_pending_send(self) -> None:
         """Deliver the queued send now that a poll has succeeded. Guarded by
-        _flushing so overlapping successful polls can't fire this twice."""
+        _flushing so overlapping successful polls can't fire this twice.
+
+        Exactly one delivery attempt: whether it succeeds or fails, the
+        pending entry is dropped afterwards. We deliberately don't retry a
+        failed flush -- on some clone firmwares the frame accepts the upload
+        and blocks its HTTP response on the ~30s e-ink redraw until we time
+        out, so a "failed" attempt may have actually displayed the image.
+        Retrying that case would redraw the panel again with the same image,
+        which is exactly the double-send this design avoids. A frame that is
+        still genuinely offline gets another chance next time a *new* image
+        is queued for it, not by re-attempting this one.
+        """
         if self._flushing or self.pending_send is None:
             return
         self._flushing = True
@@ -295,19 +295,16 @@ class FraimicCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             image_bytes = base64.b64decode(pending["bin_b64"])
             try:
                 await self.async_send_image(image_bytes)
-            except (aiohttp.ClientConnectionError, TimeoutError) as err:
-                # Flaky wake, fell back asleep already, or (on some clone
-                # firmwares) the frame accepted the upload but blocked its
-                # HTTP response on the ~30s e-ink redraw until we timed out.
-                # Never retry silently or forever -- each retry redraws the
-                # panel -- so log it and give up after the attempt cap.
-                await self._record_failed_delivery(pending, err)
-                return
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error(
-                    "Failed to deliver queued image to %s: %s", self.host, err
+                    "Failed to deliver queued image to %s (%s) -- dropping it "
+                    "rather than retrying, since a retry risks redrawing the "
+                    "panel with an image it may have already received. "
+                    "Re-send manually if it didn't arrive.",
+                    self.host,
+                    err,
                 )
-                await self._record_failed_delivery(pending, err)
+                await self._clear_pending_if_current(pending["token"])
                 return
             await self._clear_pending_if_current(pending["token"])
             thumb_b64 = pending.get("thumbnail_b64")
@@ -318,38 +315,6 @@ class FraimicCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.info("Delivered queued image to frame %s", self.host)
         finally:
             self._flushing = False
-
-    async def _record_failed_delivery(
-        self, pending: dict[str, Any], err: BaseException
-    ) -> None:
-        """Count a failed flush attempt for *pending* and drop it once
-        _MAX_DELIVERY_ATTEMPTS is reached, so a send that consistently fails
-        can never turn into an endless redraw loop on the physical panel."""
-        if self.pending_send is None or self.pending_send.get("token") != pending.get("token"):
-            # A newer send already replaced this one; its attempt budget is
-            # its own (reset by _set_pending).
-            return
-        self._delivery_attempts += 1
-        if self._delivery_attempts < _MAX_DELIVERY_ATTEMPTS:
-            _LOGGER.warning(
-                "Delivery attempt %d/%d of queued image to %s failed (%s) -- "
-                "will retry on the next successful poll",
-                self._delivery_attempts,
-                _MAX_DELIVERY_ATTEMPTS,
-                self.host,
-                err,
-            )
-            return
-        _LOGGER.error(
-            "Giving up on queued image to %s after %d failed delivery "
-            "attempts (last error: %s) -- re-send the image manually. If the "
-            "frame actually displayed it each time, its firmware is holding "
-            "the HTTP response past our upload timeout",
-            self.host,
-            self._delivery_attempts,
-            err,
-        )
-        await self._clear_pending_if_current(pending["token"])
 
     # ------------------------------------------------------------------
     # Internal helpers
