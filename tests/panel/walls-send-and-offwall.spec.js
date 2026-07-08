@@ -91,7 +91,11 @@ test.describe('Send to Frames and off-wall frames', () => {
     expect(fb.text).toContain('Sent to 3 frames');
 
     const sent = mockServer.sends.map((s) => ({ entity_id: s.entity_id, image_id: s.image_id }));
-    expect(sent.sort((a, b) => a.entity_id.localeCompare(b.entity_id))).toEqual([
+    // Dashboard semantics: the pick for entry_2 itself sent immediately…
+    expect(sent[0]).toEqual({ entity_id: 'sensor.entry_2_battery', image_id: 'image_2' });
+    // …and Send to Frames then fanned out every effective mapping, on the
+    // wall or off it.
+    expect(sent.slice(1).sort((a, b) => a.entity_id.localeCompare(b.entity_id))).toEqual([
       { entity_id: 'sensor.entry_1_battery', image_id: 'image_1' },
       { entity_id: 'sensor.entry_2_battery', image_id: 'image_2' },
       { entity_id: 'sensor.entry_3_battery', image_id: 'image_2' },

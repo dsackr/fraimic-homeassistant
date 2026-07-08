@@ -21,9 +21,17 @@ const DISCOVERED_FLOW = {
 };
 
 async function openGearFor(page, entryId) {
+  // The manage gear lives on the frame's wall-tile footer (every frame is
+  // placed on the default wall).
+  await page.waitForFunction((id) => {
+    const root = document.getElementById('panel').shadowRoot;
+    const tile = [...root.querySelectorAll('.wall-tile')].find((t) => t.dataset.entryId === id);
+    return tile && tile.querySelector('.wall-tile-gear');
+  }, entryId, { timeout: 5000 });
   await page.evaluate((id) => {
     const root = document.getElementById('panel').shadowRoot;
-    root.querySelector(`.btn-options[data-entry-id="${id}"]`).click();
+    const tile = [...root.querySelectorAll('.wall-tile')].find((t) => t.dataset.entryId === id);
+    tile.querySelector('.wall-tile-gear').click();
   }, entryId);
 }
 
@@ -162,12 +170,15 @@ test.describe('Frame management and discovery banner', () => {
       const root = document.getElementById('panel').shadowRoot;
       return {
         addBtn: root.getElementById('frame-add-btn').style.display,
-        gears: [...root.querySelectorAll('.btn-options')].map((b) => b.style.display),
+        // Non-admin tiles are rendered without a gear at all.
+        gearCount: root.querySelectorAll('.wall-tile-gear').length,
+        tileCount: root.querySelectorAll('.wall-tile').length,
         banner: root.getElementById('discovery-banner').style.display,
       };
     });
     expect(visibility.addBtn).toBe('none');
-    expect(visibility.gears).toEqual(['none', 'none']);
+    expect(visibility.tileCount).toBe(2);
+    expect(visibility.gearCount).toBe(0);
     expect(visibility.banner).toBe('none');
     expect(pageErrors).toEqual([]);
   });

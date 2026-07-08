@@ -25,12 +25,15 @@ async function gotoPanel(page, baseUrl, { frames = [], query = '' } = {}) {
   return { pageErrors };
 }
 
-// The Scenes tab *is* the wall canvas -- no sub-nav to drill into anymore.
-async function openScenesTab(page) {
+// The Dashboard tab (default) *is* the wall canvas. Kept as an explicit
+// helper (and under its historical openScenesTab name) so specs stay
+// readable and are robust to the default tab ever changing.
+async function openDashboard(page) {
   await page.evaluate(() => {
-    document.getElementById('panel').shadowRoot.querySelector('.tab-btn[data-tab="scenes"]').click();
+    document.getElementById('panel').shadowRoot.querySelector('.tab-btn[data-tab="dashboard"]').click();
   });
 }
+const openScenesTab = openDashboard;
 
 // Creates a wall via the "New Wall" button, auto-answering the name prompt.
 async function createWall(page, name) {
@@ -205,6 +208,7 @@ async function getFeedback(page, id) {
 
 module.exports = {
   gotoPanel,
+  openDashboard,
   openScenesTab,
   createWall,
   dragFirstPaletteItemTo,

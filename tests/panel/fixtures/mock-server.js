@@ -45,7 +45,9 @@ function readFormBody(req) {
 }
 
 // Minimal multipart/form-data parser -- just enough to pull simple text
-// field values (entity_id, image_id, packer) out of a FormData POST body.
+// field values (entity_id, image_id, packer) out of a FormData POST body,
+// plus a '[file]' marker for file parts (which carry a filename= attribute
+// and a Content-Type line the text regex can't match).
 function parseMultipartFields(buf) {
   const text = buf.toString('latin1');
   const result = {};
@@ -53,6 +55,10 @@ function parseMultipartFields(buf) {
   let m;
   while ((m = re.exec(text))) {
     result[m[1]] = m[2];
+  }
+  const fileRe = /name="([^"]+)"; filename="/g;
+  while ((m = fileRe.exec(text))) {
+    result[m[1]] = '[file]';
   }
   return result;
 }
@@ -81,6 +87,7 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [], 
   let nextSceneId = sceneList.length + 1;
   const requestLog = [];
   const sends = []; // { entity_id, image_id, packer } per /library/send POST
+  const rawSends = []; // { entity_id, has_image } per /send_image POST
 
   // --- Embedded config/options flow state machine -----------------------
   // Mirrors FraimicConfigFlow's real step graph (user → pick_device →
@@ -247,6 +254,13 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [], 
       return;
     }
 
+    if (p === '/api/fraimic/send_image' && req.method === 'POST') {
+      // Raw upload → convert → send (the per-tile "Upload a photo" path).
+      const form = await readFormBody(req);
+      rawSends.push({ entity_id: form.entity_id, has_image: 'image' in form });
+      return json(res, 200, { success: true, bytes_sent: 960000 });
+    }
+
     if (p === '/api/fraimic/library/send' && req.method === 'POST') {
       // Only parses URL-encoded bodies (what the ?packtest modal sends);
       // FormData/multipart senders aren't exercised through this route yet.
@@ -334,6 +348,7 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [], 
     },
     requestLog,
     sends,
+    rawSends,
     flowSubmissions,
     flowDeletes,
     entryDeletes,

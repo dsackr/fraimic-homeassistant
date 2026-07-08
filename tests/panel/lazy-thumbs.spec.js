@@ -48,7 +48,7 @@ test.describe('Lazy thumbnail loading', () => {
     expect(imageFetches(mockServer, 'image_1')).toBe(0);
 
     await page.evaluate(() => {
-      document.getElementById('panel').shadowRoot.querySelector('.tab-btn[data-tab="scenes"]').click();
+      document.getElementById('panel').shadowRoot.querySelector('.tab-btn[data-tab="dashboard"]').click();
     });
     await page.waitForTimeout(200);
     expect(imageFetches(mockServer, 'image_1')).toBe(0); // tab open, but still no scene selected

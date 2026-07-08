@@ -19,7 +19,7 @@ const IMAGES = [
 // does), so the thumbnail paints on its canvas tile.
 async function openScenesTabAndWaitForCover(page) {
   await page.evaluate(() => {
-    document.getElementById('panel').shadowRoot.querySelector('.tab-btn[data-tab="scenes"]').click();
+    document.getElementById('panel').shadowRoot.querySelector('.tab-btn[data-tab="dashboard"]').click();
   });
   await page.waitForFunction(() => {
     const sel = document.getElementById('panel').shadowRoot.getElementById('wall-scene-select');
