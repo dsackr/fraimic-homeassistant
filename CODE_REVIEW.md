@@ -77,17 +77,9 @@ Two listeners are registered on the same entry: `coordinator.async_config_entry_
 
 **Fix**: only reload from `_async_update_listener` when option keys that actually require a reload changed, or drop the blanket listener and reload explicitly from the call sites that need it (e.g. `FraimicOptionsFlow`).
 
-### 5. Blocking `socket.connect()` still runs directly on the event loop in the config flow (`config_flow.py:174, 201, 359-366`) — unfixed since the v0.1.6 review
+### 5. ~~Blocking `socket.connect()` still runs directly on the event loop in the config flow~~ — RESOLVED
 
-```python
-def _get_local_ip(self) -> str:
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-        s.connect(("8.8.8.8", 80))
-        return s.getsockname()[0]
-```
-Called synchronously (no `await`, no executor) from `async_step_user`. The identical logic was correctly fixed in `coordinator.py:252-264` (`_detect_local_ip`, wrapped in `hass.async_add_executor_job` with a comment explaining exactly why) — the config-flow copy never got the same treatment.
-
-**Fix**: mirror `coordinator.py`'s executor wrapping and `await` it at both call sites (lines 174, 201).
+**Resolved** as part of the dashboard-consolidation work (periodic discovery made this load-bearing): the logic now lives once in `helpers.get_local_ip()`, and every caller (`config_flow.async_step_user` both branches, `coordinator._async_try_find_new_host`) invokes it via `hass.async_add_executor_job`. The coordinator's inline duplicate `_detect_local_ip` was deleted.
 
 ### 6. Service handlers still don't catch `aiohttp.ClientError` from the coordinator (`coordinator.py:313-348`; `__init__.py:405-418, 450`) — unfixed since the v0.1.6 review
 
@@ -148,9 +140,9 @@ The original finding (raw image uploads) is still open, and the same unbounded-b
 
 `native_value` still returns the strings `"True"`/`"False"`, blocking `binary_sensor.is_on` automations and polluting history.
 
-### 16. Ad-hoc `aiohttp.ClientSession()` instead of the managed session, now at more call sites (`helpers.py:198`; `config_flow.py:104, 191, 354`) — unfixed since the v0.1.6 review
+### 16. ~~Ad-hoc `aiohttp.ClientSession()` instead of the managed session~~ — RESOLVED
 
-`scan_subnet`, `async_step_dhcp`, the manual-host branch of `async_step_user`, and `_async_use_device` all create unmanaged sessions inside a `ConfigFlow`, which has `self.hass` available and could use `async_get_clientsession(self.hass)` like the coordinator correctly does. Not a leak (each is properly closed), just inconsistent with the rest of the codebase.
+**Resolved** alongside #5: `scan_subnet` and `find_frame_by_device_key` now take a required `session` parameter, and every former ad-hoc `aiohttp.ClientSession()` site (`async_step_dhcp`, both `async_step_user` branches, `_async_use_device`) passes `async_get_clientsession(self.hass)`. Because the shared connector has finite connection limits, `scan_subnet` also gained a `Semaphore(64)` bound with the 0.5 s probe timeout applied inside acquisition — without it, probes queued behind the connector limit would burn their timeout before sending a packet and silently miss live frames.
 
 ### 17. `assert` used for a production sanity check (`image_converter.py:105`) — unfixed since the v0.1.6 review
 

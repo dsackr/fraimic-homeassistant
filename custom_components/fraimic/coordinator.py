@@ -26,7 +26,12 @@ from .const import (
     CONF_WIDTH,
     CONF_HEIGHT,
 )
-from .helpers import device_key_from_info, find_frame_by_device_key, mac_from_info
+from .helpers import (
+    device_key_from_info,
+    find_frame_by_device_key,
+    get_local_ip,
+    mac_from_info,
+)
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -468,21 +473,11 @@ class FraimicCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.host,
                 self.device_key,
             )
-            def _detect_local_ip() -> str:
-                # A UDP connect() does no I/O, but it's still a syscall that
-                # can block (routing lookups) -- keep it off the event loop.
-                import socket  # noqa: PLC0415
+            local_ip = await self.hass.async_add_executor_job(get_local_ip)
 
-                try:
-                    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                        s.connect(("8.8.8.8", 80))
-                        return s.getsockname()[0]
-                except Exception:  # noqa: BLE001
-                    return "192.168.1.1"
-
-            local_ip = await self.hass.async_add_executor_job(_detect_local_ip)
-
-            new_ip = await find_frame_by_device_key(local_ip, self.device_key)
+            new_ip = await find_frame_by_device_key(
+                local_ip, self.device_key, async_get_clientsession(self.hass)
+            )
             if new_ip and new_ip != self.host:
                 _LOGGER.info(
                     "Fraimic frame %s found at new IP %s (was %s)",

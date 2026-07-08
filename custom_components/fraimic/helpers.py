@@ -6,6 +6,7 @@ import asyncio
 import ipaddress
 import logging
 import re
+import socket
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -170,6 +171,21 @@ async def probe_device_size(
     return size if size in FRAME_TYPES else None
 
 
+def get_local_ip() -> str:
+    """Return the IPv4 address of the HA machine, falling back to 192.168.1.1.
+
+    A UDP connect() does no I/O, but it's still a syscall that can block
+    (routing lookups) -- callers must run this via
+    hass.async_add_executor_job, never directly on the event loop.
+    """
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except Exception:  # noqa: BLE001
+        return "192.168.1.1"
+
+
 def device_key_from_info(info: dict[str, Any]) -> str | None:
     """Extract the persistent device_key from a /api/info response."""
     return info.get("device", {}).get("device_key") or None
@@ -181,8 +197,22 @@ def mac_from_info(info: dict[str, Any]) -> str:
     return raw.replace(":", "").lower()
 
 
-async def scan_subnet(host_ip: str) -> list[dict[str, Any]]:
-    """Probe all 254 host addresses in the /24 subnet of *host_ip* concurrently.
+async def scan_subnet(
+    host_ip: str,
+    session: aiohttp.ClientSession,
+    *,
+    concurrency: int = 64,
+) -> list[dict[str, Any]]:
+    """Probe all 254 host addresses in the /24 subnet of *host_ip*.
+
+    Uses the caller's *session* (pass HA's managed session via
+    async_get_clientsession). Probes are bounded by *concurrency*: firing all
+    254 at once through a shared connector can exceed its connection limit,
+    and a probe stuck waiting in the connector queue burns its 0.5 s total
+    timeout before a single packet is sent -- silently missing live frames.
+    The semaphore is acquired *before* the request starts, so the timeout
+    only ever covers actual network time. Worst case a full sweep takes
+    ~254/concurrency * 0.5 s (~2 s at the default).
 
     Returns a list of ``{"ip": str, "info": dict}`` for every address that
     responded as a Fraimic frame (i.e. returned a valid /api/info payload with
@@ -194,10 +224,15 @@ async def scan_subnet(host_ip: str) -> list[dict[str, Any]]:
         return []
 
     hosts = [str(h) for h in network.hosts()]
+    semaphore = asyncio.Semaphore(concurrency)
 
-    async with aiohttp.ClientSession() as session:
-        tasks = [probe_frame(session, h, _SCAN_TIMEOUT) for h in hosts]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+    async def _probe_bounded(host: str) -> dict[str, Any] | None:
+        async with semaphore:
+            return await probe_frame(session, host, _SCAN_TIMEOUT)
+
+    results = await asyncio.gather(
+        *(_probe_bounded(h) for h in hosts), return_exceptions=True
+    )
 
     found: list[dict[str, Any]] = []
     for addr, result in zip(hosts, results):
@@ -207,10 +242,10 @@ async def scan_subnet(host_ip: str) -> list[dict[str, Any]]:
 
 
 async def find_frame_by_device_key(
-    host_ip: str, device_key: str
+    host_ip: str, device_key: str, session: aiohttp.ClientSession
 ) -> str | None:
     """Scan the /24 subnet and return the IP of the frame with *device_key*, or None."""
-    results = await scan_subnet(host_ip)
+    results = await scan_subnet(host_ip, session)
     for entry in results:
         if device_key_from_info(entry["info"]) == device_key:
             return entry["ip"]

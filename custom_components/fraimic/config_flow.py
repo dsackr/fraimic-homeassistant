@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import socket
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
@@ -12,6 +11,7 @@ from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
     CONF_DEVICE_KEY,
@@ -35,6 +35,7 @@ from .const import (
 from .frame_types import FRAME_TYPES
 from .helpers import (
     device_key_from_info,
+    get_local_ip,
     mac_from_info,
     probe_device_size,
     probe_frame,
@@ -100,9 +101,7 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle DHCP discovery: update existing entry's IP or offer new setup."""
         ip = discovery_info.ip
 
-        import aiohttp  # local import avoids top-level cost when flow unused
-        async with aiohttp.ClientSession() as session:
-            info = await probe_frame(session, ip)
+        info = await probe_frame(async_get_clientsession(self.hass), ip)
 
         if info is None:
             return self.async_abort(reason="not_fraimic_device")
@@ -171,8 +170,10 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
             host = user_input.get(CONF_HOST, "").strip()
 
             if not host:
-                local_ip = self._get_local_ip()
-                self._discovered = await scan_subnet(local_ip)
+                local_ip = await self.hass.async_add_executor_job(get_local_ip)
+                self._discovered = await scan_subnet(
+                    local_ip, async_get_clientsession(self.hass)
+                )
                 # Filter out already-configured frames.
                 configured_keys = {
                     e.data.get(CONF_DEVICE_KEY)
@@ -187,9 +188,7 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
                     return await self.async_step_pick_device()
                 errors["base"] = "no_devices_found"
             else:
-                import aiohttp
-                async with aiohttp.ClientSession() as session:
-                    info = await probe_frame(session, host)
+                info = await probe_frame(async_get_clientsession(self.hass), host)
 
                 if info is None:
                     errors[CONF_HOST] = "cannot_connect"
@@ -198,8 +197,10 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
 
         else:
             # First visit — auto-scan.
-            local_ip = self._get_local_ip()
-            self._discovered = await scan_subnet(local_ip)
+            local_ip = await self.hass.async_add_executor_job(get_local_ip)
+            self._discovered = await scan_subnet(
+                local_ip, async_get_clientsession(self.hass)
+            )
             configured_keys = {
                 e.data.get(CONF_DEVICE_KEY)
                 for e in self._async_current_entries()
@@ -349,21 +350,11 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
         self._selected_host = host
         self._selected_info = info
 
-        import aiohttp  # local import avoids top-level cost when flow unused
-
-        async with aiohttp.ClientSession() as session:
-            self._detected_size = await probe_device_size(session, host)
+        self._detected_size = await probe_device_size(
+            async_get_clientsession(self.hass), host
+        )
 
         return await self.async_step_name_device()
-
-    def _get_local_ip(self) -> str:
-        """Return the IPv4 address of the HA machine, falling back to 192.168.1.1."""
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                s.connect(("8.8.8.8", 80))
-                return s.getsockname()[0]
-        except Exception:  # noqa: BLE001
-            return "192.168.1.1"
 
 
 # ---------------------------------------------------------------------------
