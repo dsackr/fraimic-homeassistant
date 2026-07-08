@@ -8,10 +8,14 @@ const { createMockServer } = require('./fixtures/mock-server');
 const { gotoPanel, clickTile, pickImageInWallPicker } = require('./fixtures/panel-page');
 
 const FRAMES = [
-  { entry_id: 'entry_1', title: 'Living Room Frame', width: 1200, height: 1600, orientation: 'auto' },
+  { entry_id: 'entry_1', title: 'Living Room Frame', width: 1200, height: 1600, orientation: 'auto', last_image_id: 'image_2' },
 ];
 const IMAGES = [
   { image_id: 'image_1', filename: 'one.png', albums: [] },
+  { image_id: 'image_2', filename: 'two.png', albums: [] },
+];
+const SCENES = [
+  { scene_id: 'scene_1', name: 'Test Scene', mappings: { entry_1: 'image_1' } },
 ];
 
 test.describe('Consolidated dashboard', () => {
@@ -19,7 +23,7 @@ test.describe('Consolidated dashboard', () => {
   let baseUrl;
 
   test.beforeEach(async ({ page }) => {
-    mockServer = createMockServer({ frames: FRAMES, images: IMAGES });
+    mockServer = createMockServer({ frames: FRAMES, images: IMAGES, scenes: SCENES });
     baseUrl = await mockServer.start();
     await gotoPanel(page, baseUrl, { frames: FRAMES });
   });
@@ -106,6 +110,48 @@ test.describe('Consolidated dashboard', () => {
     expect(state.open).toBe(true);
     expect(state.backend).toBe('local');
     expect(state.configText).toContain('local storage');
+  });
+
+  test('tile badges distinguish scene model from what is merely on the frame', async ({ page }) => {
+    const readTile = () => page.evaluate(() => {
+      const root = document.getElementById('panel').shadowRoot;
+      const tile = root.querySelector('.wall-tile');
+      const badge = tile.querySelector('.wall-tile-badge');
+      return {
+        badge: badge && badge.style.display !== 'none' ? badge.dataset.kind : null,
+        dimmed: !!tile.querySelector('.wall-tile-media.on-frame-only'),
+      };
+    });
+
+    // No scene selected: the tile shows the frame's current content,
+    // dimmed + labeled -- not part of any send model.
+    expect(await readTile()).toEqual({ badge: 'onframe', dimmed: true });
+
+    // Selecting a scene: its mapped tile shows the scene image at full
+    // strength with a "scene" badge -- the model of what Send will do.
+    await page.evaluate(() => {
+      const root = document.getElementById('panel').shadowRoot;
+      const sel = root.getElementById('wall-scene-select');
+      sel.value = 'scene_1';
+      sel.dispatchEvent(new Event('change'));
+    });
+    expect(await readTile()).toEqual({ badge: 'scene', dimmed: false });
+
+    // A pick this session upgrades the badge to "staged".
+    await clickTile(page, 'entry_1');
+    await pickImageInWallPicker(page, 'image_2');
+    expect(await readTile()).toEqual({ badge: 'staged', dimmed: false });
+
+    // Clear All empties the model everywhere; the tile falls back to the
+    // dimmed on-frame view, and nothing was sent anywhere.
+    await page.evaluate(() => {
+      document.getElementById('panel').shadowRoot.getElementById('wall-clear-all-btn').click();
+    });
+    expect(await readTile()).toEqual({ badge: 'onframe', dimmed: true });
+    expect(await page.evaluate(() => document.getElementById('panel')._wallPendingMappings))
+      .toEqual({ entry_1: '' });
+    expect(mockServer.sends).toEqual([]);
+    expect(mockServer.rawSends).toEqual([]);
   });
 
   test('clicking an image only stages it -- the Send button is the transmit moment', async ({ page }) => {

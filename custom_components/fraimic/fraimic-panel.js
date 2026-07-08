@@ -1211,6 +1211,26 @@
       flex: 0 0 auto;
       pointer-events: auto;
     }
+    /* Send-model state: staged this session / mapped by the selected
+       scene / merely showing the frame's current content. */
+    .wall-tile-badge {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      z-index: 2;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: .4px;
+      text-transform: uppercase;
+      padding: 1px 6px;
+      border-radius: 8px;
+      color: #fff;
+      pointer-events: none;
+    }
+    .wall-tile-badge[data-kind="staged"]  { background: var(--primary-color, #03a9f4); }
+    .wall-tile-badge[data-kind="scene"]   { background: #8b5cf6; }
+    .wall-tile-badge[data-kind="onframe"] { background: rgba(100, 116, 139, .9); }
+    .wall-tile-media.on-frame-only { opacity: .5; }
     .discovery-banner .banner-add-btn {
       padding: 6px 14px;
       border-radius: 8px;
@@ -1632,6 +1652,7 @@
           <div class="btns" style="margin-top:10px">
             <button class="btn-primary" id="wall-send-btn">▶ Send to Frames</button>
             <button class="btn-primary" id="wall-save-scene-btn">Save Scene</button>
+            <button class="btn-ghost" id="wall-clear-all-btn" title="Clear every frame's image assignment (the physical frames are untouched until you send)">✕ Clear All</button>
             <button class="btn-ghost" id="wall-delete-scene-btn" style="display:none">🗑 Delete Scene</button>
           </div>
           <div class="feedback" id="wall-scene-fb"></div>
@@ -4527,8 +4548,25 @@
         this._loadSceneOntoWall(e.target.value || null);
       });
       this.shadowRoot.getElementById('wall-save-scene-btn').addEventListener('click', () => this._saveWallScene());
+      this.shadowRoot.getElementById('wall-clear-all-btn').addEventListener('click', () => this._clearAllWallAssignments());
       this.shadowRoot.getElementById('wall-delete-scene-btn').addEventListener('click', () => this._deleteWallScene());
       this.shadowRoot.getElementById('wall-send-btn').addEventListener('click', () => this._sendWallToFrames());
+    }
+
+    // Empty the send model in one click: every frame gets an explicit ''
+    // pending entry (the same "cleared" sentinel the per-tile ✕ uses), which
+    // overrides the selected scene's mappings in _wallEffectiveMapping. The
+    // physical frames are untouched until something is actually sent.
+    _clearAllWallAssignments() {
+      for (const frame of this._frames) {
+        this._wallPendingMappings[frame.entryId] = '';
+      }
+      this._renderWallCanvas();
+      const fb = this.shadowRoot.getElementById('wall-scene-fb');
+      fb.className = 'feedback ok';
+      fb.textContent = '✕ Cleared all assignments — the frames themselves are untouched.';
+      fb.style.display = 'block';
+      setTimeout(() => { fb.style.display = 'none'; }, 4000);
     }
 
     async _loadWalls() {
@@ -5013,27 +5051,56 @@
         media.className = 'wall-tile-media';
         tile.prepend(media);
       }
+      // State badge: at a glance, is this tile part of the send model
+      // (staged this session / mapped by the selected scene) or just
+      // showing what's physically on the frame right now?
+      let badge = tile.querySelector('.wall-tile-badge');
+      if (!badge) {
+        badge = document.createElement('div');
+        badge.className = 'wall-tile-badge';
+        tile.appendChild(badge);
+      }
+
       const imageId = this._wallEffectiveMapping(entryId);
-      if (!imageId) {
-        // No scene preview on this tile -- show what's actually on the
-        // physical frame right now. lastImageId (library/scene sends) and
-        // hasThumbnail (raw-upload sends) are mutually exclusive on the
-        // backend; the title text is the true-empty fallback.
-        if (frame.lastImageId) {
-          media.innerHTML = '';
-          this._loadThumbnail(frame.lastImageId, media);
-        } else if (frame.hasThumbnail) {
-          media.innerHTML = `<img src="/api/fraimic/frame/${this._esc(frame.entryId)}/thumbnail" alt="">`;
-        } else {
-          media.innerHTML = `<div>${this._esc(frame.title)}</div>`;
-        }
+      if (imageId) {
+        media.classList.remove('on-frame-only');
+        media.innerHTML = '';
+        // _loadThumbnail paints synchronously on a cache hit and dedupes
+        // concurrent fetches, so repeated renders and same-image tiles are
+        // cheap.
+        this._loadThumbnail(imageId, media);
+        const stagedThisSession =
+          Object.prototype.hasOwnProperty.call(this._wallPendingMappings, entryId)
+          && this._wallPendingMappings[entryId];
+        badge.textContent = stagedThisSession ? 'staged' : 'scene';
+        badge.dataset.kind = stagedThisSession ? 'staged' : 'scene';
+        badge.style.display = '';
         return;
       }
-      media.innerHTML = '';
-      // _loadThumbnail paints synchronously on a cache hit and dedupes
-      // concurrent fetches, so repeated renders and same-image tiles are
-      // cheap.
-      this._loadThumbnail(imageId, media);
+
+      // Not part of the send model -- show what's actually on the physical
+      // frame right now, dimmed and labeled so it can't be mistaken for a
+      // scene assignment. lastImageId (library/scene sends) and
+      // hasThumbnail (raw-upload sends) are mutually exclusive on the
+      // backend; the title text is the true-empty fallback.
+      if (frame.lastImageId) {
+        media.classList.add('on-frame-only');
+        media.innerHTML = '';
+        this._loadThumbnail(frame.lastImageId, media);
+        badge.textContent = 'on frame';
+        badge.dataset.kind = 'onframe';
+        badge.style.display = '';
+      } else if (frame.hasThumbnail) {
+        media.classList.add('on-frame-only');
+        media.innerHTML = `<img src="/api/fraimic/frame/${this._esc(frame.entryId)}/thumbnail" alt="">`;
+        badge.textContent = 'on frame';
+        badge.dataset.kind = 'onframe';
+        badge.style.display = '';
+      } else {
+        media.classList.remove('on-frame-only');
+        media.innerHTML = `<div>${this._esc(frame.title)}</div>`;
+        badge.style.display = 'none';
+      }
     }
 
     // NOT a CSS attribute-selector lookup: this file's top-level `CSS` const
@@ -5379,6 +5446,9 @@
       albumSelect.value = lockedAlbum || '';
 
       this._updateWallImagePickerOrientationButtons();
+      // Closed while the album load above was in flight? Showing the
+      // overlay now would resurrect a picker the user already dismissed.
+      if (this._wallImagePickerEntryId !== entryId) return;
       overlay.style.display = 'block';
       await this._loadWallImagePickerImages();
     }
