@@ -37,6 +37,7 @@ from .helpers import (
     device_key_from_info,
     get_local_ip,
     mac_from_info,
+    match_and_update_entry,
     probe_device_size,
     probe_frame,
     scan_subnet,
@@ -110,50 +111,46 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
         if not key:
             return self.async_abort(reason="not_fraimic_device")
 
-        mac = mac_from_info(info)
-
-        # Check every existing entry — match on device_key (new entries), MAC
-        # (belt-and-braces), or — for entries created before 0.4.1 that don't
-        # have a device_key/MAC yet (only backfilled lazily on the frame's
-        # next successful coordinator poll) — fall back to matching on the
-        # entry's currently configured host. Without this fallback, a DHCP
-        # event arriving before that first poll completes (e.g. right after
-        # upgrading and restarting) would fail to match any existing entry
-        # and create a duplicate config entry for an already-configured frame.
-        for entry in self._async_current_entries():
-            entry_key = entry.data.get(CONF_DEVICE_KEY)
-            entry_mac = entry.data.get(CONF_MAC, "")
-            entry_host = entry.data.get(CONF_HOST)
-            is_same_frame = (
-                (entry_key and entry_key == key)
-                or (mac and entry_mac and entry_mac == mac)
-                or (not entry_key and not entry_mac and entry_host == ip)
-            )
-            if is_same_frame:
-                # Same physical frame — update host if it moved, and/or
-                # backfill the device_key/MAC fingerprint if this was a
-                # legacy entry that didn't have one yet.
-                if entry_host != ip or not entry_key or not entry_mac:
-                    _LOGGER.info(
-                        "Fraimic frame %s moved: %s → %s",
-                        key,
-                        entry_host,
-                        ip,
-                    )
-                    self.hass.config_entries.async_update_entry(
-                        entry,
-                        data={
-                            **entry.data,
-                            CONF_HOST: ip,
-                            CONF_DEVICE_KEY: key,
-                            CONF_MAC: mac,
-                        },
-                    )
-                return self.async_abort(reason="already_configured")
+        # Same physical frame as an existing entry? match_and_update_entry
+        # also refreshes the host if the frame moved and backfills the
+        # device_key/MAC fingerprint on legacy entries.
+        matched = match_and_update_entry(
+            self.hass, list(self._async_current_entries()), ip, info
+        )
+        if matched is not None:
+            return self.async_abort(reason="already_configured")
 
         # Genuinely new frame — start the normal setup flow.
         await self.async_set_unique_id(key)
         self._abort_if_unique_id_configured()
+        return await self._async_use_device(ip, info)
+
+    # ------------------------------------------------------------------
+    # Integration discovery — started by discovery.py's periodic subnet
+    # scan for each frame that isn't configured yet. Parking on the naming
+    # form below is what feeds HA's "Discovered" card + notification.
+    # ------------------------------------------------------------------
+
+    async def async_step_integration_discovery(
+        self, discovery_info: dict[str, Any]
+    ) -> FlowResult:
+        """Handle a frame found by the periodic background subnet scan."""
+        ip: str = discovery_info["ip"]
+        info: dict[str, Any] = discovery_info["info"]
+
+        key = device_key_from_info(info)
+        if not key:
+            return self.async_abort(reason="not_fraimic_device")
+
+        # raise_on_progress (the default) aborts this flow if a discovery
+        # flow for the same frame is already pending — that's the whole
+        # dedup story across 20-minute rescans. The scan already filters
+        # out configured frames, but _abort_if_unique_id_configured guards
+        # the race where one was added between scan and flow start.
+        await self.async_set_unique_id(key)
+        self._abort_if_unique_id_configured(updates={CONF_HOST: ip})
+
+        self.context["title_placeholders"] = {"name": ip}
         return await self._async_use_device(ip, info)
 
     # ------------------------------------------------------------------

@@ -1,5 +1,6 @@
 {
   "config": {
+    "flow_title": "Fraimic Frame ({name})",
     "step": {
       "user": {
         "title": "Set up Fraimic Frame",
@@ -40,7 +41,8 @@
       "no_devices_found": "No Fraimic frames found on your network — try entering the IP address manually"
     },
     "abort": {
-      "already_configured": "This frame is already configured"
+      "already_configured": "This frame is already configured",
+      "not_fraimic_device": "This device is not a Fraimic frame"
     }
   },
   "options": {

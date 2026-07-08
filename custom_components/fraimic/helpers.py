@@ -14,7 +14,10 @@ import aiohttp
 
 from .const import (
     API_INFO,
+    CONF_DEVICE_KEY,
     CONF_HEIGHT,
+    CONF_HOST,
+    CONF_MAC,
     CONF_ORIENTATION,
     CONF_ROTATE_LANDSCAPE_180,
     CONF_ROTATE_PORTRAIT_180,
@@ -29,6 +32,7 @@ from .frame_types import FRAME_TYPES
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -195,6 +199,58 @@ def mac_from_info(info: dict[str, Any]) -> str:
     """Extract the normalised (no colons, lowercase) MAC from a /api/info response."""
     raw = info.get("wifi", {}).get("mac", "")
     return raw.replace(":", "").lower()
+
+
+def match_and_update_entry(
+    hass: "HomeAssistant",
+    entries: list["ConfigEntry"],
+    ip: str,
+    info: dict[str, Any],
+) -> "ConfigEntry | None":
+    """Return the configured entry for the frame probed at *ip*, or None.
+
+    Single source of truth for "is this the same physical frame" — shared by
+    DHCP discovery and the periodic background scan so the matching rules can
+    never drift. Matches on device_key (new entries), MAC (belt-and-braces),
+    or — for entries created before 0.4.1 that don't have a device_key/MAC
+    yet (only backfilled lazily on the frame's next successful coordinator
+    poll) — falls back to matching on the entry's currently configured host.
+    Without this fallback, a probe arriving before that first poll completes
+    (e.g. right after upgrading and restarting) would fail to match an
+    existing entry and create a duplicate for an already-configured frame.
+
+    On a match, the entry's host is updated if the frame moved, and the
+    device_key/MAC fingerprint is backfilled if this was a legacy entry.
+    """
+    key = device_key_from_info(info)
+    mac = mac_from_info(info)
+
+    for entry in entries:
+        entry_key = entry.data.get(CONF_DEVICE_KEY)
+        entry_mac = entry.data.get(CONF_MAC, "")
+        entry_host = entry.data.get(CONF_HOST)
+        is_same_frame = (
+            (entry_key and entry_key == key)
+            or (mac and entry_mac and entry_mac == mac)
+            or (not entry_key and not entry_mac and entry_host == ip)
+        )
+        if not is_same_frame:
+            continue
+        if entry_host != ip or not entry_key or not entry_mac:
+            _LOGGER.info(
+                "Fraimic frame %s moved: %s → %s", key, entry_host, ip
+            )
+            hass.config_entries.async_update_entry(
+                entry,
+                data={
+                    **entry.data,
+                    CONF_HOST: ip,
+                    CONF_DEVICE_KEY: key,
+                    CONF_MAC: mac,
+                },
+            )
+        return entry
+    return None
 
 
 async def scan_subnet(

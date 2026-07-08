@@ -226,6 +226,13 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             )
         )
 
+    # Periodic background subnet scan → HA's standard discovery pipeline.
+    # Registered here (not per-entry) so new frames surface even before the
+    # first one is configured.
+    from .discovery import async_setup_discovery  # noqa: PLC0415
+
+    async_setup_discovery(hass)
+
     # Inject the Lovelace card JS so it's available on any dashboard.
     from homeassistant.components.frontend import add_extra_js_url  # noqa: PLC0415
 
