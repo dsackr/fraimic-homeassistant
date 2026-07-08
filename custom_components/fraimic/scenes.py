@@ -166,6 +166,12 @@ class SceneManager:
             del self._scenes[scene_id]
             await self._async_persist()
             async_dispatcher_send(self.hass, SIGNAL_SCENES_UPDATED)
+            # Any schedule pointing at this scene is now broken: disable it
+            # and mark it target_missing so the calendar popup shows the
+            # user what broke instead of erroring at fire time.
+            schedule_manager = self.hass.data.get(DOMAIN, {}).get("_schedules")
+            if schedule_manager is not None:
+                await schedule_manager.async_handle_scene_deleted(scene_id)
 
     async def async_mark_scene_source(self, scene_id: str, source: str) -> None:
         """Backfill a scene's provenance without touching its content or
@@ -180,10 +186,24 @@ class SceneManager:
     async def async_send_scene(
         self, hass: "HomeAssistant", scene_id: str
     ) -> dict[str, Any]:
-        """Send every image in a scene to its assigned frame.
+        """Send every image in a scene to its assigned frame."""
+        scene = self._scenes.get(scene_id)
+        if scene is None:
+            raise SceneError(f"Scene '{scene_id}' not found")
+        return await self.async_send_mappings(hass, scene.mappings)
+
+    async def async_send_mappings(
+        self, hass: "HomeAssistant", mappings: dict[str, str]
+    ) -> dict[str, Any]:
+        """Send each (frame entry_id -> library image_id) assignment.
+
+        The single executor for every multi-frame (or scheduled) send in
+        the integration: scene sends, and fired schedules (scenes.py has no
+        knowledge of schedules -- schedules.py calls down into this), all
+        terminate here. Keep it the only place this fan-out logic lives.
 
         Each mapping is independent -- a frame that's been removed or an
-        image that's been deleted since the scene was created only fails
+        image that's been deleted since the mapping was created only fails
         that one mapping, not the whole send.
 
         Two phases, each internally concurrent: every mapping's .bin is
@@ -195,10 +215,6 @@ class SceneManager:
         manifest update inside async_save_bin, and every backend wraps that
         read-modify-write in its _manifest_lock.
         """
-        scene = self._scenes.get(scene_id)
-        if scene is None:
-            raise SceneError(f"Scene '{scene_id}' not found")
-
         library_manager = hass.data.get(DOMAIN, {}).get("_library")
         if library_manager is None:
             raise SceneError("Library manager not initialised")
@@ -237,7 +253,7 @@ class SceneManager:
         failures = await asyncio.gather(
             *(
                 _prepare_one(entry_id, image_id)
-                for entry_id, image_id in scene.mappings.items()
+                for entry_id, image_id in mappings.items()
             )
         )
         results.extend(failure for failure in failures if failure is not None)

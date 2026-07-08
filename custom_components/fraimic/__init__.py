@@ -170,6 +170,24 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.http.register_view(FraimicSceneView())
     hass.http.register_view(FraimicSceneSendView())
 
+    # Scheduled events: send a scene or a single image at a future time
+    # (one-shot or daily/weekly/monthly). Built on the scene manager's
+    # single send executor, so it's set up after it. Pure local state like
+    # scenes -- entry_ids are meaningless off this HA instance.
+    from .schedules import ScheduleManager  # noqa: PLC0415
+
+    schedule_manager = ScheduleManager(hass)
+    hass.data.setdefault(DOMAIN, {})["_schedules"] = schedule_manager
+    await schedule_manager.async_load()
+
+    from .schedules_http import (  # noqa: PLC0415
+        FraimicSchedulesView,
+        FraimicScheduleView,
+    )
+
+    hass.http.register_view(FraimicSchedulesView())
+    hass.http.register_view(FraimicScheduleView())
+
     # Walls: virtual layouts of a subset of the user's frames, positioned the
     # way they're physically hung. Pure panel-local state -- like scenes,
     # config entry_ids are meaningless off this HA instance, and walls are
@@ -346,6 +364,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: "ConfigEntry") -> bool:
             scene_packs = hass.data[DOMAIN].get("_scene_packs")
             if scene_packs:
                 scene_packs.unload()
+
+            # ... and every armed schedule timer.
+            schedules = hass.data[DOMAIN].get("_schedules")
+            if schedules:
+                schedules.unload()
 
     return unload_ok
 

@@ -52,6 +52,11 @@ SIGNAL_SCENES_UPDATED = f"{DOMAIN}_scenes_updated"
 # state -- but this mirrors SIGNAL_SCENES_UPDATED for consistency.
 SIGNAL_WALLS_UPDATED = f"{DOMAIN}_walls_updated"
 
+# Dispatcher signal fired whenever a scheduled event is created, edited,
+# deleted, fires, or breaks (target_missing). No entity platform listens
+# today -- schedules are panel-local state like walls.
+SIGNAL_SCHEDULES_UPDATED = f"{DOMAIN}_schedules_updated"
+
 # Where scene pack content (manifest + source images) is fetched from at
 # install time. Content lives in a separate repository (dsackr/frame-addons)
 # under scene_packs/ so the integration stays lightweight.

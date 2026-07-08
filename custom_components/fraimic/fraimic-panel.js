@@ -1324,9 +1324,14 @@
 
     /* ---- Photo Library shelf: the bookshelf under the gallery wall ---- */
     .library-shelf {
+      position: relative;   /* the desk calendar is absolutely placed on the shelf */
       display: block;
       width: 100%;
       margin: 22px 0 4px;
+    }
+    .library-shelf .shelf-main {
+      display: block;
+      width: 100%;
       padding: 0;
       border: none;
       background: none;
@@ -1334,10 +1339,64 @@
       font: inherit;
       color: inherit;
     }
-    .library-shelf:focus-visible {
+    .library-shelf .shelf-main:focus-visible {
       outline: 3px solid var(--primary-color, #03a9f4);
       outline-offset: 4px;
       border-radius: 6px;
+    }
+    /* The desk calendar standing on the shelf among the books: white leaf,
+       red header band, today's date. bottom is anchored to the shelf board
+       (books row is 62px tall, so the board's top edge is 62px from the
+       shelf's top). */
+    .library-shelf .shelf-calendar {
+      position: absolute;
+      top: 62px;
+      right: 44px;
+      transform: translateY(-100%) rotate(3deg);
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      width: 38px;
+      height: 44px;
+      padding: 0;
+      border: 2px solid #3f3a35;
+      border-radius: 3px;
+      background: #fdfaf3;
+      cursor: pointer;
+      font: inherit;
+      overflow: hidden;
+      box-shadow: 2px 2px 5px rgba(0, 0, 0, .25);
+      transition: transform .15s ease;
+    }
+    .library-shelf .shelf-calendar:hover,
+    .library-shelf .shelf-calendar:focus-visible {
+      transform: translateY(-100%) rotate(0deg) scale(1.12);
+    }
+    .library-shelf .shelf-calendar:focus-visible {
+      outline: 3px solid var(--primary-color, #03a9f4);
+      outline-offset: 2px;
+    }
+    .shelf-calendar .shelf-calendar-month {
+      background: #c0392b;
+      color: #fff;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: .05em;
+      line-height: 14px;
+      text-transform: uppercase;
+    }
+    .shelf-calendar .shelf-calendar-day {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 17px;
+      font-weight: 700;
+      color: #2c2c2c;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .library-shelf .shelf-calendar { transition: none; }
+      .library-shelf .shelf-calendar:hover { transform: translateY(-100%) rotate(3deg); }
     }
     .library-shelf .shelf-books {
       display: flex;
@@ -1425,14 +1484,172 @@
       font-size: 12px;
       color: var(--secondary-text-color);
     }
-    .library-shelf:hover .book:nth-child(odd)  { transform: translateY(-3px); }
-    .library-shelf:hover .book.leaning          { transform: rotate(8deg) translateY(-2px); }
-    .library-shelf:hover .shelf-label strong    { color: var(--primary-color, #03a9f4); }
+    .library-shelf .shelf-main:hover .book:nth-child(odd)  { transform: translateY(-3px); }
+    .library-shelf .shelf-main:hover .book.leaning          { transform: rotate(8deg) translateY(-2px); }
+    .library-shelf .shelf-main:hover .shelf-label strong    { color: var(--primary-color, #03a9f4); }
     @media (prefers-reduced-motion: reduce) {
       .library-shelf .book { transition: none; }
-      .library-shelf:hover .book:nth-child(odd),
-      .library-shelf:hover .book.leaning { transform: none; }
+      .library-shelf .shelf-main:hover .book:nth-child(odd),
+      .library-shelf .shelf-main:hover .book.leaning { transform: none; }
     }
+
+    /* ---- Scheduled events: the shared dialog + the calendar popup ---- */
+    .seg-control {
+      display: inline-flex;
+      border: 1px solid var(--divider-color, #444);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .seg-control button {
+      padding: 7px 14px;
+      border: none;
+      background: none;
+      color: var(--primary-text-color);
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .seg-control button + button {
+      border-left: 1px solid var(--divider-color, #444);
+    }
+    .seg-control button.active {
+      background: var(--primary-color, #03a9f4);
+      color: #fff;
+    }
+    .schedule-in-row { display: flex; gap: 8px; }
+    .schedule-in-row input { width: 90px; }
+    .weekday-toggle { display: flex; gap: 4px; flex-wrap: wrap; }
+    .weekday-toggle button {
+      width: 38px;
+      padding: 7px 0;
+      border: 1px solid var(--divider-color, #444);
+      border-radius: 8px;
+      background: none;
+      color: var(--primary-text-color);
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .weekday-toggle button.active {
+      background: var(--primary-color, #03a9f4);
+      border-color: var(--primary-color, #03a9f4);
+      color: #fff;
+    }
+    .schedule-slideshow-hint {
+      margin: 4px 0 0;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: var(--secondary-background-color, rgba(127,127,127,.12));
+      font-size: 12px;
+      color: var(--secondary-text-color);
+    }
+    .schedule-action-summary {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+    }
+    .schedule-action-summary .schedule-thumb,
+    .cal-event .schedule-thumb {
+      width: 34px;
+      height: 34px;
+      flex: 0 0 auto;
+      border-radius: 4px;
+      overflow: hidden;
+      background: var(--secondary-background-color, rgba(127,127,127,.15));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .schedule-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .cal-nav {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin: 6px 0 10px;
+    }
+    .cal-nav .cal-title { font-size: 15px; font-weight: 600; min-width: 150px; text-align: center; }
+    .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 3px;
+    }
+    .cal-grid .cal-dow {
+      text-align: center;
+      font-size: 11px;
+      color: var(--secondary-text-color);
+      padding: 2px 0 6px;
+    }
+    .cal-grid .cal-day {
+      min-height: 58px;
+      padding: 4px;
+      border: 1px solid var(--divider-color, #333);
+      border-radius: 6px;
+      background: none;
+      color: var(--primary-text-color);
+      font: inherit;
+      text-align: left;
+      vertical-align: top;
+      cursor: pointer;
+      overflow: hidden;
+    }
+    .cal-grid .cal-day.other-month { opacity: .35; }
+    .cal-grid .cal-day.today .cal-day-num {
+      background: var(--primary-color, #03a9f4);
+      color: #fff;
+      border-radius: 50%;
+    }
+    .cal-grid .cal-day.selected { outline: 2px solid var(--primary-color, #03a9f4); }
+    .cal-day .cal-day-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      font-size: 12px;
+    }
+    .cal-day .cal-chip {
+      display: block;
+      margin-top: 2px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: var(--primary-color, #03a9f4);
+      color: #fff;
+      font-size: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .cal-day .cal-chip.muted { background: var(--secondary-background-color, #555); color: var(--secondary-text-color); }
+    .cal-day .cal-chip.broken { background: var(--error-color, #b3261e); }
+    .cal-day-list { margin-top: 14px; }
+    .cal-event {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border: 1px solid var(--divider-color, #333);
+      border-radius: 8px;
+      margin-bottom: 6px;
+    }
+    .cal-event.muted { opacity: .55; }
+    .cal-event .cal-event-main { flex: 1 1 auto; min-width: 0; }
+    .cal-event .cal-event-name { font-size: 13px; font-weight: 600; }
+    .cal-event .cal-event-detail { font-size: 12px; color: var(--secondary-text-color); }
+    .cal-event .cal-event-note { font-size: 11px; color: var(--warning-color, #c4a24e); }
+    .cal-event .cal-event-actions { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+    .cal-event .cal-event-actions button {
+      padding: 4px 8px;
+      border: none;
+      border-radius: 6px;
+      background: none;
+      color: var(--primary-text-color);
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .cal-event .cal-event-actions button:hover { background: var(--secondary-background-color, rgba(127,127,127,.15)); }
     .wall-tile.selected {
       outline: 3px solid var(--primary-color, #03a9f4);
       outline-offset: 2px;
@@ -1577,6 +1794,14 @@
       this._packTestSelectedImage = null;  // image_id picked in the ?packtest modal
 
       this._scenes        = [];       // [{ scene_id, name, mappings: { entry_id: image_id }, source }]
+
+      // Scheduled events (see schedules_http.py). Loaded lazily when the
+      // calendar popup opens and refreshed after every create/edit/delete.
+      this._schedules = [];            // [{ schedule_id, name, enabled, action, trigger, status, fired_late, next_fire_at }]
+      this._scheduleDialog = null;     // { action, editingId } while the schedule dialog is open, else null
+      this._scheduleDialogImages = []; // library images loaded into the dialog's own image grid
+      this._calMonth = null;           // Date (1st of month) shown in the calendar popup, else null
+      this._calSelectedDay = null;     // 'YYYY-MM-DD' whose events are listed under the grid, else null
 
       this._scenePacks    = [];       // [{ id, name, description, categories, license, cover, images, installed, scene_created }]
       this._activeTab     = 'dashboard'; // 'dashboard' | 'addons'
@@ -1777,6 +2002,7 @@
       this._wireOnboarding();
       this._wireWallToolbar();
       this._wireWallImagePicker();
+      this._wireScheduleUI();
       this._wirePackTest();
       this._addGlobalListeners();
       this._subscribeDiscoveredFlows();
@@ -1930,23 +2156,35 @@
 
           <!-- The Photo Library entry point: a bookshelf sitting under the
                gallery wall, like the console table under real hung frames.
-               Opens the same library modal it always did. -->
-          <button class="library-shelf" id="library-open-btn" title="Open the photo library">
-            <div class="shelf-books">
-              <span class="book"></span><span class="book"></span><span class="book"></span>
-              <span class="book"></span><span class="book leaning"></span>
-              <span class="book-stack"><i></i><i></i></span>
-              <span class="shelf-photo">🖼</span>
-              <span class="book"></span><span class="book"></span><span class="book"></span>
-              <span class="book"></span><span class="book"></span><span class="book"></span>
-              <span class="book"></span><span class="book"></span>
-            </div>
-            <div class="shelf-board"></div>
-            <div class="shelf-label">
-              <strong>📚 Photo Library</strong>
-              <span>Browse albums, upload and organize your photos</span>
-            </div>
-          </button>
+               Opens the same library modal it always did. A div (not a
+               button) because two interactive things now live on the shelf
+               -- the library button and the desk calendar (scheduled
+               events) standing among the books -- and a button can't nest
+               a button. -->
+          <div class="library-shelf">
+            <button class="shelf-main" id="library-open-btn" title="Open the photo library">
+              <div class="shelf-books">
+                <span class="book"></span><span class="book"></span><span class="book"></span>
+                <span class="book"></span><span class="book leaning"></span>
+                <span class="book-stack"><i></i><i></i></span>
+                <span class="shelf-photo">🖼</span>
+                <span class="book"></span><span class="book"></span><span class="book"></span>
+                <span class="book"></span><span class="book"></span><span class="book"></span>
+                <span class="book"></span><span class="book"></span>
+              </div>
+              <div class="shelf-board"></div>
+              <div class="shelf-label">
+                <strong>📚 Photo Library</strong>
+                <span>Browse albums, upload and organize your photos</span>
+              </div>
+            </button>
+            <!-- A desk calendar standing on the shelf: today's date on its
+                 leaf, opens the scheduled-events popup. -->
+            <button class="shelf-calendar" id="schedule-calendar-btn" title="Scheduled events">
+              <span class="shelf-calendar-month" id="shelf-calendar-month"></span>
+              <span class="shelf-calendar-day" id="shelf-calendar-day"></span>
+            </button>
+          </div>
 
           <h3 style="margin:22px 0 6px;font-size:14px">Select a Scene</h3>
           <div class="modal-row" style="max-width:320px">
@@ -1957,6 +2195,7 @@
 
           <div class="btns" style="margin-top:10px">
             <button class="btn-primary" id="wall-send-btn">▶ Send to Frames</button>
+            <button class="btn-ghost" id="wall-schedule-btn" title="Send this scene at a future time">🗓 Schedule…</button>
             <button class="btn-primary" id="wall-save-scene-btn">Save Scene</button>
             <button class="btn-ghost" id="wall-clear-all-btn" title="Clear every frame's image assignment (the physical frames are untouched until you send)">✕ Clear All</button>
             <button class="btn-ghost" id="wall-delete-scene-btn" style="display:none">🗑 Delete Scene</button>
@@ -2126,6 +2365,133 @@
           </div>
         </div>
 
+        <!-- The schedule dialog (one shared component): pre-filled with an
+             action when opened from the wall's Schedule… button or the
+             per-tile picker; offers its own scene/image pickers when opened
+             bare from the calendar popup's "＋ New event". Three "when"
+             modes; "In…" is pure UI sugar that computes now+duration and
+             creates the same once record as "On a date". -->
+        <div class="modal-overlay" id="schedule-dialog-overlay">
+          <div class="modal-box" style="max-width:560px">
+            <h3 id="schedule-dialog-title">🗓 Schedule</h3>
+            <div class="modal-row">
+              <label>Name</label>
+              <input type="text" id="schedule-name" placeholder="e.g. Fall opening day">
+            </div>
+            <div class="modal-row" id="schedule-action-summary-row" style="display:none">
+              <label>What to send</label>
+              <div class="schedule-action-summary" id="schedule-action-summary"></div>
+            </div>
+            <div id="schedule-action-picker" style="display:none">
+              <div class="modal-row">
+                <label>What to send</label>
+                <div class="seg-control" id="schedule-action-seg">
+                  <button data-kind="scene" class="active">A scene</button>
+                  <button data-kind="image">One image</button>
+                </div>
+              </div>
+              <div class="modal-row" id="schedule-action-scene-row">
+                <label for="schedule-action-scene">Scene</label>
+                <select id="schedule-action-scene"></select>
+              </div>
+              <div id="schedule-action-image-rows" style="display:none">
+                <div class="modal-row">
+                  <label for="schedule-action-frame">Frame</label>
+                  <select id="schedule-action-frame"></select>
+                </div>
+                <div class="modal-row">
+                  <label for="schedule-action-album">Album</label>
+                  <select id="schedule-action-album"></select>
+                </div>
+                <div class="modal-row">
+                  <label>Image</label>
+                  <div class="image-picker-grid" id="schedule-action-images"></div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-row">
+              <label>When</label>
+              <div class="seg-control" id="schedule-when-seg">
+                <button data-mode="date" class="active">On a date</button>
+                <button data-mode="in">In…</button>
+                <button data-mode="repeat">Repeat</button>
+              </div>
+            </div>
+            <div class="modal-row" id="schedule-when-date">
+              <label for="schedule-once-at">Date &amp; time</label>
+              <input type="datetime-local" id="schedule-once-at">
+            </div>
+            <div class="modal-row" id="schedule-when-in" style="display:none">
+              <label for="schedule-in-amount">From now</label>
+              <div class="schedule-in-row">
+                <input type="number" id="schedule-in-amount" min="1" step="1" value="1">
+                <select id="schedule-in-unit">
+                  <option value="minutes">minutes</option>
+                  <option value="hours" selected>hours</option>
+                  <option value="days">days</option>
+                </select>
+              </div>
+            </div>
+            <div id="schedule-when-repeat" style="display:none">
+              <div class="modal-row">
+                <label for="schedule-repeat-freq">Every</label>
+                <select id="schedule-repeat-freq">
+                  <option value="daily">Day</option>
+                  <option value="weekly">Week</option>
+                  <option value="monthly">Month</option>
+                </select>
+              </div>
+              <div class="modal-row" id="schedule-repeat-days-row" style="display:none">
+                <label>On days</label>
+                <div class="weekday-toggle" id="schedule-repeat-days"></div>
+              </div>
+              <div class="modal-row" id="schedule-repeat-dom-row" style="display:none">
+                <label for="schedule-repeat-dom">On day</label>
+                <select id="schedule-repeat-dom"></select>
+              </div>
+              <div class="modal-row">
+                <label for="schedule-repeat-time">At</label>
+                <input type="time" id="schedule-repeat-time" value="08:00">
+              </div>
+              <div class="schedule-slideshow-hint">
+                Want the frame to change more than once a day? That's a
+                <strong>Slideshow</strong> (coming soon).
+              </div>
+            </div>
+            <div class="feedback" id="schedule-dialog-fb"></div>
+            <div class="modal-actions">
+              <button class="btn-primary" id="schedule-dialog-save">🗓 Schedule</button>
+              <button class="btn-ghost" id="schedule-dialog-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- The scheduled-events popup behind the shelf's desk calendar: a
+             month grid with chips on days that have one-shots or recurring
+             occurrences (recurrence rendered client-side from the records),
+             a per-day event list with enable/edit/delete, and "＋ New
+             event". Sits below the schedule dialog's z-index so editing an
+             event stacks the dialog above it. -->
+        <div class="modal-overlay" id="schedule-calendar-overlay" style="z-index:900">
+          <div class="modal-box" style="max-width:760px;max-height:90vh;overflow-y:auto">
+            <div class="lib-toolbar">
+              <h3 style="margin:0;flex:1 1 auto">📅 Scheduled Events</h3>
+              <div class="lib-toolbar-actions">
+                <button class="btn-primary" id="schedule-new-btn" style="flex:0 0 auto">＋ New event</button>
+                <button class="btn-ghost" id="schedule-calendar-close" style="flex:0 0 auto">✕ Close</button>
+              </div>
+            </div>
+            <div class="feedback" id="schedule-calendar-fb"></div>
+            <div class="cal-nav">
+              <button class="btn-ghost" id="cal-prev" title="Previous month">‹</button>
+              <div class="cal-title" id="cal-title"></div>
+              <button class="btn-ghost" id="cal-next" title="Next month">›</button>
+            </div>
+            <div class="cal-grid" id="cal-grid"></div>
+            <div class="cal-day-list" id="cal-day-list"></div>
+          </div>
+        </div>
+
         <!-- Embedded config/options flow: a generic renderer for HA's
              data_entry_flow steps (add frame, reconfigure), so device
              management never has to leave the panel. Body content is
@@ -2234,6 +2600,9 @@
                    click. -->
               <div class="modal-row" style="flex-direction:row;gap:8px;flex-wrap:wrap">
                 <button class="btn-primary" id="wall-picker-send-btn" style="flex:1 1 100%" disabled>▶ Send</button>
+                <!-- Schedule needs a library image_id, so a staged upload
+                     file (never uploaded until Send) can't be scheduled. -->
+                <button class="btn-ghost" id="wall-picker-schedule-btn" style="flex:1 1 auto" disabled>🗓 Schedule…</button>
                 <!-- Single-MIME accept on purpose: companion-app WebView
                      file choosers are unreliable with multi-MIME lists. -->
                 <button class="btn-ghost" id="wall-picker-upload-btn" style="flex:1 1 auto">⬆ Upload a photo…</button>
@@ -5317,6 +5686,7 @@
       this.shadowRoot.getElementById('wall-clear-all-btn').addEventListener('click', () => this._clearAllWallAssignments());
       this.shadowRoot.getElementById('wall-delete-scene-btn').addEventListener('click', () => this._deleteWallScene());
       this.shadowRoot.getElementById('wall-send-btn').addEventListener('click', () => this._sendWallToFrames());
+      this.shadowRoot.getElementById('wall-schedule-btn').addEventListener('click', () => this._scheduleFromWall());
     }
 
     // Empty the send model in one click: every frame gets an explicit ''
@@ -6168,6 +6538,8 @@
 
       this.shadowRoot.getElementById('wall-picker-send-btn')
         .addEventListener('click', () => this._sendFromWallPicker());
+      this.shadowRoot.getElementById('wall-picker-schedule-btn')
+        .addEventListener('click', () => this._scheduleFromWallPicker());
 
       this._wireWallImagePickerDrag();
     }
@@ -6379,8 +6751,16 @@
 
     _updateWallPickerSendButton() {
       const btn = this.shadowRoot.getElementById('wall-picker-send-btn');
+      const schedBtn = this.shadowRoot.getElementById('wall-picker-schedule-btn');
       const entryId = this._wallImagePickerEntryId;
       const frame = entryId && this._frames.find(f => f.entryId === entryId);
+      const imageId = frame ? this._wallEffectiveMapping(entryId) : null;
+      // Scheduling stores a library image_id, so it needs a library pick --
+      // a staged upload file doesn't exist in the library until it's sent.
+      schedBtn.disabled = !frame || !imageId || !!this._wallPickerSelectedFile;
+      schedBtn.title = this._wallPickerSelectedFile
+        ? 'Scheduling needs a photo from the library — uploads can only be sent now'
+        : 'Send this image at a future time';
       if (!frame) {
         btn.disabled = true;
         btn.textContent = '▶ Send';
@@ -6391,7 +6771,6 @@
         btn.textContent = `▶ Send "${this._wallPickerSelectedFile.name}" to ${frame.title}`;
         return;
       }
-      const imageId = this._wallEffectiveMapping(entryId);
       btn.disabled = !imageId;
       btn.textContent = `▶ Send to ${frame.title}`;
     }
@@ -7400,6 +7779,585 @@
       fb.textContent = msg;
       fb.style.display = 'block';
       setTimeout(() => { fb.style.display = 'none'; }, 5000);
+    }
+
+    // -----------------------------------------------------------------------
+    // Scheduled events -- the shared schedule dialog (opened pre-filled from
+    // the wall's Schedule… button and the per-tile picker, or bare from the
+    // calendar popup) and the month-grid calendar behind the shelf's desk
+    // calendar. All recurrence *rendering* here is client-side convenience;
+    // the backend owns the actual firing (schedules.py).
+    // -----------------------------------------------------------------------
+
+    _wireScheduleUI() {
+      const $ = (id) => this.shadowRoot.getElementById(id);
+
+      // The desk calendar on the shelf shows today's real date on its leaf.
+      const today = new Date();
+      $('shelf-calendar-month').textContent = today.toLocaleString(undefined, { month: 'short' });
+      $('shelf-calendar-day').textContent = String(today.getDate());
+      $('schedule-calendar-btn').addEventListener('click', () => this._openScheduleCalendar());
+
+      $('schedule-calendar-close').addEventListener('click', () => this._closeScheduleCalendar());
+      $('schedule-calendar-overlay').addEventListener('click', (e) => {
+        if (e.target.id === 'schedule-calendar-overlay') this._closeScheduleCalendar();
+      });
+      $('cal-prev').addEventListener('click', () => this._shiftCalMonth(-1));
+      $('cal-next').addEventListener('click', () => this._shiftCalMonth(1));
+      $('schedule-new-btn').addEventListener('click', () => this._openScheduleDialog({}));
+
+      $('schedule-dialog-cancel').addEventListener('click', () => this._closeScheduleDialog());
+      $('schedule-dialog-overlay').addEventListener('click', (e) => {
+        if (e.target.id === 'schedule-dialog-overlay') this._closeScheduleDialog();
+      });
+      $('schedule-dialog-save').addEventListener('click', () => this._saveScheduleDialog());
+      $('schedule-when-seg').querySelectorAll('button').forEach((btn) => {
+        btn.addEventListener('click', () => this._setScheduleWhenMode(btn.dataset.mode));
+      });
+      $('schedule-action-seg').querySelectorAll('button').forEach((btn) => {
+        btn.addEventListener('click', () => this._setScheduleActionKind(btn.dataset.kind));
+      });
+      $('schedule-repeat-freq').addEventListener('change', () => this._updateScheduleRepeatRows());
+      $('schedule-action-album').addEventListener('change', () => this._loadScheduleDialogImages());
+
+      // Weekday toggles, Monday-first to match the backend's weekday ints
+      // (Mon=0) and the calendar grid below.
+      $('schedule-repeat-days').innerHTML =
+        ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+          .map((d, i) => `<button type="button" data-day="${i}">${d}</button>`).join('');
+      $('schedule-repeat-days').querySelectorAll('button').forEach((btn) => {
+        btn.addEventListener('click', () => btn.classList.toggle('active'));
+      });
+      $('schedule-repeat-dom').innerHTML =
+        Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
+    }
+
+    async _loadSchedules() {
+      try {
+        const resp = await fetch('/api/fraimic/schedules', { headers: this._authHeaders() });
+        const result = await resp.json();
+        this._schedules = result.schedules || [];
+      } catch (err) {
+        console.error('[fraimic-panel] schedules load failed:', err);
+        this._schedules = [];
+      }
+    }
+
+    // Local wall-clock ISO to the minute (what <input type="datetime-local">
+    // produces). The "In…" mode uses this too, so a relative pick creates a
+    // record byte-identical to the equivalent absolute one.
+    _toLocalIsoMinutes(date) {
+      const p = (n) => String(n).padStart(2, '0');
+      return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`
+        + `T${p(date.getHours())}:${p(date.getMinutes())}`;
+    }
+
+    _dateKey(date) {
+      const p = (n) => String(n).padStart(2, '0');
+      return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`;
+    }
+
+    // ---- Entry points -----------------------------------------------------
+
+    // Dashboard "Schedule…": schedules reference a scene_id, so unsaved
+    // staged picks (or "Create New…") must become a saved scene first.
+    async _scheduleFromWall() {
+      const hasPending = Object.keys(this._wallPendingMappings).length > 0;
+      if (!this._wallActiveSceneId || hasPending) {
+        if (!window.confirm(
+          'A scheduled send needs a saved scene. Save what’s on the wall as a scene now?'
+        )) return;
+        await this._saveWallScene();
+        // Save failed or was cancelled at the name prompt? Its own feedback
+        // is already showing -- don't stack the dialog on top.
+        if (!this._wallActiveSceneId || Object.keys(this._wallPendingMappings).length) return;
+      }
+      this._openScheduleDialog({
+        action: { type: 'scene', scene_id: this._wallActiveSceneId },
+      });
+    }
+
+    // Per-tile picker "Schedule…": the picker's current library selection to
+    // this frame. (Staged upload files can't be scheduled -- button is
+    // disabled for those, see _updateWallPickerSendButton.)
+    _scheduleFromWallPicker() {
+      const entryId = this._wallImagePickerEntryId;
+      const imageId = entryId && this._wallEffectiveMapping(entryId);
+      if (!entryId || !imageId || this._wallPickerSelectedFile) return;
+      this._closeWallImagePicker();
+      this._openScheduleDialog({
+        action: { type: 'image', entry_id: entryId, image_id: imageId },
+      });
+    }
+
+    // ---- The schedule dialog ----------------------------------------------
+
+    // opts.action: pre-filled fixed action (from an entry point with
+    // context). opts.editing: an existing schedule record to edit -- its
+    // action is shown in the pickers (not fixed) so a broken/target_missing
+    // event can be repaired.
+    async _openScheduleDialog({ action = null, editing = null } = {}) {
+      const $ = (id) => this.shadowRoot.getElementById(id);
+      const initial = action || (editing && editing.action) || null;
+      this._scheduleDialog = {
+        fixedAction: action || null,
+        editingId: editing ? editing.schedule_id : null,
+        selectedImageId: initial && initial.type === 'image' ? initial.image_id : null,
+      };
+
+      $('schedule-dialog-fb').style.display = 'none';
+      $('schedule-dialog-title').textContent = editing ? '🗓 Edit Scheduled Event' : '🗓 Schedule';
+      $('schedule-dialog-save').textContent = editing ? 'Save' : '🗓 Schedule';
+
+      // Name: keep the user's label when editing; otherwise suggest one
+      // from the action so the common case is zero extra typing.
+      let name = editing ? editing.name : '';
+      if (!name && initial) {
+        if (initial.type === 'scene') {
+          const scene = this._scenes.find((s) => s.scene_id === initial.scene_id);
+          name = scene ? scene.name : '';
+        } else {
+          const frame = this._frames.find((f) => f.entryId === initial.entry_id);
+          name = frame ? `Photo to ${frame.title}` : '';
+        }
+      }
+      $('schedule-name').value = name || '';
+
+      $('schedule-action-summary-row').style.display = action ? '' : 'none';
+      $('schedule-action-picker').style.display = action ? 'none' : '';
+      if (action) {
+        this._renderScheduleActionSummary(action);
+      } else {
+        const sceneSel = $('schedule-action-scene');
+        sceneSel.innerHTML = this._scenes.length
+          ? this._scenes.map((s) =>
+              `<option value="${this._esc(s.scene_id)}">${this._esc(s.name)}</option>`).join('')
+          : '<option value="">(no scenes saved yet)</option>';
+        if (initial && initial.type === 'scene') sceneSel.value = initial.scene_id;
+
+        const frameSel = $('schedule-action-frame');
+        frameSel.innerHTML = this._frames.map((f) =>
+          `<option value="${this._esc(f.entryId)}">${this._esc(f.title)}</option>`).join('');
+        if (initial && initial.type === 'image') frameSel.value = initial.entry_id;
+
+        if (!this._albums || !this._albums.length) await this._loadAlbums();
+        $('schedule-action-album').innerHTML = '<option value="">All Photos</option>'
+          + this._albums.map((a) =>
+              `<option value="${this._esc(a.name)}">${this._esc(a.name)}</option>`).join('');
+        $('schedule-action-images').innerHTML = '';
+        this._setScheduleActionKind(initial && initial.type === 'image' ? 'image' : 'scene');
+      }
+
+      // When: prefill from the edited record, else default to "on a date,
+      // one hour from now".
+      const trig = editing && editing.trigger;
+      $('schedule-repeat-days').querySelectorAll('button').forEach((b) => b.classList.remove('active'));
+      if (trig && trig.type === 'recurring') {
+        this._setScheduleWhenMode('repeat');
+        $('schedule-repeat-freq').value = trig.freq;
+        $('schedule-repeat-time').value = trig.time || '08:00';
+        if (trig.freq === 'weekly') {
+          $('schedule-repeat-days').querySelectorAll('button').forEach((b) => {
+            b.classList.toggle('active', (trig.days || []).includes(parseInt(b.dataset.day, 10)));
+          });
+        }
+        if (trig.freq === 'monthly') $('schedule-repeat-dom').value = String(trig.day_of_month || 1);
+      } else {
+        this._setScheduleWhenMode('date');
+        $('schedule-repeat-freq').value = 'daily';
+        $('schedule-repeat-time').value = '08:00';
+      }
+      this._updateScheduleRepeatRows();
+      const onceAt = $('schedule-once-at');
+      onceAt.min = this._toLocalIsoMinutes(new Date());
+      onceAt.value = (trig && trig.type === 'once' && trig.at)
+        ? trig.at.slice(0, 16)
+        : this._toLocalIsoMinutes(new Date(Date.now() + 3600000));
+      $('schedule-in-amount').value = '1';
+      $('schedule-in-unit').value = 'hours';
+
+      $('schedule-dialog-overlay').style.display = 'flex';
+    }
+
+    _closeScheduleDialog() {
+      this.shadowRoot.getElementById('schedule-dialog-overlay').style.display = 'none';
+      this._scheduleDialog = null;
+    }
+
+    _renderScheduleActionSummary(action) {
+      const wrap = this.shadowRoot.getElementById('schedule-action-summary');
+      if (action.type === 'scene') {
+        const scene = this._scenes.find((s) => s.scene_id === action.scene_id);
+        const count = scene ? Object.keys(scene.mappings || {}).length : 0;
+        wrap.innerHTML = `<span>Scene <strong>${this._esc(scene ? scene.name : action.scene_id)}</strong>`
+          + (count ? ` (${count} frame${count === 1 ? '' : 's'})` : '') + `</span>`;
+      } else {
+        const frame = this._frames.find((f) => f.entryId === action.entry_id);
+        wrap.innerHTML = `<div class="schedule-thumb">🖼</div>`
+          + `<span>→ <strong>${this._esc(frame ? frame.title : 'frame')}</strong></span>`;
+        this._loadThumbnail(action.image_id, wrap.querySelector('.schedule-thumb'));
+      }
+    }
+
+    _setScheduleWhenMode(mode) {
+      const $ = (id) => this.shadowRoot.getElementById(id);
+      $('schedule-when-seg').querySelectorAll('button').forEach((b) => {
+        b.classList.toggle('active', b.dataset.mode === mode);
+      });
+      $('schedule-when-date').style.display = mode === 'date' ? '' : 'none';
+      $('schedule-when-in').style.display = mode === 'in' ? '' : 'none';
+      $('schedule-when-repeat').style.display = mode === 'repeat' ? '' : 'none';
+    }
+
+    _setScheduleActionKind(kind) {
+      const $ = (id) => this.shadowRoot.getElementById(id);
+      $('schedule-action-seg').querySelectorAll('button').forEach((b) => {
+        b.classList.toggle('active', b.dataset.kind === kind);
+      });
+      $('schedule-action-scene-row').style.display = kind === 'scene' ? '' : 'none';
+      $('schedule-action-image-rows').style.display = kind === 'image' ? '' : 'none';
+      if (kind === 'image' && !$('schedule-action-images').children.length) {
+        this._loadScheduleDialogImages();
+      }
+    }
+
+    _updateScheduleRepeatRows() {
+      const freq = this.shadowRoot.getElementById('schedule-repeat-freq').value;
+      this.shadowRoot.getElementById('schedule-repeat-days-row').style.display =
+        freq === 'weekly' ? '' : 'none';
+      this.shadowRoot.getElementById('schedule-repeat-dom-row').style.display =
+        freq === 'monthly' ? '' : 'none';
+    }
+
+    async _loadScheduleDialogImages() {
+      const state = this._scheduleDialog;
+      if (!state) return;
+      const grid = this.shadowRoot.getElementById('schedule-action-images');
+      const album = this.shadowRoot.getElementById('schedule-action-album').value;
+      grid.innerHTML = '<div class="modal-file-summary">Loading photos…</div>';
+      const token = (this._scheduleImagesToken = (this._scheduleImagesToken || 0) + 1);
+
+      let images = [];
+      try {
+        const url = album
+          ? `/api/fraimic/library/list?album=${encodeURIComponent(album)}`
+          : '/api/fraimic/library/list';
+        const resp = await fetch(url, { headers: this._authHeaders() });
+        const result = await resp.json();
+        images = result.images || [];
+      } catch (err) {
+        console.warn('[fraimic-panel] library load for schedule dialog failed:', err);
+      }
+      if (token !== this._scheduleImagesToken || this._scheduleDialog !== state) return;
+
+      if (!images.length) {
+        grid.innerHTML = '<div class="modal-file-summary">No photos here yet.</div>';
+        return;
+      }
+      grid.innerHTML = '';
+      for (const image of images) {
+        const cell = document.createElement('div');
+        cell.className = 'image-picker-cell';
+        cell.title = image.filename;
+        cell.innerHTML = '<div class="image-picker-thumb">🖼</div>';
+        this._loadThumbnail(image.image_id, cell.querySelector('.image-picker-thumb'));
+        if (image.image_id === state.selectedImageId) cell.classList.add('selected');
+        cell.addEventListener('click', () => {
+          grid.querySelectorAll('.image-picker-cell.selected').forEach((c) => c.classList.remove('selected'));
+          cell.classList.add('selected');
+          state.selectedImageId = image.image_id;
+        });
+        grid.appendChild(cell);
+      }
+    }
+
+    async _saveScheduleDialog() {
+      const $ = (id) => this.shadowRoot.getElementById(id);
+      const fb = $('schedule-dialog-fb');
+      const state = this._scheduleDialog || {};
+      try {
+        const name = $('schedule-name').value.trim();
+        if (!name) throw new Error('Give this event a name.');
+
+        let action = state.fixedAction;
+        if (!action) {
+          const kind = $('schedule-action-seg').querySelector('button.active').dataset.kind;
+          if (kind === 'scene') {
+            const sceneId = $('schedule-action-scene').value;
+            if (!sceneId) throw new Error('Pick a scene — save one on the Dashboard first.');
+            action = { type: 'scene', scene_id: sceneId };
+          } else {
+            const entryId = $('schedule-action-frame').value;
+            if (!entryId) throw new Error('Pick a frame.');
+            if (!state.selectedImageId) throw new Error('Pick an image.');
+            action = { type: 'image', entry_id: entryId, image_id: state.selectedImageId };
+          }
+        }
+
+        const mode = $('schedule-when-seg').querySelector('button.active').dataset.mode;
+        let trigger;
+        if (mode === 'date') {
+          const at = $('schedule-once-at').value;
+          if (!at) throw new Error('Pick a date and time.');
+          trigger = { type: 'once', at };
+        } else if (mode === 'in') {
+          // Pure sugar: computes now + duration client-side; the backend
+          // only ever sees an absolute once record.
+          const amount = parseInt($('schedule-in-amount').value, 10);
+          if (!amount || amount < 1) throw new Error('How long from now?');
+          const unitMs = { minutes: 60000, hours: 3600000, days: 86400000 }[$('schedule-in-unit').value];
+          trigger = { type: 'once', at: this._toLocalIsoMinutes(new Date(Date.now() + amount * unitMs)) };
+        } else {
+          const freq = $('schedule-repeat-freq').value;
+          trigger = { type: 'recurring', freq, time: $('schedule-repeat-time').value };
+          if (freq === 'weekly') {
+            const days = [...$('schedule-repeat-days').querySelectorAll('button.active')]
+              .map((b) => parseInt(b.dataset.day, 10));
+            if (!days.length) throw new Error('Pick at least one weekday.');
+            trigger.days = days;
+          } else if (freq === 'monthly') {
+            trigger.day_of_month = parseInt($('schedule-repeat-dom').value, 10);
+          }
+        }
+
+        const url = state.editingId
+          ? `/api/fraimic/schedules/${state.editingId}`
+          : '/api/fraimic/schedules';
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, action, trigger }),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+
+        this._closeScheduleDialog();
+        await this._loadSchedules();
+        if (this._calMonth) {
+          // Dialog was opened from the calendar popup -- refresh it in place.
+          this._renderScheduleCalendar();
+          const calFb = $('schedule-calendar-fb');
+          calFb.className = 'feedback ok';
+          calFb.textContent = state.editingId ? `✓ Saved "${name}".` : `🗓 Scheduled "${name}".`;
+          calFb.style.display = 'block';
+          setTimeout(() => { calFb.style.display = 'none'; }, 4000);
+        } else {
+          const wallFb = $('wall-scene-fb');
+          const next = (result.schedule && result.schedule.trigger && result.schedule.trigger.type === 'once')
+            ? ` for ${result.schedule.trigger.at.replace('T', ' ')}` : '';
+          wallFb.className = 'feedback ok';
+          wallFb.textContent = `🗓 Scheduled "${name}"${next} — see the calendar on the bookshelf.`;
+          wallFb.style.display = 'block';
+          setTimeout(() => { wallFb.style.display = 'none'; }, 6000);
+        }
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = err.message;
+        fb.style.display = 'block';
+      }
+    }
+
+    // ---- The calendar popup -----------------------------------------------
+
+    async _openScheduleCalendar() {
+      await this._loadSchedules();
+      const now = new Date();
+      this._calMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      this._calSelectedDay = this._dateKey(now);
+      this.shadowRoot.getElementById('schedule-calendar-fb').style.display = 'none';
+      this.shadowRoot.getElementById('schedule-calendar-overlay').style.display = 'flex';
+      this._renderScheduleCalendar();
+    }
+
+    _closeScheduleCalendar() {
+      this.shadowRoot.getElementById('schedule-calendar-overlay').style.display = 'none';
+      this._calMonth = null;
+      this._calSelectedDay = null;
+    }
+
+    _shiftCalMonth(delta) {
+      if (!this._calMonth) return;
+      this._calMonth = new Date(this._calMonth.getFullYear(), this._calMonth.getMonth() + delta, 1);
+      this._renderScheduleCalendar();
+    }
+
+    // Every schedule that lands on this local calendar day: one-shots on
+    // their `at` day (kept visible as muted history once completed),
+    // recurring on each matching day.
+    _schedulesOn(date) {
+      const key = this._dateKey(date);
+      const out = [];
+      for (const s of this._schedules) {
+        const t = s.trigger || {};
+        if (t.type === 'once') {
+          if ((t.at || '').slice(0, 10) === key) out.push(s);
+        } else if (t.freq === 'daily') {
+          out.push(s);
+        } else if (t.freq === 'weekly') {
+          const weekday = (date.getDay() + 6) % 7; // JS Sun=0 → backend Mon=0
+          if ((t.days || []).includes(weekday)) out.push(s);
+        } else if (t.freq === 'monthly') {
+          const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+          if (date.getDate() === Math.min(t.day_of_month || 1, lastDay)) out.push(s);
+        }
+      }
+      return out;
+    }
+
+    _scheduleChipClass(s) {
+      if (s.status === 'target_missing') return 'broken';
+      if (!s.enabled || s.status === 'completed') return 'muted';
+      return '';
+    }
+
+    _renderScheduleCalendar() {
+      const $ = (id) => this.shadowRoot.getElementById(id);
+      const first = this._calMonth;
+      if (!first) return;
+      $('cal-title').textContent = first.toLocaleString(undefined, { month: 'long', year: 'numeric' });
+
+      const grid = $('cal-grid');
+      const todayKey = this._dateKey(new Date());
+      // Monday-first grid; 6 rows always, so month-nav never reflows.
+      const startOffset = (first.getDay() + 6) % 7;
+      let html = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        .map((d) => `<div class="cal-dow">${d}</div>`).join('');
+      for (let i = 0; i < 42; i++) {
+        const day = new Date(first.getFullYear(), first.getMonth(), 1 - startOffset + i);
+        const key = this._dateKey(day);
+        const events = this._schedulesOn(day);
+        const classes = ['cal-day'];
+        if (day.getMonth() !== first.getMonth()) classes.push('other-month');
+        if (key === todayKey) classes.push('today');
+        if (key === this._calSelectedDay) classes.push('selected');
+        const chips = events.slice(0, 2).map((s) =>
+          `<span class="cal-chip ${this._scheduleChipClass(s)}">${this._esc(s.name)}</span>`).join('')
+          + (events.length > 2 ? `<span class="cal-chip muted">+${events.length - 2} more</span>` : '');
+        html += `<button class="${classes.join(' ')}" data-date="${key}">`
+          + `<span class="cal-day-num">${day.getDate()}</span>${chips}</button>`;
+      }
+      grid.innerHTML = html;
+      grid.querySelectorAll('.cal-day').forEach((cell) => {
+        cell.addEventListener('click', () => {
+          this._calSelectedDay = cell.dataset.date;
+          this._renderScheduleCalendar();
+        });
+      });
+      this._renderScheduleDayList();
+    }
+
+    _scheduleTargetDescription(s) {
+      if (s.action.type === 'scene') {
+        const scene = this._scenes.find((sc) => sc.scene_id === s.action.scene_id);
+        return scene ? `Scene "${scene.name}"` : 'Scene (deleted)';
+      }
+      const frame = this._frames.find((f) => f.entryId === s.action.entry_id);
+      return `Photo → ${frame ? frame.title : 'removed frame'}`;
+    }
+
+    _scheduleWhenDescription(s) {
+      const t = s.trigger || {};
+      if (t.type === 'once') return (t.at || '').slice(11, 16);
+      const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      if (t.freq === 'daily') return `${t.time} daily`;
+      if (t.freq === 'weekly') return `${t.time} every ${(t.days || []).map((d) => names[d]).join(', ')}`;
+      return `${t.time} on day ${t.day_of_month} monthly`;
+    }
+
+    _renderScheduleDayList() {
+      const wrap = this.shadowRoot.getElementById('cal-day-list');
+      if (!this._calSelectedDay) { wrap.innerHTML = ''; return; }
+      const [y, m, d] = this._calSelectedDay.split('-').map(Number);
+      const date = new Date(y, m - 1, d);
+      const events = this._schedulesOn(date);
+      const title = date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+
+      wrap.innerHTML = '';
+      wrap.appendChild(this._buildSectionHeader(title));
+      if (!events.length) {
+        const empty = document.createElement('div');
+        empty.className = 'modal-file-summary';
+        empty.textContent = 'Nothing scheduled this day.';
+        wrap.appendChild(empty);
+        return;
+      }
+      for (const s of events) {
+        const el = document.createElement('div');
+        el.className = 'cal-event' + (this._scheduleChipClass(s) === 'muted' ? ' muted' : '');
+        const notes = [];
+        if (s.status === 'target_missing') notes.push('⚠ Its target was deleted — edit to repair, or delete.');
+        if (s.status === 'completed') notes.push(s.fired_late
+          ? '✓ Sent (late — Home Assistant was off at the scheduled time)'
+          : '✓ Sent');
+        el.innerHTML = `
+          <div class="schedule-thumb">${s.action.type === 'scene' ? '🎬' : '🖼'}</div>
+          <div class="cal-event-main">
+            <div class="cal-event-name">${this._esc(s.name)}</div>
+            <div class="cal-event-detail">${this._esc(this._scheduleWhenDescription(s))} — ${this._esc(this._scheduleTargetDescription(s))}</div>
+            ${notes.map((n) => `<div class="cal-event-note">${this._esc(n)}</div>`).join('')}
+          </div>
+          <div class="cal-event-actions">
+            <input type="checkbox" class="cal-event-enabled" title="Enabled" ${s.enabled ? 'checked' : ''}>
+            <button class="cal-event-edit" title="Edit">✎</button>
+            <button class="cal-event-delete" title="Delete">🗑</button>
+          </div>`;
+        if (s.action.type === 'image') {
+          this._loadThumbnail(s.action.image_id, el.querySelector('.schedule-thumb'));
+        }
+        el.querySelector('.cal-event-enabled').addEventListener('change', (e) => {
+          this._setScheduleEnabled(s, e.target.checked);
+        });
+        el.querySelector('.cal-event-edit').addEventListener('click', () => {
+          this._openScheduleDialog({ editing: s });
+        });
+        el.querySelector('.cal-event-delete').addEventListener('click', () => {
+          this._deleteSchedule(s);
+        });
+        wrap.appendChild(el);
+      }
+    }
+
+    async _setScheduleEnabled(schedule, enabled) {
+      const fb = this.shadowRoot.getElementById('schedule-calendar-fb');
+      try {
+        const resp = await fetch(`/api/fraimic/schedules/${schedule.schedule_id}`, {
+          method: 'POST',
+          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled }),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Couldn't update "${schedule.name}": ${err.message}`;
+        fb.style.display = 'block';
+      }
+      await this._loadSchedules();
+      this._renderScheduleCalendar();
+    }
+
+    async _deleteSchedule(schedule) {
+      if (!window.confirm(`Delete the scheduled event "${schedule.name}"?`)) return;
+      const fb = this.shadowRoot.getElementById('schedule-calendar-fb');
+      try {
+        const resp = await fetch(`/api/fraimic/schedules/${schedule.schedule_id}`, {
+          method: 'DELETE', headers: this._authHeaders(),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Couldn't delete "${schedule.name}": ${err.message}`;
+        fb.style.display = 'block';
+      }
+      await this._loadSchedules();
+      this._renderScheduleCalendar();
     }
 
     // -----------------------------------------------------------------------

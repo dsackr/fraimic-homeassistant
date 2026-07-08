@@ -72,8 +72,13 @@ function parseMultipartFields(buf) {
 // onboardingComplete: the server-side first-run-wizard flag. Defaults to
 // true so every non-onboarding suite loads straight to the dashboard;
 // onboarding tests opt in with false.
-function createMockServer({ frames = [], scenes = [], images = [], albums = [], walls = [], scenePacks = [], discoveredFlows = [], onboardingComplete = true } = {}) {
+function createMockServer({ frames = [], scenes = [], images = [], albums = [], walls = [], scenePacks = [], schedules = [], discoveredFlows = [], onboardingComplete = true } = {}) {
   let sceneList = scenes.map((s) => ({ created_at: 0, album: null, source: 'user', ...s }));
+  let scheduleList = schedules.map((s) => ({
+    enabled: true, status: 'pending', fired_late: false,
+    created_at: '2026-01-01T00:00:00', last_fired_at: null, ...s,
+  }));
+  let nextScheduleId = scheduleList.length + 1;
   // The backend guarantees the default "All Frames" wall exists with a
   // placement for every configured frame -- mirror that here unless a test
   // seeds its own default wall record.
@@ -327,6 +332,63 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [], 
       }
     }
 
+    if (p === '/api/fraimic/schedules') {
+      if (req.method === 'GET') {
+        return json(res, 200, {
+          schedules: scheduleList.map((s) => ({ next_fire_at: null, ...s })),
+        });
+      }
+      if (req.method === 'POST') {
+        const parsed = await readJsonBody(req);
+        // Mirror ScheduleManager's creation-time validation shape (name,
+        // action union, trigger union) closely enough that dialog error
+        // paths are drivable from tests.
+        if (!parsed.name || !parsed.name.trim()) {
+          return json(res, 400, { message: "Schedule name can't be empty" });
+        }
+        if (!parsed.action || !['scene', 'image'].includes(parsed.action.type)) {
+          return json(res, 400, { message: 'Invalid action' });
+        }
+        if (!parsed.trigger || !['once', 'recurring'].includes(parsed.trigger.type)) {
+          return json(res, 400, { message: 'Invalid trigger' });
+        }
+        const schedule = {
+          schedule_id: `schedule_${nextScheduleId++}`,
+          name: parsed.name,
+          enabled: parsed.enabled !== false,
+          action: parsed.action,
+          trigger: parsed.trigger,
+          created_at: '2026-01-01T00:00:00',
+          last_fired_at: null,
+          status: 'pending',
+          fired_late: false,
+        };
+        scheduleList.push(schedule);
+        return json(res, 200, { success: true, schedule });
+      }
+    }
+    const scheduleMatch = p.match(/^\/api\/fraimic\/schedules\/([^/]+)$/);
+    if (scheduleMatch) {
+      const scheduleId = scheduleMatch[1];
+      if (req.method === 'POST') {
+        const parsed = await readJsonBody(req);
+        const schedule = scheduleList.find((s) => s.schedule_id === scheduleId);
+        if (!schedule) return json(res, 404, { message: `Schedule '${scheduleId}' not found` });
+        for (const key of ['name', 'action', 'trigger', 'enabled']) {
+          if (key in parsed) schedule[key] = parsed[key];
+        }
+        if ('action' in parsed || 'trigger' in parsed) {
+          schedule.status = 'pending';
+          schedule.fired_late = false;
+        }
+        return json(res, 200, { success: true, schedule });
+      }
+      if (req.method === 'DELETE') {
+        scheduleList = scheduleList.filter((s) => s.schedule_id !== scheduleId);
+        return json(res, 200, { success: true });
+      }
+    }
+
     if (p === '/api/fraimic/walls') {
       if (req.method === 'GET') return json(res, 200, { walls: wallList });
       if (req.method === 'POST') {
@@ -378,6 +440,7 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [], 
     flowDeletes,
     entryDeletes,
     get scenes() { return sceneList; },
+    get schedules() { return scheduleList; },
     get walls() { return wallList; },
     get onboardingComplete() { return onboardingComplete; },
     get libraryBackend() { return libraryBackend; },
