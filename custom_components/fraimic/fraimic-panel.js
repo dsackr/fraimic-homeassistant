@@ -1145,6 +1145,162 @@
       flex: 0 0 auto;
     }
     @keyframes flow-spin { to { transform: rotate(360deg); } }
+
+    /* First-run onboarding wizard: white card on a dark navy gradient
+       (matches the design mockup). Deliberately theme-independent -- the
+       fixed light palette below is the design, so reused pieces rendered
+       inside it (.backend-form, .muted, .feedback) get scoped overrides
+       instead of the HA theme variables they normally inherit. */
+    .ob-overlay {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      overflow-y: auto;
+      padding: 32px;
+      background: linear-gradient(150deg, #0c1829 0%, #0f2a45 60%, #0c1829 100%);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    }
+    .ob-card {
+      background: #fff;
+      border-radius: 24px;
+      width: 100%;
+      max-width: 600px;
+      overflow: hidden;
+      box-shadow: 0 32px 96px rgba(0,0,0,.55);
+      animation: ob-slide-up .3s ease;
+      color: #111827;
+      margin: auto;
+    }
+    .ob-progress { height: 3px; background: #f0f2f5; }
+    .ob-progress > div {
+      height: 100%;
+      background: linear-gradient(90deg, #03a9f4, #38bdf8);
+      transition: width .4s ease;
+    }
+    .ob-header {
+      padding: 16px 28px 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 27px;
+    }
+    .ob-dots { display: flex; gap: 5px; align-items: center; }
+    .ob-dot { width: 7px; height: 7px; border-radius: 50%; background: #e5e7eb; transition: background .3s; }
+    .ob-dot.active { background: #03a9f4; }
+    .ob-skip {
+      border: none;
+      background: transparent;
+      font-size: 12px;
+      color: #9ca3af;
+      cursor: pointer;
+      font-family: inherit;
+      padding: 4px 8px;
+      border-radius: 6px;
+    }
+    .ob-skip:hover { color: #6b7280; }
+    .ob-step { padding: 20px 28px 32px; }
+    .ob-step.centered { padding: 36px 40px 40px; text-align: center; }
+    .ob-illus { background: #f3f6f9; border-radius: 16px; padding: 16px; margin-bottom: 24px; }
+    .ob-eyebrow {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+      color: #03a9f4;
+      margin-bottom: 8px;
+    }
+    .ob-h1 { font-size: 21px; font-weight: 800; color: #111827; letter-spacing: -.02em; margin-bottom: 10px; }
+    .ob-copy { font-size: 14px; color: #6b7280; line-height: 1.75; margin-bottom: 10px; }
+    .ob-copy strong { color: #374151; }
+    .ob-tip {
+      font-size: 13px;
+      color: #6b7280;
+      line-height: 1.6;
+      margin-bottom: 20px;
+      padding: 10px 14px;
+      background: #f8fafc;
+      border-radius: 9px;
+      border-left: 3px solid #03a9f4;
+    }
+    .ob-cta {
+      width: 100%;
+      padding: 13px;
+      background: #03a9f4;
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .ob-cta.big { padding: 15px; border-radius: 13px; font-size: 15px; }
+    .ob-ghost {
+      width: 100%;
+      padding: 11px;
+      background: transparent;
+      color: #9ca3af;
+      border: none;
+      border-radius: 13px;
+      font-size: 13px;
+      cursor: pointer;
+      font-family: inherit;
+      margin-top: 6px;
+    }
+    .ob-ghost:hover { color: #6b7280; }
+    .ob-actions { margin-bottom: 20px; }
+    .ob-actions .banner-add-btn { margin: 0 6px 6px 0; }
+    .ob-storage-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+    .ob-storage-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      border: 2px solid #e5e7eb;
+      border-radius: 12px;
+      cursor: pointer;
+      background: #fff;
+      transition: border-color .15s, background .15s;
+    }
+    .ob-storage-row.selected { border-color: #03a9f4; background: rgba(3,169,244,.04); }
+    .ob-radio {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid #d1d5db;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .ob-storage-row.selected .ob-radio { border-color: #03a9f4; }
+    .ob-radio-fill { width: 9px; height: 9px; border-radius: 50%; background: #03a9f4; }
+    .ob-storage-name { font-size: 13px; font-weight: 600; color: #111827; }
+    .ob-storage-desc { font-size: 11px; color: #6b7280; margin-top: 1px; }
+    .ob-badge {
+      font-size: 10px;
+      font-weight: 700;
+      color: #03a9f4;
+      background: rgba(3,169,244,.1);
+      padding: 3px 9px;
+      border-radius: 999px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .ob-cheat { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 28px; text-align: left; }
+    .ob-cheat > div { background: #f8fafc; border-radius: 12px; padding: 14px; }
+    .ob-overlay .muted { color: #6b7280; }
+    .ob-overlay .muted code { background: #f1f5f9; color: #111827; }
+    .ob-overlay .backend-form input[type="text"], .ob-overlay .backend-form input[type="password"] {
+      border: 1px solid #d1d5db;
+      background: #fff;
+      color: #111827;
+    }
+    @keyframes ob-slide-up { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+    @keyframes ob-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
     .discovery-banner {
       display: flex;
       align-items: center;
@@ -1454,8 +1610,9 @@
       this._flowModal = null;         // { base, flowId, userInitiated, onDone, step } while open, else null
       this._flowTranslations = null;  // merged config+options translation resources, fetched once
 
-      // First-run onboarding: { step: 1|2 } while the wizard is open, else
-      // null. Opens automatically when the panel loads with zero frames.
+      // First-run onboarding: { step: 1..6, storage, framesAdded } while
+      // the wizard is open, else null. Opens for admins until the
+      // server-side completion flag is set (see _maybeOpenOnboarding).
       this._onboarding = null;
       this._frameSettingsTarget = null;  // frame whose settings menu is open, else null
       this._discoveredFlows = {};     // flow_id → in-progress discovery flow (banner data)
@@ -1652,8 +1809,9 @@
       // Deep links target wall tiles, so this must wait for the walls
       // render above.
       this._handleDeepLink();
-      // Zero frames configured? Offer the first-run wizard (admins) or a
-      // pointer to one (everyone else), on top of the rendered dashboard.
+      // First run? Offer the 6-step wizard (admins, until someone
+      // completes or skips it) or, at zero frames, a pointer to an admin
+      // (everyone else) -- on top of the rendered dashboard.
       this._maybeOpenOnboarding();
       await packsP;
       this._renderScenePacks();
@@ -1888,18 +2046,21 @@
           </div>
         </div>
 
-        <!-- First-run onboarding: opens automatically when zero frames are
-             configured. A thin shell over the proven pieces -- step 1
-             launches the embedded Add-Frame flow (which stacks above at the
-             standard modal z-index), step 2 offers storage setup via the
-             Settings modal, then it lands on the dashboard. -->
-        <div class="modal-overlay" id="onboarding-overlay" style="z-index:1000">
-          <div class="modal-box" style="max-width:560px">
-            <h3 id="onboarding-title">Welcome to Fraimic 👋</h3>
-            <div id="onboarding-body"></div>
-            <div class="modal-actions">
-              <button class="btn-ghost" id="onboarding-skip">Set up later</button>
+        <!-- First-run onboarding: a 6-step tour (Welcome / Frames / Walls /
+             Scenes / Library & Storage / Done) that opens for admins until
+             someone completes or skips it -- the flag is server-side
+             (/api/fraimic/onboarding), so one dismissal retires it for the
+             whole install. Step 2 embeds the real Add-Frame flow (which
+             stacks above at the standard modal z-index) and step 5 mounts
+             the real storage-backend picker inline. -->
+        <div class="ob-overlay" id="onboarding-overlay">
+          <div class="ob-card">
+            <div class="ob-progress"><div id="onboarding-progress"></div></div>
+            <div class="ob-header">
+              <div class="ob-dots" id="onboarding-dots"></div>
+              <button class="ob-skip" id="onboarding-skip">Skip →</button>
             </div>
+            <div id="onboarding-body"></div>
           </div>
         </div>
 
@@ -2842,7 +3003,7 @@
       if (!flows.length || !this._isAdmin()) {
         banner.style.display = 'none';
         banner.innerHTML = '';
-        if (this._onboarding && this._onboarding.step === 1) this._renderOnboardingStep();
+        if (this._onboarding && this._onboarding.step === 2) this._renderOnboardingStep();
         return;
       }
       banner.innerHTML = '';
@@ -2861,9 +3022,9 @@
         banner.appendChild(btn);
       }
       banner.style.display = 'flex';
-      // The wizard's step 1 mirrors this list -- keep it in sync as
+      // The wizard's Frames step mirrors this list -- keep it in sync as
       // subscribe events arrive.
-      if (this._onboarding && this._onboarding.step === 1) this._renderOnboardingStep();
+      if (this._onboarding && this._onboarding.step === 2) this._renderOnboardingStep();
     }
 
     _openDiscoveredFlow(flow) {
@@ -2884,36 +3045,41 @@
     }
 
     // -----------------------------------------------------------------------
-    // First-run onboarding: auto-opens when the panel loads with zero
-    // frames. A shell over the proven pieces -- the embedded Add-Frame flow
-    // and the Settings modal do the real work, stacking above the wizard.
+    // First-run onboarding: a 6-step tour that teaches Frames, Walls,
+    // Scenes, and the Library, gets a first frame added (step 2 embeds the
+    // real Add-Frame flow), and picks a storage backend (step 5 mounts the
+    // real backend picker inline). Completing or skipping sets a
+    // server-side flag, so one dismissal retires it install-wide.
     // -----------------------------------------------------------------------
 
     _wireOnboarding() {
       this.shadowRoot.getElementById('onboarding-skip')
-        .addEventListener('click', () => this._dismissOnboarding());
-      // Deliberately no backdrop-click dismiss: this overlay IS the page's
-      // content at zero frames; "Set up later" is the explicit exit.
+        .addEventListener('click', () => this._finishOnboarding());
+      // Deliberately no backdrop-click dismiss: "Skip →" / "I already know
+      // my way around" / "Go to Dashboard" are the explicit exits.
     }
 
-    _maybeOpenOnboarding() {
-      if (this._frames.length) {
-        // Frames exist (again) -- a previous dismissal shouldn't suppress
-        // the wizard if the user ever ends up back at zero.
-        try { localStorage.removeItem('fraimic_onboarding_dismissed'); } catch (err) { /* private mode */ }
-        return;
-      }
+    async _maybeOpenOnboarding() {
       if (!this._isAdmin()) {
-        const fb = this.shadowRoot.getElementById('wall-fb');
-        fb.className = 'feedback';
-        fb.textContent = 'No frames configured yet — ask your Home Assistant administrator to add one.';
-        fb.style.display = 'block';
+        // The wizard's actions (config flows, backend switching) are
+        // admin-only; at zero frames non-admins get a pointer instead.
+        if (!this._frames.length) {
+          const fb = this.shadowRoot.getElementById('wall-fb');
+          fb.className = 'feedback';
+          fb.textContent = 'No frames configured yet — ask your Home Assistant administrator to add one.';
+          fb.style.display = 'block';
+        }
         return;
       }
-      let dismissed = false;
-      try { dismissed = localStorage.getItem('fraimic_onboarding_dismissed') === '1'; } catch (err) { /* private mode */ }
-      if (dismissed) return;
-      this._onboarding = { step: 1 };
+      let complete;
+      try {
+        const resp = await fetch('/api/fraimic/onboarding', { headers: this._authHeaders() });
+        complete = !!(await resp.json()).complete;
+      } catch (err) {
+        return; // fail closed: never flash the wizard on a flaky flag read
+      }
+      if (complete) return;
+      this._onboarding = { step: 1, storage: this._backend || 'local', framesAdded: 0 };
       this._renderOnboardingStep();
       this.shadowRoot.getElementById('onboarding-overlay').style.display = 'flex';
     }
@@ -2921,66 +3087,358 @@
     _renderOnboardingStep() {
       const wizard = this._onboarding;
       if (!wizard) return;
-      const body  = this.shadowRoot.getElementById('onboarding-body');
-      const title = this.shadowRoot.getElementById('onboarding-title');
-      const skip  = this.shadowRoot.getElementById('onboarding-skip');
+      const body = this.shadowRoot.getElementById('onboarding-body');
 
-      if (wizard.step === 1) {
-        title.textContent = 'Welcome to Fraimic 👋';
-        body.innerHTML = `
-          <p class="flow-desc">Let's put a picture on your wall. First, add a frame — make sure it's awake (tap it) and on the same network as Home Assistant.</p>
-          <div class="modal-row">
-            <button class="btn-primary" id="onboarding-add-btn">＋ Add your first frame</button>
+      this.shadowRoot.getElementById('onboarding-progress').style.width =
+        `${Math.round((wizard.step / 6) * 100)}%`;
+      const dots = this.shadowRoot.getElementById('onboarding-dots');
+      dots.innerHTML = '';
+      for (let i = 1; i <= 6; i++) {
+        const dot = document.createElement('div');
+        dot.className = 'ob-dot' + (i <= wizard.step ? ' active' : '');
+        dots.appendChild(dot);
+      }
+      this.shadowRoot.getElementById('onboarding-skip').style.display =
+        (wizard.step >= 2 && wizard.step <= 5) ? '' : 'none';
+
+      if (wizard.step === 1) this._renderObWelcome(body);
+      else if (wizard.step === 2) this._renderObFrames(body);
+      else if (wizard.step === 3) this._renderObWalls(body);
+      else if (wizard.step === 4) this._renderObScenes(body);
+      else if (wizard.step === 5) this._renderObStorage(body);
+      else this._renderObDone(body);
+    }
+
+    _obNext() {
+      if (!this._onboarding) return;
+      this._onboarding.step = Math.min(6, this._onboarding.step + 1);
+      this._renderOnboardingStep();
+    }
+
+    _renderObWelcome(body) {
+      body.innerHTML = `
+        <div class="ob-step centered">
+          <div style="width:76px;height:76px;border-radius:22px;background:linear-gradient(145deg,#03a9f4,#0284c7);display:flex;align-items:center;justify-content:center;margin:0 auto 24px;box-shadow:0 12px 32px rgba(3,169,244,.35)">
+            <svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="white" stroke-width="1.5"><rect x="2" y="3" width="20" height="16" rx="2"/><rect x="5" y="6" width="6" height="10" rx="1"/><rect x="13" y="6" width="6" height="4" rx="1"/><rect x="13" y="12" width="6" height="4" rx="1"/></svg>
           </div>
-          <div id="onboarding-discovered"></div>
-        `;
-        body.querySelector('#onboarding-add-btn')
-          .addEventListener('click', () => this._openAddFrameFlow());
+          <div style="font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#03a9f4;margin-bottom:10px">Welcome to</div>
+          <div style="font-size:36px;font-weight:800;color:#111827;letter-spacing:-.03em;margin-bottom:14px">Fraimic</div>
+          <div style="font-size:15px;color:#6b7280;line-height:1.75;max-width:400px;margin:0 auto 32px">Turn your e‑ink frames into a beautiful, voice-controlled gallery wall — managed directly from Home Assistant. No cloud, no account, no app.</div>
+          <div style="display:flex;justify-content:center;gap:24px;margin-bottom:36px">
+            <div style="text-align:center">
+              <div style="font-size:22px;margin-bottom:4px">🖼</div>
+              <div style="font-size:11px;font-weight:600;color:#374151">Any e‑ink frame</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:22px;margin-bottom:4px">🎙</div>
+              <div style="font-size:11px;font-weight:600;color:#374151">Voice-activated</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:22px;margin-bottom:4px">⚡</div>
+              <div style="font-size:11px;font-weight:600;color:#374151">Setup in minutes</div>
+            </div>
+          </div>
+          <button class="ob-cta big" id="ob-next">Get started →</button>
+          <button class="ob-ghost" id="ob-exit">I already know my way around</button>
+        </div>`;
+      body.querySelector('#ob-next').addEventListener('click', () => this._obNext());
+      body.querySelector('#ob-exit').addEventListener('click', () => this._finishOnboarding());
+    }
 
-        // Frames the background scan already found get one-click adds,
-        // exactly like the dashboard's discovery banner.
-        const discovered = Object.values(this._discoveredFlows || {});
-        const list = body.querySelector('#onboarding-discovered');
-        if (discovered.length) {
-          const p = document.createElement('p');
-          p.className = 'flow-desc';
-          p.textContent = 'Already spotted on your network:';
-          list.appendChild(p);
-          for (const flow of discovered) {
-            const name = (flow.context && flow.context.title_placeholders
-              && flow.context.title_placeholders.name) || 'frame';
-            const btn = document.createElement('button');
-            btn.className = 'banner-add-btn';
-            btn.style.margin = '0 6px 6px 0';
-            btn.textContent = `＋ Add ${name}`;
-            btn.addEventListener('click', () => this._openDiscoveredFlow(flow));
-            list.appendChild(btn);
-          }
+    _renderObFrames(body) {
+      const wizard = this._onboarding;
+      const discovered = Object.values(this._discoveredFlows || {});
+      const bannerText = discovered.length
+        ? `${discovered.length} frame${discovered.length === 1 ? '' : 's'} discovered on your network`
+        : 'Scanning your network for frames…';
+      const haveFrames = this._frames.length > 0 || wizard.framesAdded > 0;
+      body.innerHTML = `
+        <div class="ob-step">
+          <div class="ob-illus">
+            <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:9px 12px;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+              <div style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;animation:ob-pulse 2s infinite"></div>
+              <span style="font-size:11px;color:#92400e;font-weight:600;flex:1">${this._esc(bannerText)}</span>
+              <div style="padding:4px 12px;background:#03a9f4;color:#fff;border-radius:6px;font-size:10px;font-weight:700;white-space:nowrap">+ Add</div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+              <div style="background:#fff;border-radius:9px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.09)">
+                <div style="width:100%;height:54px;background:linear-gradient(135deg,#f97316,#fbbf24)"></div>
+                <div style="padding:5px 7px"><div style="font-size:9px;font-weight:700;color:#111827">Living Room</div><div style="font-size:8px;color:#22c55e;margin-top:1px">● Online</div></div>
+              </div>
+              <div style="background:#fff;border-radius:9px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.09)">
+                <div style="width:100%;height:54px;background:linear-gradient(135deg,#0ea5e9,#7dd3fc)"></div>
+                <div style="padding:5px 7px"><div style="font-size:9px;font-weight:700;color:#111827">Kitchen</div><div style="font-size:8px;color:#22c55e;margin-top:1px">● Online</div></div>
+              </div>
+              <div style="background:#fff;border-radius:9px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.09)">
+                <div style="width:100%;height:54px;background:linear-gradient(135deg,#16a34a,#86efac)"></div>
+                <div style="padding:5px 7px"><div style="font-size:9px;font-weight:700;color:#111827">Office</div><div style="font-size:8px;color:#ef4444;margin-top:1px">● Offline</div></div>
+              </div>
+              <div style="background:#fff;border-radius:9px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.09);opacity:.45">
+                <div style="width:100%;height:54px;background:#e5e7eb;display:flex;align-items:center;justify-content:center">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#9ca3af" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </div>
+                <div style="padding:5px 7px"><div style="font-size:9px;font-weight:600;color:#9ca3af">Add…</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="ob-eyebrow">Frames</div>
+          <div class="ob-h1">Discover your frames</div>
+          <div class="ob-copy">Fraimic scans your local network and finds e‑ink frames automatically. When one appears in the discovery banner, hit <strong>＋ Add</strong>, give it a name, and it lands on your dashboard instantly.</div>
+          <div class="ob-tip">💡 You can also add a frame manually by IP address — handy if it sits on a network segment the scan can't reach. Make sure the frame is awake (tap it) when adding.</div>
+          <div class="ob-actions">
+            ${wizard.framesAdded > 0 ? `<p class="muted" style="margin:0 0 8px">✓ Frame added! It's waiting on your dashboard behind this tour.</p>` : ''}
+            <button class="btn-primary" id="onboarding-add-btn">＋ Add ${haveFrames ? 'another' : 'your first'} frame</button>
+            <div id="onboarding-discovered" style="margin-top:8px"></div>
+          </div>
+          <button class="ob-cta" id="ob-next">Got it →</button>
+        </div>`;
+      body.querySelector('#ob-next').addEventListener('click', () => this._obNext());
+      body.querySelector('#onboarding-add-btn')
+        .addEventListener('click', () => this._openAddFrameFlow());
+
+      // Frames the background scan already found get one-click adds,
+      // exactly like the dashboard's discovery banner.
+      const list = body.querySelector('#onboarding-discovered');
+      if (discovered.length) {
+        const p = document.createElement('p');
+        p.className = 'muted';
+        p.style.margin = '0 0 6px';
+        p.textContent = 'Already spotted on your network:';
+        list.appendChild(p);
+        for (const flow of discovered) {
+          const name = (flow.context && flow.context.title_placeholders
+            && flow.context.title_placeholders.name) || 'frame';
+          const btn = document.createElement('button');
+          btn.className = 'banner-add-btn';
+          btn.style.margin = '0 6px 6px 0';
+          btn.textContent = `＋ Add ${name}`;
+          btn.addEventListener('click', () => this._openDiscoveredFlow(flow));
+          list.appendChild(btn);
         }
-        skip.style.display = '';
+      }
+    }
+
+    _renderObWalls(body) {
+      body.innerHTML = `
+        <div class="ob-step">
+          <div class="ob-illus" style="display:flex;gap:12px;align-items:flex-start">
+            <div style="flex:1">
+              <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#6b7280;margin-bottom:8px;text-align:center">Default Wall</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px">
+                <div style="border-radius:6px;height:36px;background:linear-gradient(135deg,#f97316,#fbbf24);box-shadow:0 1px 4px rgba(0,0,0,.1)"></div>
+                <div style="border-radius:6px;height:36px;background:linear-gradient(135deg,#0ea5e9,#7dd3fc);box-shadow:0 1px 4px rgba(0,0,0,.1)"></div>
+                <div style="border-radius:6px;height:36px;background:linear-gradient(135deg,#8b5cf6,#c4b5fd);box-shadow:0 1px 4px rgba(0,0,0,.1)"></div>
+                <div style="border-radius:6px;height:36px;background:linear-gradient(135deg,#16a34a,#86efac);box-shadow:0 1px 4px rgba(0,0,0,.1)"></div>
+              </div>
+              <div style="margin-top:7px;text-align:center;font-size:10px;color:#9ca3af">Auto grid</div>
+            </div>
+            <div style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:4px;padding-top:28px">
+              <div style="width:1px;height:20px;background:#d1d5db"></div>
+              <div style="font-size:8px;color:#9ca3af;font-weight:600">or</div>
+              <div style="width:1px;height:20px;background:#d1d5db"></div>
+            </div>
+            <div style="flex:1">
+              <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#6b7280;margin-bottom:8px;text-align:center">Custom Wall</div>
+              <div style="background:#f8fafc;border:1.5px dashed #cbd5e1;border-radius:9px;height:90px;position:relative;overflow:hidden">
+                <div style="position:absolute;left:6px;top:10px;width:52px;height:36px;background:linear-gradient(135deg,#f97316,#fbbf24);border-radius:5px;box-shadow:0 2px 8px rgba(0,0,0,.15)"></div>
+                <div style="position:absolute;left:66px;top:18px;width:36px;height:56px;background:linear-gradient(135deg,#0ea5e9,#7dd3fc);border-radius:5px;box-shadow:0 2px 8px rgba(0,0,0,.15)"></div>
+                <div style="position:absolute;right:6px;top:6px;width:44px;height:28px;background:linear-gradient(135deg,#16a34a,#86efac);border-radius:5px;box-shadow:0 2px 8px rgba(0,0,0,.15)"></div>
+              </div>
+              <div style="margin-top:7px;text-align:center;font-size:10px;color:#9ca3af">Free placement</div>
+            </div>
+          </div>
+          <div class="ob-eyebrow">Walls</div>
+          <div class="ob-h1">Organize your frames</div>
+          <div class="ob-copy">Every frame lives on a wall. The <strong>Default Wall</strong> shows them all in a grid. Create a <strong>Custom Wall</strong> and drag frames to the exact position they occupy on your real wall — the layout mirrors reality.</div>
+          <div class="ob-tip">💡 You can have multiple custom walls — one per room, one per mood, whatever makes sense.</div>
+          <button class="ob-cta" id="ob-next">Got it →</button>
+        </div>`;
+      body.querySelector('#ob-next').addEventListener('click', () => this._obNext());
+    }
+
+    _renderObScenes(body) {
+      body.innerHTML = `
+        <div class="ob-step">
+          <div class="ob-illus">
+            <div style="display:flex;align-items:flex-start;margin-bottom:12px">
+              <div style="flex:1;text-align:center">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:6px">
+                  <div style="border-radius:5px;height:32px;background:linear-gradient(135deg,#f97316,#fbbf24);display:flex;align-items:center;justify-content:center">
+                    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="white" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                  </div>
+                  <div style="border-radius:5px;height:32px;background:linear-gradient(135deg,#0ea5e9,#7dd3fc);display:flex;align-items:center;justify-content:center">
+                    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="white" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                  </div>
+                </div>
+                <div style="font-size:9px;font-weight:700;color:#374151">① Stage images</div>
+              </div>
+              <div style="padding-top:12px;flex-shrink:0;margin:0 6px;color:#9ca3af">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+              </div>
+              <div style="flex:1;text-align:center">
+                <div style="background:#fff;border-radius:7px;padding:6px 8px;margin-bottom:6px;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+                  <div style="font-size:9px;color:#6b7280;margin-bottom:3px">Scene</div>
+                  <div style="font-size:9px;font-weight:700;color:#111827;margin-bottom:5px">Morning Setup</div>
+                  <div style="display:flex;gap:4px">
+                    <div style="flex:1;padding:3px;background:#03a9f4;border-radius:4px;text-align:center;font-size:8px;font-weight:700;color:#fff">Send</div>
+                    <div style="flex:1;padding:3px;background:#f3f4f6;border-radius:4px;text-align:center;font-size:8px;font-weight:600;color:#374151">Save</div>
+                  </div>
+                </div>
+                <div style="font-size:9px;font-weight:700;color:#374151">② Save scene</div>
+              </div>
+              <div style="padding-top:12px;flex-shrink:0;margin:0 6px;color:#9ca3af">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+              </div>
+              <div style="flex:1;text-align:center">
+                <div style="display:flex;justify-content:center;gap:4px;margin-bottom:6px">
+                  <div style="width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,#00b2ff,#005bff);display:flex;align-items:center;justify-content:center">
+                    <svg viewBox="0 0 24 24" width="11" height="11" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1 1.93c-3.94-.49-7-3.85-7-7.93h2c0 3.31 2.69 6 6 6s6-2.69 6-6h2c0 4.08-3.06 7.44-7 7.93V22h-2v-4.07z"/></svg>
+                  </div>
+                  <div style="width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,#ea4335,#fbbc05);display:flex;align-items:center;justify-content:center">
+                    <svg viewBox="0 0 24 24" width="11" height="11" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1 1.93c-3.94-.49-7-3.85-7-7.93h2c0 3.31 2.69 6 6 6s6-2.69 6-6h2c0 4.08-3.06 7.44-7 7.93V22h-2v-4.07z"/></svg>
+                  </div>
+                  <div style="width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,#ff8000,#ff4500);display:flex;align-items:center;justify-content:center">
+                    <svg viewBox="0 0 24 24" width="11" height="11" fill="white"><path d="M3 12L12 3l9 9v9H3z"/></svg>
+                  </div>
+                </div>
+                <div style="font-size:9px;font-weight:700;color:#374151">③ Say it</div>
+              </div>
+            </div>
+            <div style="background:#1e293b;border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:8px">
+              <div style="width:6px;height:6px;border-radius:50%;background:#22c55e;flex-shrink:0;animation:ob-pulse 2s infinite"></div>
+              <span style="font-size:11px;color:#e2e8f0;font-style:italic">"Hey Alexa, activate Morning Setup"</span>
+            </div>
+          </div>
+          <div class="ob-eyebrow">Scenes</div>
+          <div class="ob-h1">Voice-controlled displays</div>
+          <div class="ob-copy">Choose which image each frame shows, then hit <strong>Save Scene</strong>. Every scene becomes a real Home Assistant scene entity, so Alexa, Google Home, and Assist can activate it by name — all assigned images send at once.</div>
+          <div class="ob-tip">💡 If a frame is asleep when a scene fires, its image queues and sends the moment the frame wakes.</div>
+          <button class="ob-cta" id="ob-next">Got it →</button>
+        </div>`;
+      body.querySelector('#ob-next').addEventListener('click', () => this._obNext());
+    }
+
+    _renderObStorage(body) {
+      const wizard = this._onboarding;
+      const rows = [
+        { id: 'local', name: 'Local Storage', desc: 'On this Home Assistant instance. No account needed.', badge: 'Recommended' },
+        { id: 'google_drive', name: 'Google Drive', desc: 'Connect your Google account — photos stored in your Drive.' },
+        { id: 'dropbox', name: 'Dropbox', desc: 'Link your Dropbox folder via access token.' },
+      ];
+      body.innerHTML = `
+        <div class="ob-step">
+          <div class="ob-illus" style="display:flex;gap:10px;padding:14px">
+            <div style="width:76px;flex-shrink:0;background:#fff;border-radius:9px;padding:8px;box-shadow:0 1px 3px rgba(0,0,0,.06)">
+              <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#9ca3af;margin-bottom:6px">Albums</div>
+              <div style="padding:4px 6px;background:rgba(3,169,244,.08);border-radius:5px;border-left:2px solid #03a9f4;margin-bottom:3px"><div style="font-size:8px;font-weight:700;color:#03a9f4">All Photos</div></div>
+              <div style="padding:4px 6px;border-radius:5px;margin-bottom:3px"><div style="font-size:8px;color:#6b7280">Artwork</div></div>
+              <div style="padding:4px 6px;border-radius:5px;margin-bottom:3px"><div style="font-size:8px;color:#6b7280">Family</div></div>
+              <div style="padding:4px 6px;border-radius:5px"><div style="font-size:8px;color:#6b7280">Landscapes</div></div>
+            </div>
+            <div style="flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:5px;align-content:start">
+              <div style="border-radius:6px;aspect-ratio:1;background:linear-gradient(135deg,#f97316,#fbbf24)"></div>
+              <div style="border-radius:6px;aspect-ratio:1;background:linear-gradient(135deg,#0ea5e9,#7dd3fc)"></div>
+              <div style="border-radius:6px;aspect-ratio:1;background:linear-gradient(135deg,#8b5cf6,#c4b5fd)"></div>
+              <div style="border-radius:6px;aspect-ratio:1;background:linear-gradient(135deg,#16a34a,#86efac)"></div>
+              <div style="border-radius:6px;aspect-ratio:1;background:linear-gradient(135deg,#ef4444,#fb923c)"></div>
+              <div style="border-radius:6px;aspect-ratio:1;background:linear-gradient(135deg,#0d9488,#5eead4)"></div>
+              <div style="border-radius:6px;aspect-ratio:1;background:linear-gradient(135deg,#f59e0b,#fde68a)"></div>
+              <div style="border-radius:6px;aspect-ratio:1;background:#f1f5f9;display:flex;align-items:center;justify-content:center">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#9ca3af" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </div>
+            </div>
+          </div>
+          <div class="ob-eyebrow">Library &amp; Storage</div>
+          <div class="ob-h1">Where should photos live?</div>
+          <div class="ob-copy" style="margin-bottom:16px">Upload photos, crop them, and organize them into albums from the <strong>Library</strong> shelf on the dashboard. Pick where they're stored — you can change this later in ⚙ Settings.</div>
+          <div class="ob-storage-rows">
+            ${rows.map((r) => `
+              <div class="ob-storage-row${wizard.storage === r.id ? ' selected' : ''}" data-backend="${r.id}">
+                <div class="ob-radio">${wizard.storage === r.id ? '<div class="ob-radio-fill"></div>' : ''}</div>
+                <div style="flex:1">
+                  <div class="ob-storage-name">${r.name}</div>
+                  <div class="ob-storage-desc">${r.desc}</div>
+                </div>
+                ${r.badge ? `<span class="ob-badge">${r.badge}</span>` : ''}
+              </div>`).join('')}
+          </div>
+          <div class="backend-config" id="ob-backend-config"></div>
+          <div class="feedback" id="ob-storage-fb"></div>
+          <button class="ob-cta" id="ob-storage-continue">Save &amp; Continue →</button>
+        </div>`;
+      body.querySelectorAll('.ob-storage-row').forEach((row) => {
+        row.addEventListener('click', () => {
+          wizard.storage = row.dataset.backend;
+          this._renderOnboardingStep();
+        });
+      });
+      // The real backend picker, mounted inline: "✓ already active" for the
+      // current backend, the token/OAuth connect forms for the others.
+      this._renderBackendConfig(wizard.storage, body.querySelector('#ob-backend-config'));
+      body.querySelector('#ob-storage-continue')
+        .addEventListener('click', () => this._obStorageContinue());
+    }
+
+    async _obStorageContinue() {
+      const wizard = this._onboarding;
+      if (!wizard) return;
+      if (wizard.storage === this._backend) { this._obNext(); return; }
+      if (wizard.storage === 'local') {
+        // Local needs no credentials -- switch right here, advance only if
+        // it took (failure feedback lands in #ob-storage-fb).
+        await this._switchBackend({ backend: 'local' });
+        if (this._backend === 'local') this._obNext();
         return;
       }
+      // Drive/Dropbox switch through their inline connect controls above;
+      // until one succeeds there's no valid choice to save.
+      const fb = this.shadowRoot.getElementById('ob-storage-fb');
+      fb.className = 'feedback';
+      fb.textContent = 'Finish connecting above first — or choose Local Storage. You can always switch later in Settings.';
+      fb.style.display = 'block';
+    }
 
-      title.textContent = 'Frame added 🎉';
+    _renderObDone(body) {
       body.innerHTML = `
-        <p class="flow-desc">Your frame is on the dashboard — click its tile any time to choose what it shows. One last thing: where should your photo library live? Local storage on this Home Assistant is already set up and works great; Google Drive and Dropbox are options too.</p>
-        <div class="modal-actions" style="justify-content:flex-start">
-          <button class="btn-primary" id="onboarding-finish">Continue with current storage</button>
-          <button class="btn-ghost" id="onboarding-storage-btn">⚙ Choose photo storage…</button>
-        </div>
-      `;
-      body.querySelector('#onboarding-finish')
-        .addEventListener('click', () => this._finishOnboarding());
-      body.querySelector('#onboarding-storage-btn')
-        .addEventListener('click', () => this._openSettingsModal());
-      skip.style.display = 'none';
+        <div class="ob-step centered">
+          <div style="width:76px;height:76px;border-radius:50%;background:linear-gradient(145deg,#22c55e,#16a34a);display:flex;align-items:center;justify-content:center;margin:0 auto 24px;box-shadow:0 12px 32px rgba(34,197,94,.3)">
+            <svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="white" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div style="font-size:30px;font-weight:800;color:#111827;letter-spacing:-.03em;margin-bottom:10px">You're all set! 🎉</div>
+          <div style="font-size:15px;color:#6b7280;line-height:1.7;max-width:400px;margin:0 auto 24px">Your dashboard is ready. Here's a quick cheat sheet:</div>
+          <div class="ob-cheat">
+            <div>
+              <div style="font-size:18px;margin-bottom:6px">🖼</div>
+              <div style="font-size:12px;font-weight:700;color:#111827;margin-bottom:3px">Frames</div>
+              <div style="font-size:11px;color:#6b7280;line-height:1.5">Hit <strong>＋ Add Frame</strong> — or watch for the discovery banner when a frame powers on</div>
+            </div>
+            <div>
+              <div style="font-size:18px;margin-bottom:6px">🧱</div>
+              <div style="font-size:12px;font-weight:700;color:#111827;margin-bottom:3px">Walls</div>
+              <div style="font-size:11px;color:#6b7280;line-height:1.5">Use <strong>＋ New Wall</strong> to lay frames out just like your real wall</div>
+            </div>
+            <div>
+              <div style="font-size:18px;margin-bottom:6px">🎙</div>
+              <div style="font-size:12px;font-weight:700;color:#111827;margin-bottom:3px">Scenes</div>
+              <div style="font-size:11px;color:#6b7280;line-height:1.5">Stage images → <strong>Save Scene</strong> → activate by voice</div>
+            </div>
+            <div>
+              <div style="font-size:18px;margin-bottom:6px">📚</div>
+              <div style="font-size:12px;font-weight:700;color:#111827;margin-bottom:3px">Library</div>
+              <div style="font-size:11px;color:#6b7280;line-height:1.5">The <strong>Library</strong> shelf holds your uploads &amp; albums</div>
+            </div>
+          </div>
+          <button class="ob-cta big" id="ob-finish">Go to Dashboard →</button>
+        </div>`;
+      body.querySelector('#ob-finish').addEventListener('click', () => this._finishOnboarding());
     }
 
     // Called from every add-frame completion path (manual flow, discovered
-    // flow) -- advances the wizard past step 1 if it's what started the add.
+    // flow) -- surfaces the success on the Frames step if the wizard is
+    // what started the add.
     _onboardingFrameAdded() {
-      if (this._onboarding && this._onboarding.step === 1) {
-        this._onboarding.step = 2;
+      if (this._onboarding && this._onboarding.step === 2) {
+        this._onboarding.framesAdded += 1;
         this._renderOnboardingStep();
       }
     }
@@ -2988,11 +3446,10 @@
     _finishOnboarding() {
       this._onboarding = null;
       this.shadowRoot.getElementById('onboarding-overlay').style.display = 'none';
-    }
-
-    _dismissOnboarding() {
-      try { localStorage.setItem('fraimic_onboarding_dismissed', '1'); } catch (err) { /* private mode */ }
-      this._finishOnboarding();
+      // Server-side and fire-and-forget: one completion (or skip) retires
+      // the wizard for every admin on every browser.
+      fetch('/api/fraimic/onboarding', { method: 'POST', headers: this._authHeaders() })
+        .catch((err) => console.warn('[fraimic-panel] could not save onboarding flag:', err));
     }
 
     // -----------------------------------------------------------------------
@@ -3213,6 +3670,17 @@
       }
     }
 
+    // The backend picker renders both in the Settings modal and inline on
+    // the onboarding wizard's storage step -- route its feedback to
+    // whichever of the two is actually on screen.
+    _settingsFb() {
+      if (this._onboarding && this._onboarding.step === 5) {
+        const el = this.shadowRoot.getElementById('ob-storage-fb');
+        if (el) return el;
+      }
+      return this.shadowRoot.getElementById('settings-fb');
+    }
+
     async _loadGoogleRedirectUri() {
       const hint = this.shadowRoot.getElementById('gdrive-hint');
       if (!hint) return;
@@ -3232,7 +3700,7 @@
     }
 
     async _connectGoogleDrive() {
-      const fb = this.shadowRoot.getElementById('settings-fb');
+      const fb = this._settingsFb();
       const clientId     = this.shadowRoot.getElementById('gdrive-client-id').value.trim();
       const clientSecret = this.shadowRoot.getElementById('gdrive-client-secret').value.trim();
       if (!clientId || !clientSecret) return;
@@ -3261,7 +3729,7 @@
     }
 
     async _switchBackend(settings) {
-      const fb = this.shadowRoot.getElementById('settings-fb');
+      const fb = this._settingsFb();
       try {
         const resp = await fetch('/api/fraimic/library/settings', {
           method: 'POST',
@@ -3274,8 +3742,15 @@
           this._backend = result.backend;
           fb.className = 'feedback ok';
           fb.textContent = `✓ Storage set to ${result.backend.replace('_', ' ')}`;
-          const sel = this.shadowRoot.getElementById('backend-select');
-          this._renderBackendConfig(sel ? sel.value : this._backend);
+          if (this._onboarding && this._onboarding.step === 5) {
+            // Inline connect on the wizard's storage step succeeded --
+            // re-render it so the picker shows "✓ connected".
+            this._onboarding.storage = this._backend;
+            this._renderOnboardingStep();
+          } else {
+            const sel = this.shadowRoot.getElementById('backend-select');
+            this._renderBackendConfig(sel ? sel.value : this._backend);
+          }
           this._syncDiscoverButton();
           this._currentAlbum = null;
           await this._loadAlbums();

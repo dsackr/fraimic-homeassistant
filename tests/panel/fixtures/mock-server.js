@@ -69,7 +69,10 @@ function parseMultipartFields(buf) {
 // albums: [{ name, count, cover_image_id }]
 // walls: [{ wall_id, name, placements }]
 // scenePacks: [{ id, name, categories, ... }]
-function createMockServer({ frames = [], scenes = [], images = [], albums = [], walls = [], scenePacks = [], discoveredFlows = [] } = {}) {
+// onboardingComplete: the server-side first-run-wizard flag. Defaults to
+// true so every non-onboarding suite loads straight to the dashboard;
+// onboarding tests opt in with false.
+function createMockServer({ frames = [], scenes = [], images = [], albums = [], walls = [], scenePacks = [], discoveredFlows = [], onboardingComplete = true } = {}) {
   let sceneList = scenes.map((s) => ({ created_at: 0, album: null, source: 'user', ...s }));
   // The backend guarantees the default "All Frames" wall exists with a
   // placement for every configured frame -- mirror that here unless a test
@@ -85,6 +88,7 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [], 
   }
   let nextWallId = wallList.length + 1;
   let nextSceneId = sceneList.length + 1;
+  let libraryBackend = 'local';
   const requestLog = [];
   const sends = []; // { entity_id, image_id, packer } per /library/send POST
   const rawSends = []; // { entity_id, has_image } per /send_image POST
@@ -195,6 +199,13 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [], 
     if (p === '/api/fraimic/discovery/scan' && req.method === 'POST') {
       return json(res, 200, { success: true });
     }
+    if (p === '/api/fraimic/onboarding') {
+      if (req.method === 'POST') {
+        onboardingComplete = true;
+        return json(res, 200, { success: true, complete: true });
+      }
+      return json(res, 200, { complete: onboardingComplete });
+    }
 
     // --- HA config/options flow API (see state machine above) -----------
     if (p === '/api/config/config_entries/flow' && req.method === 'POST') {
@@ -242,9 +253,21 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [], 
       // optional filter over the full image list, not a required param.
       const album = url.searchParams.get('album');
       const filtered = album ? images.filter((img) => (img.albums || []).includes(album)) : images;
-      return json(res, 200, { images: filtered, backend: 'local' });
+      return json(res, 200, { images: filtered, backend: libraryBackend });
     }
-    if (p === '/api/fraimic/library/settings') return json(res, 200, { backend: 'local' });
+    if (p === '/api/fraimic/library/settings') {
+      if (req.method === 'POST') {
+        // Mirrors FraimicLibrarySettingsView: dropbox without a token is
+        // the one validation failure the panel's inline connect can hit.
+        const parsed = await readJsonBody(req);
+        if (parsed.backend === 'dropbox' && !parsed.access_token) {
+          return json(res, 400, { message: 'Dropbox needs an access token' });
+        }
+        libraryBackend = parsed.backend;
+        return json(res, 200, { success: true, backend: libraryBackend });
+      }
+      return json(res, 200, { backend: libraryBackend });
+    }
     if (p === '/api/fraimic/library/albums') return json(res, 200, { albums });
     if (p === '/api/fraimic/scene_packs') return json(res, 200, { packs: scenePacks });
 
@@ -356,6 +379,8 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [], 
     entryDeletes,
     get scenes() { return sceneList; },
     get walls() { return wallList; },
+    get onboardingComplete() { return onboardingComplete; },
+    get libraryBackend() { return libraryBackend; },
   };
 }
 

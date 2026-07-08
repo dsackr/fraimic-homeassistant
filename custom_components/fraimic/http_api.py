@@ -1,4 +1,4 @@
-"""HTTP API view — accept image uploads and forward to a Fraimic frame."""
+"""HTTP API views — image uploads to a frame, and the onboarding flag."""
 
 from __future__ import annotations
 
@@ -9,11 +9,50 @@ from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.storage import Store
 
 from .const import DOMAIN
 from .helpers import render_spec_for_entry
 
 _LOGGER = logging.getLogger(__name__)
+
+_ONBOARDING_STORE_KEY = f"{DOMAIN}_onboarding"
+_ONBOARDING_STORE_VERSION = 1
+
+
+class FraimicOnboardingView(HomeAssistantView):
+    """GET/POST /api/fraimic/onboarding — the first-run wizard's flag.
+
+    Server-side (an HA Store, not localStorage) so completing or skipping
+    the wizard once dismisses it for every admin on every browser, forever.
+    """
+
+    url = "/api/fraimic/onboarding"
+    name = "api:fraimic:onboarding"
+    requires_auth = True
+
+    def _store(self, hass) -> Store:
+        domain_data = hass.data.setdefault(DOMAIN, {})
+        store = domain_data.get("_onboarding_store")
+        if store is None:
+            store = Store(hass, _ONBOARDING_STORE_VERSION, _ONBOARDING_STORE_KEY)
+            domain_data["_onboarding_store"] = store
+        return store
+
+    async def get(self, request: web.Request) -> web.Response:
+        hass = request.app["hass"]
+        data = await self._store(hass).async_load() or {}
+        return self.json({"complete": bool(data.get("complete"))})
+
+    async def post(self, request: web.Request) -> web.Response:
+        hass = request.app["hass"]
+        # Only admins ever see the wizard (its actions -- config flows,
+        # backend switching -- are admin capabilities), so only admins may
+        # retire it for the whole install.
+        if not request["hass_user"].is_admin:
+            return self.json_message("Admin required", status_code=403)
+        await self._store(hass).async_save({"complete": True})
+        return self.json({"success": True, "complete": True})
 
 
 def resolve_frame_by_entity(hass, entity_id: str):
