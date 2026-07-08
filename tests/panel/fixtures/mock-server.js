@@ -65,7 +65,18 @@ function parseMultipartFields(buf) {
 // scenePacks: [{ id, name, categories, ... }]
 function createMockServer({ frames = [], scenes = [], images = [], albums = [], walls = [], scenePacks = [], discoveredFlows = [] } = {}) {
   let sceneList = scenes.map((s) => ({ created_at: 0, album: null, source: 'user', ...s }));
-  let wallList = walls.map((w) => ({ created_at: 0, placements: {}, ...w }));
+  // The backend guarantees the default "All Frames" wall exists with a
+  // placement for every configured frame -- mirror that here unless a test
+  // seeds its own default wall record.
+  let wallList = walls.map((w) => ({ created_at: 0, placements: {}, kind: 'custom', ...w }));
+  if (!wallList.some((w) => w.kind === 'default')) {
+    const defaultPlacements = {};
+    frames.forEach((f, i) => { defaultPlacements[f.entry_id] = { x: i * 160, y: 0 }; });
+    wallList.unshift({
+      wall_id: 'default', name: 'All Frames', kind: 'default',
+      placements: defaultPlacements, created_at: 0,
+    });
+  }
   let nextWallId = wallList.length + 1;
   let nextSceneId = sceneList.length + 1;
   const requestLog = [];

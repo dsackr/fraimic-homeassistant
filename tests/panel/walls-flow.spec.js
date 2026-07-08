@@ -59,19 +59,15 @@ test.describe('Walls save/preview/edit flow', () => {
     await mockServer.stop();
   });
 
-  test('Save Layout persists placements to the backend', async ({ page }) => {
+  test('layout edits auto-save to the backend (no Save Layout button)', async ({ page }) => {
     await gotoPanel(page, baseUrl, { frames: FRAMES });
     await buildWallWithBothFrames(page, mockServer);
 
-    await clickPanelButton(page, 'wall-save-layout-btn');
-    await page.waitForTimeout(300);
+    // Drops schedule a debounced (~800ms) save of the active custom wall.
+    await page.waitForTimeout(1300);
 
-    const fb = await getFeedback(page, 'wall-fb');
-    expect(fb.className).toContain('ok');
-    expect(fb.text).toContain('saved');
-
-    expect(mockServer.walls).toHaveLength(1);
-    expect(Object.keys(mockServer.walls[0].placements).sort()).toEqual(['entry_1', 'entry_2']);
+    const wall = mockServer.walls.find((w) => w.name === 'Living Room');
+    expect(Object.keys(wall.placements).sort()).toEqual(['entry_1', 'entry_2']);
   });
 
   test('selecting a scene previews its mappings on the wall', async ({ page }) => {

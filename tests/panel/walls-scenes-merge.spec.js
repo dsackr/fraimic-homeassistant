@@ -11,8 +11,8 @@ const { createMockServer } = require('./fixtures/mock-server');
 const {
   gotoPanel,
   openScenesTab,
-  dragFirstPaletteItemTo,
-  clickPaletteItem,
+  clickTile,
+  dragTileBy,
   selectWallScene,
   clickPanelButton,
 } = require('./fixtures/panel-page');
@@ -29,7 +29,7 @@ test.describe('Scenes tab is the wall canvas', () => {
     await mockServer.stop();
   });
 
-  test('a saved wall loads automatically -- no wall picker step required', async ({ page }) => {
+  test('the default wall loads automatically -- no wall picker step, custom walls still selectable', async ({ page }) => {
     mockServer = createMockServer({
       frames: FRAMES,
       walls: [{ wall_id: 'wall_1', name: 'Living Room', placements: { entry_1: { x: 20, y: 20 } } }],
@@ -44,40 +44,51 @@ test.describe('Scenes tab is the wall canvas', () => {
       return !!root.querySelector('.wall-tile[data-entry-id="entry_1"]');
     }, { timeout: 5000 });
 
-    const selectValue = await page.evaluate(
-      () => document.getElementById('panel').shadowRoot.getElementById('wall-select').value
-    );
-    expect(selectValue).toBe('wall_1');
+    const state = await page.evaluate(() => {
+      const root = document.getElementById('panel').shadowRoot;
+      const sel = root.getElementById('wall-select');
+      return {
+        value: sel.value,
+        firstOption: sel.options[0].textContent,
+        optionValues: [...sel.options].map((o) => o.value),
+      };
+    });
+    expect(state.value).toBe('default');
+    expect(state.firstOption).toBe('All Frames');
+    expect(state.optionValues).toContain('wall_1');
   });
 
-  test('with no wall saved yet, the canvas is ready immediately and Save Layout prompts for a name', async ({ page }) => {
+  test('the default wall places every frame, hides delete/remove, and auto-saves drags', async ({ page }) => {
     mockServer = createMockServer({ frames: FRAMES });
     baseUrl = await mockServer.start();
 
     await gotoPanel(page, baseUrl, { frames: FRAMES });
     await openScenesTab(page);
 
-    // No dialog needed to see a usable canvas -- unlike createWall(), this
-    // exercises the draft-wall path directly.
-    const canvasBox = await page.evaluate(() => {
-      const r = document.getElementById('panel').shadowRoot.getElementById('wall-canvas').getBoundingClientRect();
-      return { x: r.x, y: r.y };
+    // Every configured frame is already placed -- no palette items, no ✕
+    // remove buttons, no Delete Wall, no Save Layout button at all.
+    const state = await page.evaluate(() => {
+      const root = document.getElementById('panel').shadowRoot;
+      return {
+        tiles: [...root.querySelectorAll('.wall-tile')].map((t) => t.dataset.entryId),
+        paletteItems: root.querySelectorAll('.wall-palette-item').length,
+        removeBtns: root.querySelectorAll('.tile-remove-btn').length,
+        deleteBtnHidden: root.getElementById('wall-delete-btn').style.display === 'none',
+        saveLayoutBtn: root.getElementById('wall-save-layout-btn'),
+      };
     });
-    await dragFirstPaletteItemTo(page, canvasBox.x + 80, canvasBox.y + 60);
-    await page.waitForTimeout(100);
+    expect(state.tiles).toEqual(['entry_1']);
+    expect(state.paletteItems).toBe(0);
+    expect(state.removeBtns).toBe(0);
+    expect(state.deleteBtnHidden).toBe(true);
+    expect(state.saveLayoutBtn).toBe(null);
 
-    page.once('dialog', (dialog) => dialog.accept('Living Room'));
-    await clickPanelButton(page, 'wall-save-layout-btn');
-    await page.waitForTimeout(300);
-
-    expect(mockServer.walls).toHaveLength(1);
-    expect(mockServer.walls[0].name).toBe('Living Room');
-    expect(Object.keys(mockServer.walls[0].placements)).toEqual(['entry_1']);
-
-    const selectValue = await page.evaluate(
-      () => document.getElementById('panel').shadowRoot.getElementById('wall-select').value
-    );
-    expect(selectValue).toBe(mockServer.walls[0].wall_id);
+    // Dragging a tile persists automatically (debounced ~800ms).
+    await dragTileBy(page, 'entry_1', 200, 40);
+    await page.waitForTimeout(1200);
+    const saved = mockServer.walls.find((w) => w.wall_id === 'default');
+    const seeded = { x: 0, y: 0 };
+    expect(saved.placements.entry_1).not.toEqual(seeded);
   });
 
   test('the scene picker defaults to "Create New…", not a saved scene, and has no separate new-scene button', async ({ page }) => {
@@ -150,7 +161,9 @@ test.describe('Scenes tab is the wall canvas', () => {
 
     await gotoPanel(page, baseUrl, { frames: FRAMES });
     await openScenesTab(page);
-    await clickPaletteItem(page, 'entry_1');
+    // Frames live on the default wall now, so the click target is a canvas
+    // tile rather than a palette item -- same click→picker contract.
+    await clickTile(page, 'entry_1');
     await page.waitForFunction(
       () => document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-overlay').style.display === 'block'
     );

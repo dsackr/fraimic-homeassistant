@@ -39,10 +39,11 @@ test.describe('Lazy thumbnail loading', () => {
 
   test('hidden-tab thumbnails are not fetched at init, only once selected', async ({ page }) => {
     await gotoPanel(page, baseUrl, { frames: FRAMES });
-    // Give any (wrong) eager fetch time to fire. The wall palette's thumbnail
-    // is the only _loadThumbnail consumer in this fixture, and it lives in
-    // the hidden Scenes tab -- and isn't even showing an image yet, since no
-    // scene is selected by default ("Create New…").
+    // Give any (wrong) eager fetch time to fire. The wall canvas tile's
+    // thumbnail is the only _loadThumbnail consumer in this fixture (the
+    // frame sits on the default wall), and it lives in the hidden Scenes
+    // tab -- and isn't even showing an image yet, since no scene is
+    // selected by default ("Create New…").
     await page.waitForTimeout(400);
     expect(imageFetches(mockServer, 'image_1')).toBe(0);
 
@@ -62,10 +63,10 @@ test.describe('Lazy thumbnail loading', () => {
       sel.dispatchEvent(new Event('change'));
     });
 
-    // Now the palette thumbnail is showing: the observer fires and it loads.
+    // Now the tile thumbnail is showing: the observer fires and it loads.
     await page.waitForFunction(() => {
       const root = document.getElementById('panel').shadowRoot;
-      return !!root.querySelector('.wall-palette-thumb img');
+      return !!root.querySelector('.wall-tile img');
     }, { timeout: 5000 });
     expect(imageFetches(mockServer, 'image_1')).toBe(1);
   });

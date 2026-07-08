@@ -15,8 +15,8 @@ const IMAGES = [
 ];
 
 // Selecting scene_1 previews its mapping on the wall canvas -- its one
-// mapped frame (entry_1) isn't placed on any wall, so the thumbnail paints
-// on its palette item.
+// mapped frame (entry_1) sits on the default wall (every configured frame
+// does), so the thumbnail paints on its canvas tile.
 async function openScenesTabAndWaitForCover(page) {
   await page.evaluate(() => {
     document.getElementById('panel').shadowRoot.querySelector('.tab-btn[data-tab="scenes"]').click();
@@ -31,11 +31,11 @@ async function openScenesTabAndWaitForCover(page) {
     sel.dispatchEvent(new Event('change'));
   });
   await page.waitForFunction(() => {
-    const img = document.getElementById('panel').shadowRoot.querySelector('.wall-palette-thumb img');
+    const img = document.getElementById('panel').shadowRoot.querySelector('.wall-tile img');
     return img && img.src.startsWith('blob:');
   }, { timeout: 5000 });
   return page.evaluate(() =>
-    document.getElementById('panel').shadowRoot.querySelector('.wall-palette-thumb img').src
+    document.getElementById('panel').shadowRoot.querySelector('.wall-tile img').src
   );
 }
 
@@ -85,7 +85,7 @@ test.describe('Panel element lifecycle', () => {
       document.dispatchEvent(new Event('visibilitychange'));
     });
 
-    // Reattach: panel revives and the wall palette's thumbnail repaints with
+    // Reattach: panel revives and the wall tile's thumbnail repaints with
     // a fresh blob.
     await page.evaluate(() => document.body.appendChild(window.__panel));
     const revived = await page.evaluate(() => ({
@@ -96,7 +96,7 @@ test.describe('Panel element lifecycle', () => {
     expect(revived.aborted).toBe(false);
 
     await page.waitForFunction(() => {
-      const img = window.__panel.shadowRoot.querySelector('.wall-palette-thumb img');
+      const img = window.__panel.shadowRoot.querySelector('.wall-tile img');
       return img && img.src.startsWith('blob:');
     }, { timeout: 5000 });
 
@@ -117,7 +117,7 @@ test.describe('Panel element lifecycle', () => {
 
     const state = await page.evaluate(() => {
       const panel = document.getElementById('panel');
-      const img = panel.shadowRoot.querySelector('.wall-palette-thumb img');
+      const img = panel.shadowRoot.querySelector('.wall-tile img');
       return {
         disposed: panel._disposed,
         thumbCount: Object.keys(panel._thumbUrls).length,
