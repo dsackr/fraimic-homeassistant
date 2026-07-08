@@ -28,7 +28,7 @@ from .const import (
     ORIENTATION_LANDSCAPE,
     ORIENTATION_PORTRAIT,
 )
-from .frame_types import FRAME_TYPES
+from .frame_types import FRAME_TYPES, ORIGIN_OFFICIAL
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -199,6 +199,46 @@ def mac_from_info(info: dict[str, Any]) -> str:
     """Extract the normalised (no colons, lowercase) MAC from a /api/info response."""
     raw = info.get("wifi", {}).get("mac", "")
     return raw.replace(":", "").lower()
+
+
+# Official Fraimic Wi-Fi module OUIs. Mirrors manifest.json's dhcp
+# matchers (which can't be imported from here) -- keep the two in sync.
+_OFFICIAL_MAC_PREFIXES = ("1cdbd4", "3cdc75")
+
+
+def detect_frame_type_from_info(info: dict[str, Any]) -> str | None:
+    """Infer the frame type from /api/info's reported pixel dimensions.
+
+    Second-line detection behind probe_device_size's /info HTML scrape:
+    clones' community firmware doesn't serve that page in the expected
+    format, but every firmware that reports width/height in /api/info can
+    be matched against the frame-type registry by resolution
+    (orientation-agnostic, like byte_layout_for_resolution).
+
+    Resolutions shared by multiple types (13.3" official vs 13.1" clone,
+    both 1200x1600) are disambiguated by MAC OUI -- functionally either
+    answer renders identically (the registry validates shared resolutions
+    agree on byte layout), so this only affects the display label.
+    """
+    width = info.get("width")
+    height = info.get("height")
+    if not isinstance(width, int) or not isinstance(height, int):
+        return None
+
+    candidates = [
+        ft for ft in FRAME_TYPES.values()
+        if ft.resolution in ((width, height), (height, width))
+    ]
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0].id
+
+    is_official = mac_from_info(info).startswith(_OFFICIAL_MAC_PREFIXES)
+    for frame_type in candidates:
+        if (frame_type.origin == ORIGIN_OFFICIAL) == is_official:
+            return frame_type.id
+    return candidates[0].id
 
 
 def match_and_update_entry(

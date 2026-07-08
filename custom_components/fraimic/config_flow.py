@@ -34,6 +34,7 @@ from .const import (
 )
 from .frame_types import FRAME_TYPES
 from .helpers import (
+    detect_frame_type_from_info,
     device_key_from_info,
     get_local_ip,
     mac_from_info,
@@ -381,9 +382,13 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
         self._selected_host = host
         self._selected_info = info
 
+        # Two-line detection: the /info HTML scrape is authoritative when it
+        # works (official firmware), and the /api/info resolution lookup
+        # covers clones whose firmware doesn't serve that page -- the size
+        # dropdown in name_device only appears when both come up empty.
         self._detected_size = await probe_device_size(
             async_get_clientsession(self.hass), host
-        )
+        ) or detect_frame_type_from_info(info)
 
         return await self.async_step_name_device()
 
