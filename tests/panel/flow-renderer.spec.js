@@ -138,6 +138,23 @@ test.describe('Embedded flow renderer', () => {
     expect(state.submitVisible).toBe(true);
   });
 
+  test('Enter in a form field submits the step like the button does', async ({ page }) => {
+    await gotoPanel(page, baseUrl, { frames: FRAMES });
+
+    await clickPanelButton(page, 'frame-add-btn');
+    await waitForStep(page, 'user');
+
+    await page.evaluate(() => {
+      const el = document.getElementById('panel').shadowRoot.getElementById('flow-field-host');
+      el.focus();
+      el.value = '192.168.1.31';
+    });
+    await page.keyboard.press('Enter');
+
+    await waitForStep(page, 'name_device');
+    expect(mockServer.flowSubmissions[0].body).toEqual({ host: '192.168.1.31' });
+  });
+
   test('cancelling a user-initiated flow DELETEs it server-side', async ({ page }) => {
     await gotoPanel(page, baseUrl, { frames: FRAMES });
 

@@ -2363,6 +2363,14 @@
       input.dataset.flowField = field.name;
       input.dataset.flowType = field.type || 'string';
       input.dataset.flowOptional = field.optional ? '1' : '';
+      // Enter anywhere in the form submits the step -- typing a name and
+      // hitting Enter must behave like clicking the submit button.
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          this._submitFlowStep();
+        }
+      });
       row.appendChild(input);
 
       const hint = this._flowText(`${stepKey}.data_description.${field.name}`, '');
@@ -6474,6 +6482,16 @@
       root.getElementById('pack-preview-close').addEventListener('click', () => this._closePackPreview());
       root.getElementById('pack-preview-prev').addEventListener('click', () => this._packPreviewStep(-1));
       root.getElementById('pack-preview-next').addEventListener('click', () => this._packPreviewStep(1));
+      // Clicking the empty space around the photo (the greyed-out stage,
+      // or the overlay's own margins) closes the viewer -- the standard
+      // lightbox dismissal. Clicks on the image itself and the nav arrows
+      // have their own targets and don't match.
+      root.getElementById('pack-preview-stage').addEventListener('click', (e) => {
+        if (e.target.id === 'pack-preview-stage') this._closePackPreview();
+      });
+      root.getElementById('pack-preview-overlay').addEventListener('click', (e) => {
+        if (e.target.id === 'pack-preview-overlay') this._closePackPreview();
+      });
 
       // Bound at window, not shadowRoot -- keydown only bubbles to a
       // shadowRoot listener if focus is already inside the shadow tree,

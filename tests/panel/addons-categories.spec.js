@@ -124,4 +124,31 @@ test.describe('Add-ons category tags', () => {
     await openCategory(page, 'Speed');
     await expect.poll(() => visiblePackTitles(page)).toEqual(['Fast Animals']);
   });
+
+  test('the image viewer closes on a backdrop click but not on the photo itself', async ({ page }) => {
+    await gotoPanel(page, baseUrl);
+    await openAddons(page);
+
+    const overlayDisplay = () => page.evaluate(
+      () => document.getElementById('panel').shadowRoot.getElementById('pack-preview-overlay').style.display
+    );
+
+    await page.evaluate(() => {
+      const panel = document.getElementById('panel');
+      panel._openPackPreview(panel._scenePacks[0], 0);
+    });
+    expect(await overlayDisplay()).toBe('flex');
+
+    // Clicking the photo keeps the viewer open…
+    await page.evaluate(() => {
+      document.getElementById('panel').shadowRoot.getElementById('pack-preview-img').click();
+    });
+    expect(await overlayDisplay()).toBe('flex');
+
+    // …clicking the greyed-out space beside it closes it.
+    await page.evaluate(() => {
+      document.getElementById('panel').shadowRoot.getElementById('pack-preview-stage').click();
+    });
+    expect(await overlayDisplay()).toBe('none');
+  });
 });
