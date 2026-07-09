@@ -6427,7 +6427,7 @@
     // still gets sent if it has an image assigned, since placement and
     // "active" are unrelated (see the note above this section).
     // One library image → one physical frame, immediately. Shared by the
-    // per-tile picker (send-on-pick) and "Send to Frames" (whole wall).
+    // per-tile picker's Send button and "Send to Frames" (whole wall).
     // Returns { queued } on acceptance; throws on a real failure.
     async _sendLibraryImageToFrame(frame, imageId) {
       const form = new FormData();
@@ -7215,13 +7215,11 @@
           cell.classList.add('selected');
         }
         cell.addEventListener('click', () => {
-          // Selecting only STAGES: highlight here, live preview on the
-          // tile behind the transparent backdrop, and the pending-mapping
-          // write that Save Scene has always merged from. Nothing reaches
-          // the physical frame until the Send button below -- sending is
-          // always its own deliberate click.
-          grid.querySelectorAll('.image-picker-cell.selected').forEach(c => c.classList.remove('selected'));
-          cell.classList.add('selected');
+          // Selecting only STAGES: the pending-mapping write that Save
+          // Scene has always merged from, plus the live preview on the
+          // tile. Nothing reaches the physical frame -- sending is always
+          // its own deliberate click. Picking is the picker's job done,
+          // so it closes itself; the tile preview is the confirmation.
           this._wallPickerSelectedFile = null;
           this._wallPendingMappings[entryId] = image.image_id;
           // Recorded at the moment of picking, from whichever album filter
@@ -7229,8 +7227,8 @@
           // this stays a simple, predictable "did you leave the scene's
           // locked album to make this pick" check (see _wallHasOffAlbumPick).
           this._wallPendingPickAlbum[entryId] = album;
+          this._closeWallImagePicker();
           this._renderWallCanvas();
-          this._updateWallPickerSendButton();
         });
         grid.appendChild(cell);
       }

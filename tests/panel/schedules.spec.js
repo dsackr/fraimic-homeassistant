@@ -352,11 +352,21 @@ test.describe('Scheduled events', () => {
     );
     expect(disabled).toBe(true);
 
+    // Picking stages the image and closes the picker; reopening shows the
+    // pick selected with Schedule… now armed.
     await panelEval(page, () => {
       const root = document.getElementById('panel').shadowRoot;
       [...root.querySelectorAll('#wall-image-picker-grid .image-picker-cell')]
         .find((c) => c.dataset.imageId === 'image_family').click();
     });
+    await page.waitForFunction(
+      () => document.getElementById('panel').shadowRoot.getElementById('wall-image-picker-overlay').style.display === 'none'
+    );
+    await clickTile(page, 'entry_1');
+    await page.waitForFunction(
+      () => document.getElementById('panel').shadowRoot
+        .querySelectorAll('#wall-image-picker-grid .image-picker-cell.selected').length === 1
+    );
     disabled = await panelEval(page,
       () => document.getElementById('panel').shadowRoot.getElementById('wall-picker-schedule-btn').disabled
     );

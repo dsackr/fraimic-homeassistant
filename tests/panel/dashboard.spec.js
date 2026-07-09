@@ -169,7 +169,7 @@ test.describe('Consolidated dashboard', () => {
     expect(mockServer.rawSends).toEqual([]);
   });
 
-  test('clicking an image only stages it -- the Send button is the transmit moment', async ({ page }) => {
+  test('clicking an image stages it and closes the picker -- the Send button is the transmit moment', async ({ page }) => {
     await clickTile(page, 'entry_1');
     await page.waitForFunction(
       (id) => !!document.getElementById('panel').shadowRoot
@@ -182,22 +182,32 @@ test.describe('Consolidated dashboard', () => {
         .find((c) => c.dataset.imageId === 'image_1').click();
     });
 
-    // Staged (highlight + pending mapping + enabled Send), NOT sent.
+    // Staged (pending mapping) and dismissed, NOT sent.
     const staged = await page.evaluate(() => {
       const panel = document.getElementById('panel');
       const root = panel.shadowRoot;
-      const btn = root.getElementById('wall-picker-send-btn');
       return {
-        selected: root.querySelectorAll('#wall-image-picker-grid .image-picker-cell.selected').length,
         pending: panel._wallPendingMappings,
-        sendEnabled: !btn.disabled,
-        sendLabel: btn.textContent,
+        pickerDisplay: root.getElementById('wall-image-picker-overlay').style.display,
       };
     });
-    expect(staged.selected).toBe(1);
     expect(staged.pending).toEqual({ entry_1: 'image_1' });
-    expect(staged.sendEnabled).toBe(true);
-    expect(staged.sendLabel).toContain('Living Room Frame');
+    expect(staged.pickerDisplay).toBe('none');
+    expect(mockServer.sends).toEqual([]);
+
+    // Reopening the picker shows the staged pick already selected, with
+    // the Send button armed to transmit it.
+    await clickTile(page, 'entry_1');
+    await page.waitForFunction(
+      () => document.getElementById('panel').shadowRoot
+        .querySelectorAll('#wall-image-picker-grid .image-picker-cell.selected').length === 1
+    );
+    const reopened = await page.evaluate(() => {
+      const btn = document.getElementById('panel').shadowRoot.getElementById('wall-picker-send-btn');
+      return { sendEnabled: !btn.disabled, sendLabel: btn.textContent };
+    });
+    expect(reopened.sendEnabled).toBe(true);
+    expect(reopened.sendLabel).toContain('Living Room Frame');
     expect(mockServer.sends).toEqual([]);
 
     // The deliberate click.
