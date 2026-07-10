@@ -459,7 +459,7 @@ def _safe_media_join(local_dir: str, relative: str) -> str:
 
 async def _fetch_media_bytes(hass: HomeAssistant, url: str) -> bytes:
     """Fetch a media source's (possibly relative, unsigned) HTTP URL."""
-    from homeassistant.components.http import async_sign_path  # noqa: PLC0415
+    from homeassistant.components.http.auth import async_sign_path  # noqa: PLC0415
     from homeassistant.helpers.aiohttp_client import (  # noqa: PLC0415
         async_get_clientsession,
     )
