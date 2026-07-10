@@ -467,7 +467,7 @@ async def _fetch_media_bytes(hass: HomeAssistant, url: str) -> bytes:
 
     if url.startswith("/"):
         signed_path = async_sign_path(hass, url, timedelta(seconds=30))
-        url = get_url(hass, allow_external=False) + signed_path
+        url = get_url(hass) + signed_path
 
     session = async_get_clientsession(hass)
     async with session.get(url) as resp:
