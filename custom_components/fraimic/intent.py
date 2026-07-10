@@ -40,7 +40,7 @@ def _match_frame_device_id(hass: HomeAssistant, frame_name: str) -> str:
     frames = [
         device
         for device in dev_reg.devices.values()
-        if any(domain == DOMAIN for domain, _id in device.identifiers)
+        if any(identifier[0] == DOMAIN for identifier in device.identifiers)
     ]
     if not frames:
         raise HomeAssistantError("No Fraimic frames are configured")
