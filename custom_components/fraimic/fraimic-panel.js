@@ -7711,7 +7711,7 @@
     // manifest can use it without another fraimic-homeassistant release.
     // Supported field shape:
     //   name       (required) -- maps to script_config[name] and DOM id widget-field-<name>
-    //   type       'string' (default) | 'select' | 'entity'
+    //   type       'string' (default) | 'select' | 'entity' | 'json'
     //   label, placeholder, help (help supports **bold**)
     //   default    initial value for a fresh install
     //   required   enforced only while the field is visible (see show_if)
@@ -7719,6 +7719,11 @@
     //   domain     entity domain to offer, e.g. 'calendar' -- for type 'entity'
     //   show_if    {field, equals} -- row hidden unless that other field has this value
     //   group      'weather' places the field in the optional Location/Weather section
+    //
+    //   type 'json' is a free-form textarea for structured config (e.g. a
+    //   custom quotes/scriptures list) that a plain string can't express --
+    //   validated as JSON on submit and parsed into real config.json
+    //   structure server-side (see scene_packs.py's _async_install_widget).
     _renderConfigField(field) {
       const fieldId = `widget-field-${field.name}`;
       const label = this._esc(field.label || field.name);
@@ -7740,6 +7745,8 @@
         inputHtml = entities.length
           ? `<select id="${fieldId}">${options}</select>`
           : `<select id="${fieldId}" disabled><option value="">No ${this._esc(field.domain)} entities found</option></select>`;
+      } else if (field.type === 'json') {
+        inputHtml = `<textarea id="${fieldId}" rows="5" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:12px" placeholder="${placeholder}"></textarea>`;
       } else {
         inputHtml = `<input type="text" id="${fieldId}" placeholder="${placeholder}">`;
       }
@@ -7908,13 +7915,24 @@
         for (const field of (pack.config_schema || [])) {
           if (!(field.name in values)) continue;
           const visible = !field.show_if || values[field.show_if.field] === field.show_if.equals;
-          if (field.required && visible && !values[field.name]) {
+          const val = values[field.name];
+          if (field.required && visible && !val) {
             fb.textContent = `${field.label || field.name} is required.`;
             fb.className = 'feedback err';
             fb.style.display = 'block';
             return;
           }
-          payload[field.name] = values[field.name];
+          if (field.type === 'json' && visible && val) {
+            try {
+              JSON.parse(val);
+            } catch (e) {
+              fb.textContent = `${field.label || field.name} must be valid JSON.`;
+              fb.className = 'feedback err';
+              fb.style.display = 'block';
+              return;
+            }
+          }
+          payload[field.name] = val;
         }
 
         newSubmitBtn.disabled = true;

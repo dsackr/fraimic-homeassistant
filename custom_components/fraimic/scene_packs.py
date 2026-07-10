@@ -521,21 +521,38 @@ class ScenePackManager:
             script_config["weather"] = {
                 "enabled": False
             }
-            
+
+        # Any other "weather"-group field (e.g. temp_unit) rides along in
+        # the same nested block -- zip_code is excluded since it's already
+        # folded in above via the lat/lon-vs-zip_code branch.
+        for field in pack.get("config_schema", []):
+            if field.get("group") == "weather" and field["name"] != "zip_code":
+                val = config_data.get(field["name"])
+                if val:
+                    script_config["weather"][field["name"]] = val
+
         # config_schema fields map straight onto script_config by name, with
-        # two exceptions handled elsewhere: "weather"-group fields (zip_code)
-        # already folded into the weather block above, and the calendar
-        # composite fields (a pack's own choice to expose a calendar_source
-        # selector) assembled into a nested "calendar" block below. Neither
-        # is keyed off a hardcoded pack id, so any future pack manifest that
-        # reuses either pattern gets the same handling for free.
+        # two exceptions handled elsewhere: "weather"-group fields (folded in
+        # above) and the calendar composite fields (a pack's own choice to
+        # expose a calendar_source selector) assembled into a nested
+        # "calendar" block below. Neither is keyed off a hardcoded pack id,
+        # so any future pack manifest that reuses either pattern gets the
+        # same handling for free. A field typed "json" is stored as text in
+        # the form but needs to land in config.json as real structured data
+        # (e.g. a custom quotes/scriptures list), so it's parsed here.
         schema_field_names = {f["name"] for f in pack.get("config_schema", [])}
 
         for field in pack.get("config_schema", []):
             name = field["name"]
             if field.get("group") == "weather" or name in _CALENDAR_COMPOSITE_FIELDS:
                 continue
-            script_config[name] = config_data.get(name)
+            val = config_data.get(name)
+            if field.get("type") == "json" and val:
+                try:
+                    val = json.loads(val)
+                except (TypeError, ValueError):
+                    val = None
+            script_config[name] = val
 
         if _CALENDAR_COMPOSITE_FIELDS & schema_field_names:
             calendar_source = config_data.get("calendar_source")
