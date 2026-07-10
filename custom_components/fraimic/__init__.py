@@ -60,6 +60,22 @@ _SEND_IMAGE_SCHEMA = vol.Schema(
     }
 )
 
+_GENERATE_AI_IMAGE_SCHEMA = vol.Schema(
+    {
+        vol.Required("device_id"): cv.string,
+        vol.Required("prompt"): cv.string,
+        vol.Optional("ai_task_entity_id"): cv.string,
+    }
+)
+
+# AI-generated art always lands in its own album, kept separate from
+# whatever the user's own uploads are organized into.
+AI_GENERATED_ALBUM = "GenAI"
+
+# ai_task.AITaskEntityFeature.GENERATE_IMAGE -- matches the bit the
+# ai_task.generate_image service itself filters entities on.
+_AI_TASK_GENERATE_IMAGE_FEATURE = 4
+
 _SEND_SCENE_SCHEMA = vol.Schema(
     {
         vol.Required("name"): cv.string,
@@ -434,12 +450,8 @@ def _safe_media_join(local_dir: str, relative: str) -> str:
     return joined
 
 
-async def _download_media_to_temp(
-    hass: HomeAssistant, url: str, mime_type: str | None
-) -> str:
-    """Download a media source's HTTP-only URL (e.g. an ai_task-generated
-    image) to a temp file, since those sources don't expose a filesystem path.
-    """
+async def _fetch_media_bytes(hass: HomeAssistant, url: str) -> bytes:
+    """Fetch a media source's (possibly relative, unsigned) HTTP URL."""
     from homeassistant.components.http import async_sign_path  # noqa: PLC0415
     from homeassistant.helpers.aiohttp_client import (  # noqa: PLC0415
         async_get_clientsession,
@@ -456,8 +468,16 @@ async def _download_media_to_temp(
             raise HomeAssistantError(
                 f"Failed to download media from {url}: HTTP {resp.status}"
             )
-        data = await resp.read()
+        return await resp.read()
 
+
+async def _download_media_to_temp(
+    hass: HomeAssistant, url: str, mime_type: str | None
+) -> str:
+    """Download a media source's HTTP-only URL (e.g. an ai_task-generated
+    image) to a temp file, since those sources don't expose a filesystem path.
+    """
+    data = await _fetch_media_bytes(hass, url)
     suffix = mimetypes.guess_extension(mime_type or "") or ".tmp"
     fd, path = tempfile.mkstemp(suffix=suffix)
     with os.fdopen(fd, "wb") as fh:
@@ -503,6 +523,17 @@ async def _resolve_media_path(
         return _safe_media_join(local_dir, media_content_id[len("/media/"):]), False
 
     return media_content_id, False
+
+
+def _find_ai_task_image_entity(hass: HomeAssistant) -> str:
+    """Return the first ai_task entity that supports image generation."""
+    for state in hass.states.async_all("ai_task"):
+        if state.attributes.get("supported_features", 0) & _AI_TASK_GENERATE_IMAGE_FEATURE:
+            return state.entity_id
+    raise HomeAssistantError(
+        "No AI Task entity with image-generation support is configured "
+        "(set up an AI Task-capable conversation agent first)"
+    )
 
 
 def _register_services(hass: HomeAssistant) -> None:
@@ -581,6 +612,70 @@ def _register_services(hass: HomeAssistant) -> None:
                 coordinator.host,
             )
 
+    async def _handle_generate_ai_image(call: ServiceCall) -> None:
+        device_id: str = call.data["device_id"]
+        prompt: str = call.data["prompt"]
+        ai_task_entity_id: str | None = call.data.get("ai_task_entity_id")
+
+        coordinator, entry_id = _get_coordinator_by_device_id(hass, device_id)
+        entry = hass.config_entries.async_get_entry(entry_id)
+        if entry is None:
+            raise HomeAssistantError(f"Config entry '{entry_id}' not found")
+
+        from .helpers import render_spec_for_entry  # noqa: PLC0415
+
+        spec = render_spec_for_entry(entry)
+
+        if not ai_task_entity_id:
+            ai_task_entity_id = _find_ai_task_image_entity(hass)
+
+        gen_result = await hass.services.async_call(
+            "ai_task",
+            "generate_image",
+            {
+                "entity_id": ai_task_entity_id,
+                "task_name": "Fraimic AI-generated frame image",
+                "instructions": prompt,
+            },
+            blocking=True,
+            return_response=True,
+        )
+
+        from homeassistant.components.media_source import (  # noqa: PLC0415
+            async_resolve_media,
+        )
+
+        media_item = await async_resolve_media(
+            hass, gen_result["media_source_id"], None
+        )
+        raw_bytes = await _fetch_media_bytes(hass, media_item.url)
+
+        manager = hass.data.get(DOMAIN, {}).get("_library")
+        if manager is None:
+            raise HomeAssistantError("Library manager not initialised")
+
+        import uuid  # noqa: PLC0415
+
+        filename = f"genai_{uuid.uuid4().hex[:8]}.png"
+        record = await manager.async_upload(filename, raw_bytes, [AI_GENERATED_ALBUM])
+        image_id = record["image_id"]
+
+        bin_bytes = await manager.async_get_bin_for_send(image_id, spec)
+        result = await coordinator.async_send_image_or_queue(
+            bin_bytes, image_id=image_id
+        )
+
+        if result["queued"]:
+            _LOGGER.info(
+                "AI-generated image '%s' queued for frame %s (asleep)",
+                image_id,
+                coordinator.host,
+            )
+        else:
+            _LOGGER.info(
+                "AI-generated image '%s' sent to frame %s", image_id, coordinator.host
+            )
+
     async def _handle_send_scene(call: ServiceCall) -> None:
         name: str = call.data["name"]
 
@@ -634,4 +729,10 @@ def _register_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, "send_scene", _handle_send_scene, schema=_SEND_SCENE_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN,
+        "generate_ai_image",
+        _handle_generate_ai_image,
+        schema=_GENERATE_AI_IMAGE_SCHEMA,
     )

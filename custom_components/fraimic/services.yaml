@@ -59,6 +59,32 @@ refresh:
         device:
           integration: fraimic
 
+generate_ai_image:
+  name: Generate AI Image
+  description: Generate an AI image from a text prompt and send it to a Fraimic frame. The image is uploaded to your configured library backend (tagged into the "GenAI" album) exactly like a manual upload, then sent.
+  fields:
+    device_id:
+      name: Frame
+      description: The Fraimic frame to send the generated image to.
+      required: true
+      selector:
+        device:
+          integration: fraimic
+    prompt:
+      name: Prompt
+      description: Description of the image to generate.
+      required: true
+      selector:
+        text:
+    ai_task_entity_id:
+      name: AI Task entity
+      description: Which AI Task entity to generate with. Defaults to the first configured entity that supports image generation.
+      required: false
+      selector:
+        entity:
+          filter:
+            - domain: ai_task
+
 send_scene:
   name: Send Scene
   description: Send a Fraimic scene's mapped images to their assigned frames all at once.
