@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 import os
+import tempfile
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import voluptuous as vol
@@ -431,8 +434,45 @@ def _safe_media_join(local_dir: str, relative: str) -> str:
     return joined
 
 
-async def _resolve_media_path(hass: HomeAssistant, media_content_id: str) -> str:
-    """Resolve a media content_id or path string to an absolute filesystem path."""
+async def _download_media_to_temp(
+    hass: HomeAssistant, url: str, mime_type: str | None
+) -> str:
+    """Download a media source's HTTP-only URL (e.g. an ai_task-generated
+    image) to a temp file, since those sources don't expose a filesystem path.
+    """
+    from homeassistant.components.http import async_sign_path  # noqa: PLC0415
+    from homeassistant.helpers.aiohttp_client import (  # noqa: PLC0415
+        async_get_clientsession,
+    )
+    from homeassistant.helpers.network import get_url  # noqa: PLC0415
+
+    if url.startswith("/"):
+        signed_path = async_sign_path(hass, url, timedelta(seconds=30))
+        url = get_url(hass, allow_external=False) + signed_path
+
+    session = async_get_clientsession(hass)
+    async with session.get(url) as resp:
+        if resp.status != 200:
+            raise HomeAssistantError(
+                f"Failed to download media from {url}: HTTP {resp.status}"
+            )
+        data = await resp.read()
+
+    suffix = mimetypes.guess_extension(mime_type or "") or ".tmp"
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(data)
+    return path
+
+
+async def _resolve_media_path(
+    hass: HomeAssistant, media_content_id: str
+) -> tuple[str, bool]:
+    """Resolve a media content_id or path string to an absolute filesystem path.
+
+    Returns (path, is_temp) -- is_temp is True when the caller owns a
+    downloaded temp file and must clean it up after use.
+    """
     if media_content_id.startswith("media-source://"):
         try:
             from homeassistant.components.media_source import (  # noqa: PLC0415
@@ -447,9 +487,12 @@ async def _resolve_media_path(hass: HomeAssistant, media_content_id: str) -> str
                 local_dir = hass.config.media_dirs.get(
                     "local", hass.config.path("media")
                 )
-                return _safe_media_join(local_dir, url[len(prefix):])
+                return _safe_media_join(local_dir, url[len(prefix):]), False
 
-            raise HomeAssistantError(f"Cannot access non-local media URL: {url}")
+            return (
+                await _download_media_to_temp(hass, url, media_item.mime_type),
+                True,
+            )
         except ImportError as err:
             raise HomeAssistantError(
                 "media_source component is not available"
@@ -457,9 +500,9 @@ async def _resolve_media_path(hass: HomeAssistant, media_content_id: str) -> str
 
     if media_content_id.startswith("/media/"):
         local_dir = hass.config.media_dirs.get("local", hass.config.path("media"))
-        return _safe_media_join(local_dir, media_content_id[len("/media/"):])
+        return _safe_media_join(local_dir, media_content_id[len("/media/"):]), False
 
-    return media_content_id
+    return media_content_id, False
 
 
 def _register_services(hass: HomeAssistant) -> None:
@@ -493,7 +536,7 @@ def _register_services(hass: HomeAssistant) -> None:
 
         spec = render_spec_for_entry(entry)
 
-        abs_path = await _resolve_media_path(hass, media_content_id)
+        abs_path, is_temp = await _resolve_media_path(hass, media_content_id)
 
         if not os.path.isfile(abs_path):
             raise HomeAssistantError(f"Media file not found: {abs_path}")
@@ -501,14 +544,18 @@ def _register_services(hass: HomeAssistant) -> None:
         from .image_converter import convert_image_with_preview  # noqa: PLC0415
 
         try:
-            image_bytes, preview_bytes = await hass.async_add_executor_job(
-                convert_image_with_preview, abs_path, spec.width, spec.height,
-                spec.rotation, spec.locked,
-            )
-        except Exception as err:  # noqa: BLE001
-            raise HomeAssistantError(
-                f"Failed to convert image '{abs_path}': {err}"
-            ) from err
+            try:
+                image_bytes, preview_bytes = await hass.async_add_executor_job(
+                    convert_image_with_preview, abs_path, spec.width, spec.height,
+                    spec.rotation, spec.locked,
+                )
+            except Exception as err:  # noqa: BLE001
+                raise HomeAssistantError(
+                    f"Failed to convert image '{abs_path}': {err}"
+                ) from err
+        finally:
+            if is_temp:
+                os.remove(abs_path)
 
         # async_send_image_or_queue already updates the Frames panel's
         # thumbnail hint (last_thumbnail, since this service resolves a
