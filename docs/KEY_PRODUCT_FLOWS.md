@@ -28,7 +28,9 @@ or adds a Fraimic frame, auto-detecting its size/resolution.
 - **If it silently breaks**: users can't add frames at all, or duplicate
   entries get created for the same physical frame.
 - **Test status**: Panel-tested (`flow-renderer.spec.js`,
-  `frame-manage.spec.js`). Backend: **Gap** — planned for Phase 3.
+  `frame-manage.spec.js`). **Backend-tested** —
+  `tests/python/config_flow/test_config_flow_user_scan.py` (user/manual/
+  pick_device/DHCP steps, size auto-detect, dedup).
 
 ## 2. Options flow (scan interval, size, orientation edge, 180° flip)
 User edits a frame's scan interval, physical size, hanging edge, and
@@ -36,8 +38,8 @@ User edits a frame's scan interval, physical size, hanging edge, and
 - **Entry points**: `config_flow.py` (`FraimicOptionsFlow.async_step_init`).
 - **If it silently breaks**: settings don't stick, or the orientation lock
   resets when saving an unrelated field.
-- **Test status**: Panel-tested (`flow-renderer.spec.js`). Backend: **Gap**
-  — planned for Phase 3.
+- **Test status**: Panel-tested (`flow-renderer.spec.js`). **Backend-tested** —
+  `tests/python/config_flow/test_config_flow_options.py`.
 
 ## 3. Coordinator polling & IP self-healing
 Each frame is polled periodically for battery/wifi/firmware/dimensions; if
@@ -71,7 +73,9 @@ a named scene, or issue restart/sleep/refresh commands.
 - **If it silently breaks**: automations calling `fraimic.send_image` /
   `send_scene` fail or send the wrong image; a path-traversal bug in media
   resolution could leak files.
-- **Test status**: **Gap** — planned for Phase 3.
+- **Test status**: **Backend-tested** — `tests/python/setup/test_services.py`
+  (command services, send_image media resolution + path-escape rejection,
+  send_scene aggregation semantics).
 
 ## 6. Voice/AI: "generate an image of X and send to [frame]"
 A single Assist/LLM intent that generates an AI image and sends it to a
@@ -80,7 +84,7 @@ named frame by voice.
   `_match_frame_device_id`).
 - **If it silently breaks**: the voice command errors out or resolves to
   the wrong frame.
-- **Test status**: **Gap** — planned for Phase 3.
+- **Test status**: **Backend-tested** — `tests/python/setup/test_intent.py`.
 
 ## 7. Image conversion pipeline (Spectra 6 .bin encoding)
 Converts any Pillow-readable image into the frame's proprietary packed-
@@ -258,7 +262,7 @@ and feeds the render pipeline.
 - **If it silently breaks**: wrong/missing sensor values for a firmware
   shape not yet seen, or selecting an orientation doesn't actually change
   rendering.
-- **Test status**: **Gap** — planned for Phase 3.
+- **Test status**: **Backend-tested** — `tests/python/setup/test_entities.py`.
 
 ## 22. Render spec resolution (orientation lock + rotation + hanging edge)
 Central "how should this image be composed for this frame" resolution —
@@ -290,8 +294,8 @@ admin, forever, via a server-side flag (not localStorage).
 - **If it silently breaks**: the wizard reappears every session for every
   admin, or one admin's skip doesn't stick for others.
 - **Test status**: Panel-tested (`onboarding.spec.js`, full six-step tour
-  and skip variants). Backend: **Gap** — planned for Phase 3 (small,
-  easy target: admin-gating + Store persistence).
+  and skip variants). **Backend-tested** — `tests/python/setup/test_onboarding.py`
+  (admin-gating + Store persistence).
 
 ## 25. Domain-level setup wiring
 `async_setup` / `async_setup_entry` / `async_unload_entry` /
@@ -303,7 +307,9 @@ scenes-hub entry, and tears down cleanly when the last frame is removed.
   integration fails to load, or (subtler) removing the last frame leaves
   scene-pack/schedule timers running forever, or doesn't prune wall
   layouts.
-- **Test status**: **Gap** — planned for Phase 3.
+- **Test status**: **Backend-tested** — `tests/python/setup/test_init_setup_entry.py`
+  (scenes-hub auto-creation, service lifecycle, wall-placement pruning on
+  removal, reload on option change).
 
 ---
 
@@ -314,9 +320,9 @@ scenes-hub entry, and tears down cleanly when the last frame is removed.
 | 0 | Backend pytest infrastructure | Done |
 | 1 | Image conversion, render spec, frame-type registry (KPFs 7, 22, 23) | Done |
 | 2 | Coordinator: polling, IP healing, queue-on-sleep, concurrency (KPFs 3, 4) | Done |
-| 3 | Config flow, setup lifecycle, services, intent, entities, onboarding backend (KPFs 1, 2, 5, 6, 21, 24, 25) | Planned |
+| 3 | Config flow, setup lifecycle, services, intent, entities, onboarding backend (KPFs 1, 2, 5, 6, 21, 24, 25) | Done |
 | 4 | Scenes, scene packs + widgets, walls, schedules managers (KPFs 16–20) | Planned |
 | 5 | Library backends, backfill, crop, albums, HTTP views (KPFs 8–15) | Planned |
 
-Phases 3-5 are scoped here but not yet implemented — see
+Phases 4-5 are scoped here but not yet implemented — see
 [TESTING_STRATEGY.md](../TESTING_STRATEGY.md) for the checkpoint tracker.

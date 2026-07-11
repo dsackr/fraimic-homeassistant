@@ -99,18 +99,24 @@ scanning platform provisioned for it. Rather than skip these entirely:
 
 Declared, not aspirational-on-day-one: **ratchet upward per phase** (see
 §7) rather than picking one number up front. Today's baseline after
-Phases 0-2:
+Phases 0-3:
 
 | Module | Coverage |
 |---|---|
-| `coordinator.py` | 81% |
-| `image_converter.py` | 84% |
-| `frame_types.py` | 96% |
+| `select.py` | 100% |
+| `intent.py` | 100% |
 | `const.py` | 100% |
-| Overall (`custom_components.fraimic`) | ~12% (expected — only 2 of 6 phases done) |
+| `sensor.py` | 98% |
+| `coordinator.py` | 89% |
+| `image_converter.py` | 88% |
+| `frame_types.py` | 96% |
+| `config_flow.py` | 84% |
+| `helpers.py` | 77% |
+| `__init__.py` | 76% |
+| Overall (`custom_components.fraimic`) | ~46% (Phases 4-5 — the Store-backed managers and library backends — still open) |
 
-Once Phase 3-5 land, target **55% overall**, enforced via
-`pytest-cov --cov-fail-under=55` in CI. Not set as a hard gate yet since
+Once Phase 4-5 land, target **65% overall**, enforced via
+`pytest-cov --cov-fail-under=65` in CI. Not set as a hard gate yet since
 enforcing it before the remaining phases exist would just fail every
 build.
 
@@ -124,7 +130,7 @@ flows.
 | 0 | pytest infra: PHACC pin, `conftest.py` fixtures, coverage config, CI workflow | — | **Done** |
 | 1 | Pure-logic, highest silent-failure risk: image conversion byte pipeline, render-spec rotation math, frame-type registry | 7, 22, 23 | **Done** |
 | 2 | Coordinator: polling, IP self-healing, queue-on-sleep send/flush, concurrency | 3, 4 | **Done** |
-| 3 | Config flow + setup lifecycle: discovery wizard, options flow, services, voice intent, entities, onboarding backend, `async_setup_entry`/`async_unload_entry` | 1, 2, 5, 6, 21, 24, 25 | Planned |
+| 3 | Config flow + setup lifecycle: discovery wizard, options flow, services, voice intent, entities, onboarding backend, `async_setup_entry`/`async_unload_entry` | 1, 2, 5, 6, 21, 24, 25 | **Done** |
 | 4 | Store-backed managers: scenes, scene packs + widget scheduling, walls, schedules recurrence math | 16, 17, 18, 19, 20 | Planned |
 | 5 | Library: local/cloud backends, OAuth, backfill, crop, albums, HTTP views | 8, 9, 10, 11, 12, 13, 14, 15 | Planned |
 

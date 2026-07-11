@@ -11,3 +11,13 @@
 # Requires Python 3.13+ (matches current Home Assistant core's minimum).
 pytest-homeassistant-custom-component==0.13.316
 pytest-cov==7.0.0
+
+# manifest.json declares frontend/panel_custom/http/dhcp as HA dependencies
+# -- config_flow tests trigger a real async_setup_component("fraimic", ...)
+# bootstrap, which sets up all of those first. Versions pinned to whatever
+# home-assistant core 2026.2.3 (PHACC 0.13.316's vendored release) itself
+# declares in its frontend/dhcp manifests.
+home-assistant-frontend==20260128.6
+aiodhcpwatcher==1.2.1
+aiodiscover==2.7.1
+cached-ipaddress==1.0.1
