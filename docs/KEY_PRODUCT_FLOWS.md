@@ -228,7 +228,9 @@ matching scene, orientation-aware; sync repairs partial installs.
 - **If it silently breaks**: an interrupted install leaves orphaned images
   untracked, blocking reinstall; uninstall can leave stray images if some
   deletes fail.
-- **Test status**: Panel-tested indirectly (`addons-categories.spec.js`).
+- **Test status**: Panel-tested indirectly (`addons-categories.spec.js`;
+  `addons-catalog-refresh.spec.js` covers the catalog re-fetching on tab
+  activation and panel revive rather than only once at initial load).
   **Backend-tested** — `tests/python/managers/test_scene_packs.py`
   (install success/partial-failure/all-fail, already-installed guard,
   uninstall scene+image cleanup and untag-vs-delete, sync recovery by
@@ -237,9 +239,15 @@ matching scene, orientation-aware; sync repairs partial installs.
 ## 18. Scene-pack "widgets" (agenda, quotes, scripture add-ons)
 A pack type that downloads a Python renderer script + JSON config,
 schedules it, and runs it as a subprocess to generate/send a rendered
-image to one target frame.
+image to one target frame. The agenda widget can pull from multiple
+configured `calendar.*` entities at once (renamed from the older
+one-entity-only "Home Assistant Calendar" field), merging events from
+every selected calendar.
 - **Entry points**: `scene_packs.py` (`_async_install_widget`,
-  `_schedule_widget`, `async_run_widget`).
+  `_schedule_widget`, `async_run_widget`); the panel's generic
+  `config_schema` engine (`fraimic-panel.js`) drives each widget's install
+  form, including the `multiple` (checkbox-group, comma-joined entity ids)
+  and `json` field types.
 - **If it silently breaks**: a widget never runs (scheduler not armed), or
   a crashed subprocess silently does nothing forever.
 - **Test status**: Panel-tested for config forms only
@@ -341,6 +349,44 @@ scenes-hub entry, and tears down cleanly when the last frame is removed.
   (scenes-hub auto-creation, service lifecycle, wall-placement pruning on
   removal, reload on option change).
 
+## 26. Panel init-load resilience
+On open (or after an HA restart/reconnect window), the panel retries each
+of its initial data loads (frames, scenes, walls, etc.) with backoff
+instead of taking a single failed fetch at face value, and never infers
+"nothing configured yet" from a load that errored.
+- **Entry points**: `fraimic-panel.js` (`_withInitRetry`, `_initLoadErrors`,
+  `_initRetryDelays`/`_initRetriesActive`).
+- **If it silently breaks**: a transient outage (HA restarting, a
+  reconnect window) paints a believably-empty dashboard or wrongly opens
+  the onboarding tour — Dale hit this in production before the fix (commit
+  `a5b1a1b`) landed. The invariant: never make a zero-state claim from a
+  load that errored; always distinguish ABSENT from UNKNOWN.
+- **Test status**: Panel-tested (`tests/panel/init-retry.spec.js` — a
+  transient outage recovers with no refresh needed, a persistent outage
+  shows an "incomplete" note and never opens the tour, a broken
+  onboarding-flag endpoint fails closed, a not-yet-ready websocket retries
+  frame discovery, non-admins never see an admin-only error from an
+  errored load). Backend: not applicable — this is frontend-only
+  resilience against transient fetch failures.
+
+## 27. Panel element lifecycle (listener/blob cleanup on disconnect)
+The panel is a custom element HA recreates per navigation, not reused —
+every `window`/`document` listener and every blob URL it creates (crop
+editor previews, thumbnails) must be torn down on disconnect, or they leak
+across every visit to the Frames panel for the life of the browser tab.
+- **Entry points**: `fraimic-panel.js` (`disconnectedCallback`, the
+  `this._abort` AbortController every listener registration is tied to,
+  blob URL tracking in `this._thumbUrls`).
+- **If it silently breaks**: a slow memory/listener leak that only shows
+  up after navigating to the panel repeatedly in one browser session —
+  invisible in a quick manual check, which is exactly how it shipped once
+  already (commit `71c1b17`, "Sever the panel's global listeners and blob
+  URLs on disconnect").
+- **Test status**: Panel-tested (`tests/panel/lifecycle.spec.js` — detach
+  severs listeners and revokes blob URLs; reattach after detach revives
+  correctly; a same-tick DOM move, as HA sometimes does internally, must
+  NOT tear anything down). Backend: not applicable.
+
 ---
 
 ## Coverage summary
@@ -354,6 +400,7 @@ scenes-hub entry, and tears down cleanly when the last frame is removed.
 | 4 | Scenes, scene packs, walls, schedules managers (KPFs 16, 17, 19, 20) | Done (KPF 18's widget scheduling/subprocess execution still a gap) |
 | 5 | Library: local backend, crop, albums, backfill (KPFs 8, 11, 12, 13) | Done |
 | 5b | Library: Dropbox/Google Drive cloud backends + OAuth, discovery (KPFs 9, 10), and the `*_http.py` view layer (KPFs 14, 15 + the rest) | Planned |
+| — | Panel init-load resilience, panel element lifecycle (KPFs 26, 27) | Done — frontend-only, no backend phase applies |
 
 Phase 5b (plus KPF 18's widget scheduling) is scoped here but not yet
 implemented — see [TESTING_STRATEGY.md](../TESTING_STRATEGY.md) for the
