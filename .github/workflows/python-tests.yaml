@@ -1,0 +1,54 @@
+name: Backend Python tests
+
+# custom_components/fraimic/*.py has no automated coverage outside this
+# suite -- see tests/python/ (pytest + pytest-homeassistant-custom-component)
+# and TESTING_STRATEGY.md for what's covered and what isn't yet. Scoped to
+# changes under the backend package or the test suite itself, same pattern
+# as panel-tests.yaml for the frontend.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'custom_components/fraimic/**.py'
+      - 'tests/python/**'
+      - 'requirements-test.txt'
+      - 'pyproject.toml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'custom_components/fraimic/**.py'
+      - 'tests/python/**'
+      - 'requirements-test.txt'
+      - 'pyproject.toml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -r requirements-test.txt
+      - name: Run tests with coverage
+        run: |
+          python -m pytest tests/python/ \
+            --cov=custom_components.fraimic \
+            --cov-report=term-missing \
+            --cov-report=html \
+            --cov-report=xml
+      - name: Publish coverage summary to the job summary
+        if: always()
+        run: |
+          {
+            echo '## Backend test coverage'
+            echo
+            python -m coverage report --format=markdown
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-html
+          path: htmlcov/
+          retention-days: 30

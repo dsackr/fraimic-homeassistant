@@ -30,3 +30,10 @@ MIT — see [LICENSE](LICENSE).
 - ⭐ Star the repo if this is useful to you
 - 🐛 [Report an issue](https://github.com/dsackr/fraimic-homeassistant/issues) if a frame misbehaves
 - 🤝 Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md)
+
+## How this project tests itself
+
+See [docs/KEY_PRODUCT_FLOWS.md](docs/KEY_PRODUCT_FLOWS.md) for the catalog
+of what the integration does and how each flow is tested, and
+[TESTING_STRATEGY.md](TESTING_STRATEGY.md) for the overall testing
+strategy and coverage roadmap.

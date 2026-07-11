@@ -3,9 +3,21 @@ __pycache__/
 *.pyo
 .DS_Store
 
+# Backend pytest suite (tests/python/)
+.venv/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+
 # tests/panel (Playwright)
 tests/panel/node_modules/
 tests/panel/test-results/
 tests/panel/playwright-report/
 tests/panel/blob-report/
 tests/panel/playwright/.cache/
+
+# Local network captures (contain auth tokens) — never commit
+scratchpad-capture/
+*.har

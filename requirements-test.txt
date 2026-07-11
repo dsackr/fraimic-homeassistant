@@ -1,0 +1,13 @@
+# Backend test dependencies for custom_components/fraimic/.
+#
+# pytest-homeassistant-custom-component (PHACC) vendors a specific Home
+# Assistant core release as a transitive dependency -- pinning it here is
+# the de facto "validated against this HA version" statement for this
+# integration, since manifest.json declares no homeassistant minimum version.
+# Bump this pin deliberately (not automatically) when picking up a newer HA
+# release to validate against; a bump is a good moment to also skim PHACC's
+# changelog for breaking fixture changes.
+#
+# Requires Python 3.13+ (matches current Home Assistant core's minimum).
+pytest-homeassistant-custom-component==0.13.316
+pytest-cov==7.0.0

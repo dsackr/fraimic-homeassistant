@@ -61,6 +61,10 @@ Send `out.bin` to a frame via its local API and verify it renders correctly. Col
 
 `fraimic-panel.js` has a Playwright suite under `tests/panel/` that drives the real panel JS in an actual browser against a mocked backend — no HA instance or frame needed. This exists because the panel's real bugs (DOM/pointer-event handling, async fetch timing, `<script>`-scope shadowing) don't show up from reading the code. See `tests/panel/README.md` to run it and for what to add a test for when you fix a panel bug.
 
+## Testing the backend
+
+`custom_components/fraimic/*.py` has a pytest suite under `tests/python/` (requires Python 3.13+ — see `requirements-test.txt`). See [TESTING_STRATEGY.md](TESTING_STRATEGY.md) for the tooling, coverage target, and what's covered vs. still a gap, and [docs/KEY_PRODUCT_FLOWS.md](docs/KEY_PRODUCT_FLOWS.md) for the flow-by-flow catalog this suite is working through.
+
 ## Releasing (maintainers)
 
 Releases are fully automatic. Every push to `main` (a direct commit or a merged PR) runs `bump-version.yaml`, which computes the next semver tag from the commit log, stamps it into `manifest.json`, pushes the tag, and publishes the GitHub release itself in the same job; HACS picks it up automatically. Don't hand-edit `manifest.json`'s `version` field — it's overwritten by the workflow. (`release.yaml` still exists as a fallback for a tag pushed manually with a real user token, but the automatic path doesn't depend on it — a tag pushed with the workflow's own token can't cascade-trigger another workflow.)

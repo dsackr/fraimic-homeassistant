@@ -1,0 +1,76 @@
+name: Security scan
+
+# Static analysis (bandit) + dependency vulnerability scanning (pip-audit)
+# for the Python backend. See TESTING_STRATEGY.md for why these substitute
+# for a corporate SAST platform here. Runs on every push/PR to main and
+# weekly on a schedule, since pip-audit findings can change with newly
+# disclosed CVEs even when nothing in this repo has.
+#
+# Report-only, not a merge gate: the testing standard this satisfies calls
+# for scan results to be published and reviewable, not for automatic
+# pass/block enforcement (that's a separate, higher-maturity concern this
+# repo hasn't taken on). A human reviews bandit's findings -- several of
+# today's are known-benign (an MD5 used only as a cache ETag key, OAuth
+# token URLs bandit's heuristics mistake for hardcoded secrets) rather than
+# real issues, and blocking on them would just train everyone to ignore the
+# job.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1' # Mondays 06:00 UTC
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install scan tools + the integration's own runtime deps
+        run: |
+          pip install bandit pip-audit
+          python -c "
+import json
+reqs = json.load(open('custom_components/fraimic/manifest.json'))['requirements']
+open('manifest-requirements.txt', 'w').write('\n'.join(reqs))
+"
+          pip install -r manifest-requirements.txt
+
+      - name: Bandit (static analysis)
+        id: bandit
+        continue-on-error: true
+        run: |
+          python -m bandit -r custom_components/fraimic \
+            -f txt -o bandit-report.txt
+          cat bandit-report.txt
+
+      - name: pip-audit (dependency vulnerabilities)
+        id: pip_audit
+        continue-on-error: true
+        run: |
+          # Scans manifest.json's declared runtime requirements (installed
+          # above) -- not this workflow's own bandit/pip-audit tooling.
+          python -m pip_audit --requirement manifest-requirements.txt \
+            | tee pip-audit-report.txt
+
+      - name: Publish results to the job summary
+        if: always()
+        run: |
+          {
+            echo '## Security scan results'
+            echo
+            echo '### Bandit'
+            echo '```'
+            cat bandit-report.txt 2>/dev/null || echo '(no report produced)'
+            echo '```'
+            echo
+            echo '### pip-audit'
+            echo '```'
+            cat pip-audit-report.txt 2>/dev/null || echo '(no report produced)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

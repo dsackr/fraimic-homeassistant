@@ -1,0 +1,15 @@
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["custom_components.fraimic"]
+omit = [
+    "custom_components/fraimic/fraimic-panel.js",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+]
