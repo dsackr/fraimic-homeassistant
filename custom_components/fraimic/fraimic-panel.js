@@ -1856,6 +1856,7 @@
       this._initRetryDelays = [1000, 2000, 4000];
 
       this._scenePacks    = [];       // [{ id, name, description, categories, license, cover, images, installed, scene_created }]
+      this._scenePacksLoadedAt = 0;   // Date.now() of the last successful catalog fetch -- see _refreshScenePacksIfStale
       this._activeTab     = 'dashboard'; // 'dashboard' | 'addons'
       this._packCategory  = null;     // null = category-tile view; otherwise the category id being browsed
       this._packPreview   = null;     // { pack, index } while the read-only image gallery is open, else null
@@ -1991,6 +1992,10 @@
       this._renderDashboard();
       this._renderLibrary();
       this._renderScenePacks();
+      // Fire-and-forget: reconnecting (e.g. navigating away in the HA
+      // sidebar and back) is another point where the Add-ons catalog would
+      // otherwise sit stale indefinitely -- see _refreshScenePacksIfStale.
+      this._refreshScenePacksIfStale();
     }
 
     // The three long-lived window/document listeners the panel needs.
@@ -2174,6 +2179,9 @@
         if (content) content.classList.toggle('active', tab === name);
         if (btn)     btn.classList.toggle('active', tab === name);
       });
+      // Fire-and-forget: keeps the tab switch itself synchronous/instant,
+      // re-rendering once the (throttled) refetch resolves.
+      if (name === 'addons') this._refreshScenePacksIfStale();
     }
 
     _buildShell() {
@@ -7474,15 +7482,34 @@
         const result = await resp.json().catch(() => ({}));
         if (!resp.ok) throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
         this._scenePacks = result.packs || [];
+        this._scenePacksLoadedAt = Date.now();
         return true;
       } catch (err) {
         console.error('[fraimic-panel] scene packs load failed:', err);
-        this._scenePacks = [];
+        // Only blank the grid if we've never had a good catalog -- once
+        // _refreshScenePacksIfStale starts calling this opportunistically in
+        // the background, a transient failure shouldn't nuke a catalog that
+        // was already loaded and showing fine.
+        if (!this._scenePacksLoadedAt) this._scenePacks = [];
         fb.className = 'feedback err';
         fb.textContent = `Couldn't load the scene pack catalog: ${err.message}`;
         fb.style.display = 'block';
         return false;
       }
+    }
+
+    // The Add-ons tab's catalog is otherwise only ever fetched once (at
+    // _init) plus after this session's own install/sync/uninstall actions --
+    // switching tabs or navigating away and back in the HA sidebar
+    // (_revive) never refetched, so a manifest update (new/removed packs)
+    // was invisible to an already-open browser tab until a full page
+    // reload. Called on tab activation and on _revive; throttled so rapid
+    // tab-clicking doesn't hammer the manifest endpoint.
+    async _refreshScenePacksIfStale() {
+      const STALE_AFTER_MS = 10000;
+      if (this._scenePacksLoadedAt && Date.now() - this._scenePacksLoadedAt < STALE_AFTER_MS) return;
+      await this._loadScenePacks();
+      this._renderScenePacks();
     }
 
     // Packs are browsed through a category tile view first (this._packCategory
