@@ -12,7 +12,74 @@
 (function () {
   'use strict';
 
-  const CARD_VERSION = '0.2.0';
+  const CARD_VERSION = '0.3.0';
+
+  // Any Fraimic sensor works as the configured entity, but the battery
+  // sensor is the one every frame device is guaranteed to have (and its
+  // unique_id/entity_id both end in "_battery" -- see sensor.py), so it's
+  // what the stub config and the editor's picker steer users toward.
+  function _isFraimicBatteryEntity(hass, entityId) {
+    if (!entityId.endsWith('_battery')) return false;
+    const reg = hass && hass.entities && hass.entities[entityId];
+    // hass.entities may be unpopulated in some embedding contexts (e.g. a
+    // bare panel) -- fall back to the naming convention alone rather than
+    // rejecting every entity outright.
+    return !reg || reg.platform === 'fraimic';
+  }
+
+  // ------------------------------------------------------------------ //
+  // Visual config editor -- without this, Lovelace's card picker falls
+  // back to a raw YAML box and the user has to already know the exact
+  // entity_id of the frame they want. That's exactly the manual, hand-
+  // edited-config UX this integration otherwise avoids everywhere else.
+  // ------------------------------------------------------------------ //
+
+  class FraimicCardEditor extends HTMLElement {
+    setConfig(config) {
+      this._config = config || {};
+      this._render();
+    }
+
+    set hass(hass) {
+      this._hass = hass;
+      this._render();
+    }
+
+    connectedCallback() {
+      this._render();
+    }
+
+    _render() {
+      if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
+
+      let picker = this.shadowRoot.getElementById('picker');
+      if (!picker) {
+        this.shadowRoot.innerHTML = `
+          <style>.wrap { padding: 12px 0; }</style>
+          <div class="wrap">
+            <ha-entity-picker id="picker" label="Frame (battery sensor)"></ha-entity-picker>
+          </div>
+        `;
+        picker = this.shadowRoot.getElementById('picker');
+        picker.includeDomains = ['sensor'];
+        picker.entityFilter = (entityId) => _isFraimicBatteryEntity(this._hass, entityId);
+        picker.addEventListener('value-changed', (ev) => {
+          ev.stopPropagation();
+          this._config = { ...this._config, entity: ev.detail.value };
+          this.dispatchEvent(new CustomEvent('config-changed', {
+            detail: { config: this._config },
+            bubbles: true,
+            composed: true,
+          }));
+        });
+      }
+
+      if (this._hass) picker.hass = this._hass;
+      picker.value = this._config.entity || '';
+    }
+  }
+
+  customElements.define('fraimic-card-editor', FraimicCardEditor);
 
   class FraimicCard extends HTMLElement {
     constructor() {
@@ -39,8 +106,16 @@
     // Lovelace card protocol
     // ------------------------------------------------------------------ //
 
-    static getStubConfig() {
+    static getStubConfig(hass) {
+      if (hass && hass.states) {
+        const match = Object.keys(hass.states).find((eid) => _isFraimicBatteryEntity(hass, eid));
+        if (match) return { entity: match };
+      }
       return { entity: 'sensor.frame_1_battery' };
+    }
+
+    static getConfigElement() {
+      return document.createElement('fraimic-card-editor');
     }
 
     setConfig(config) {
