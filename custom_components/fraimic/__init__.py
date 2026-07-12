@@ -260,6 +260,41 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.http.register_view(FraimicScenePackSyncView())
     hass.http.register_view(FraimicScenePackUninstallView())
 
+    # One-off cleanup: quote_of_the_day/scripture_of_the_day are retired in
+    # favour of per-instance xOTD content (see xotd.py). Their widget
+    # uninstall path never looks the pack_id up in the (now-pruned)
+    # catalog, so this is safe to run unconditionally even after the
+    # catalog entries are gone -- self-heals on upgrade, no user action
+    # required.
+    from .scene_packs import ScenePackError  # noqa: PLC0415
+
+    for _legacy_pack_id in ("quote_of_the_day", "scripture_of_the_day"):
+        try:
+            await scene_pack_manager.async_uninstall_pack(_legacy_pack_id)
+            _LOGGER.info("Removed legacy add-on '%s' (replaced by xOTD)", _legacy_pack_id)
+        except ScenePackError:
+            pass  # not installed, nothing to do
+
+    # xOTD: many independent (content_mode, frame, schedule) instances --
+    # e.g. Joke of the Day hourly on one frame and Scripture of the Day
+    # daily on another, running simultaneously. Built on the library and
+    # scene-pack managers above (needs the library for image mode's
+    # upload/list, and the scene-pack manager for the "xotd" catalog
+    # entry's script_url/config_schema).
+    from .xotd import XotdManager  # noqa: PLC0415
+
+    xotd_manager = XotdManager(hass, library_manager, scene_pack_manager)
+    await xotd_manager.async_load()
+    hass.data.setdefault(DOMAIN, {})["_xotd"] = xotd_manager
+
+    from .xotd_http import (  # noqa: PLC0415
+        FraimicXotdInstancesView,
+        FraimicXotdInstanceView,
+    )
+
+    hass.http.register_view(FraimicXotdInstancesView())
+    hass.http.register_view(FraimicXotdInstanceView())
+
     # Auto-create the device-less "scenes hub" entry (hosts scene.* entities
     # for voice control) if it doesn't exist yet -- self-heals on upgrade,
     # no user action required.
@@ -395,6 +430,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: "ConfigEntry") -> bool:
             schedules = hass.data[DOMAIN].get("_schedules")
             if schedules:
                 schedules.unload()
+
+            # ... and every armed xOTD instance timer.
+            xotd = hass.data[DOMAIN].get("_xotd")
+            if xotd:
+                xotd.unload()
 
     return unload_ok
 

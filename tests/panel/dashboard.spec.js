@@ -1,7 +1,7 @@
-// Coverage for the consolidated dashboard: two tabs only (Dashboard is the
-// default and hosts the wall canvas), the header's Manage Library and
-// Settings modals, tile footers (name + live status), send-on-pick, and the
-// per-tile "Upload a photo" raw-send path.
+// Coverage for the consolidated dashboard: Dashboard is the default tab and
+// hosts the wall canvas (alongside Add-ons and Daily Content), the header's
+// Manage Library and Settings modals, tile footers (name + live status),
+// send-on-pick, and the per-tile "Upload a photo" raw-send path.
 
 const { test, expect } = require('@playwright/test');
 const { createMockServer } = require('./fixtures/mock-server');
@@ -33,7 +33,7 @@ test.describe('Consolidated dashboard', () => {
     await mockServer.stop();
   });
 
-  test('Dashboard is the default (and only) content tab beside Add-ons', async ({ page }) => {
+  test('Dashboard is the default content tab, alongside Add-ons and Daily Content', async ({ page }) => {
     const state = await page.evaluate(() => {
       const root = document.getElementById('panel').shadowRoot;
       return {
@@ -43,7 +43,7 @@ test.describe('Consolidated dashboard', () => {
           .map((id) => !!root.getElementById(id)),
       };
     });
-    expect(state.tabs).toEqual(['dashboard', 'addons']);
+    expect(state.tabs).toEqual(['dashboard', 'addons', 'xotd']);
     expect(state.activeContent).toBe(true);
     expect(state.headerButtons).toEqual([true, true, true]);
   });

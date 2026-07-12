@@ -30,6 +30,13 @@
     productivity: { label: 'Productivity' }
   };
   const PRODUCTIVITY_CATEGORY = 'productivity';
+  // Packs managed exclusively through their own dedicated tab instead of
+  // the generic single-instance Add-ons install flow -- "xotd" moved to
+  // the multi-instance "Daily Content" tab (many independent content_mode
+  // + frame + schedule instances), so it must never also appear as an
+  // installable widget card here, which would let a user create a second,
+  // incompatible single-instance install alongside their xOTD instances.
+  const MULTI_INSTANCE_PACK_IDS = ['xotd'];
   const PACK_CATEGORY_ORDER = [
     'famous_artists',
     'nature',
@@ -1857,7 +1864,8 @@
 
       this._scenePacks    = [];       // [{ id, name, description, categories, license, cover, images, installed, scene_created }]
       this._scenePacksLoadedAt = 0;   // Date.now() of the last successful catalog fetch -- see _refreshScenePacksIfStale
-      this._activeTab     = 'dashboard'; // 'dashboard' | 'addons'
+      this._xotdInstances = [];       // [{ instance_id, content_mode, frame_id, schedule, mode_config, enabled }] -- loaded lazily on tab activation, see _setTab
+      this._activeTab     = 'dashboard'; // 'dashboard' | 'addons' | 'xotd'
       this._packCategory  = null;     // null = category-tile view; otherwise the category id being browsed
       this._packPreview   = null;     // { pack, index } while the read-only image gallery is open, else null
 
@@ -2167,13 +2175,15 @@
       }
       const libraryBtn = this.shadowRoot.getElementById('library-open-btn');
       if (libraryBtn) libraryBtn.addEventListener('click', () => this._openLibraryModal());
+      const xotdNewBtn = this.shadowRoot.getElementById('xotd-new-btn');
+      if (xotdNewBtn) xotdNewBtn.addEventListener('click', () => this._openXotdModal(null));
       this._setTab('dashboard');
     }
 
     _setTab(name) {
       this._activeTab = name;
       const root = this.shadowRoot;
-      ['dashboard', 'addons'].forEach(tab => {
+      ['dashboard', 'addons', 'xotd'].forEach(tab => {
         const content = root.getElementById(`tab-${tab}`);
         const btn     = root.querySelector(`.tab-btn[data-tab="${tab}"]`);
         if (content) content.classList.toggle('active', tab === name);
@@ -2182,6 +2192,7 @@
       // Fire-and-forget: keeps the tab switch itself synchronous/instant,
       // re-rendering once the (throttled) refetch resolves.
       if (name === 'addons') this._refreshScenePacksIfStale();
+      if (name === 'xotd') this._loadXotdInstances().then(() => this._renderXotdInstances());
     }
 
     _buildShell() {
@@ -2191,6 +2202,7 @@
         <div class="tab-bar" id="tab-bar">
           <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
           <button class="tab-btn" data-tab="addons">Add-ons</button>
+          <button class="tab-btn" data-tab="xotd">Daily Content</button>
         </div>
 
         <div class="tab-content active" id="tab-dashboard">
@@ -2297,6 +2309,25 @@
           </div>
         </div>
         </div><!-- /tab-addons -->
+
+        <div class="tab-content" id="tab-xotd">
+        <p style="font-size:12px;color:var(--secondary-text-color);margin:0 0 14px">
+          Create as many instances as you like -- each pairs one content type
+          (Joke, Quote, Scripture, Word, or Image) with one target frame and
+          its own schedule, so e.g. a Joke can run hourly on one frame while
+          a Scripture runs daily on another, independently.
+        </p>
+        <div class="feedback" id="xotd-fb"></div>
+        <div class="btns" style="margin-bottom:14px">
+          <button class="btn-primary" id="xotd-new-btn">＋ New Instance</button>
+        </div>
+        <div class="lib-grid" id="xotd-grid">
+          <div class="empty">
+            <div class="empty-icon">⋯</div>
+            <h2>Loading…</h2>
+          </div>
+        </div>
+        </div><!-- /tab-xotd -->
 
         <!-- Modals live outside the tab-content divs -- they're position:fixed
              overlays, so a tab switch (which sets display:none on an ancestor)
@@ -2754,6 +2785,18 @@
             <div class="modal-actions">
               <button class="btn-primary" id="widget-config-submit">Install</button>
               <button class="btn-ghost" id="widget-config-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-overlay" id="xotd-modal-overlay">
+          <div class="modal-box" style="max-width:520px">
+            <h3 id="xotd-modal-title">New Instance</h3>
+            <div id="xotd-modal-fields"></div>
+            <div class="feedback" id="xotd-modal-fb"></div>
+            <div class="modal-actions">
+              <button class="btn-primary" id="xotd-modal-submit">Create</button>
+              <button class="btn-ghost" id="xotd-modal-cancel">Cancel</button>
             </div>
           </div>
         </div>
@@ -7518,8 +7561,9 @@
     _renderScenePacks() {
       const grid = this.shadowRoot.getElementById('pack-grid');
       const crumb = this.shadowRoot.getElementById('addons-crumb');
+      const visiblePacks = this._scenePacks.filter(p => !MULTI_INSTANCE_PACK_IDS.includes(p.id));
 
-      if (!this._scenePacks.length) {
+      if (!visiblePacks.length) {
         crumb.style.display = 'none';
         grid.className = 'lib-grid';
         grid.innerHTML = `
@@ -7550,15 +7594,15 @@
         const artGrid = grid.querySelector('#art-categories-grid');
         const prodGrid = grid.querySelector('#productivity-grid');
         
-        const artPacks = this._scenePacks.filter(p => !this._isProductivityPack(p));
+        const artPacks = visiblePacks.filter(p => !this._isProductivityPack(p));
         for (const catId of this._artPackCategoryIds(artPacks)) {
           const packs = artPacks.filter(p => this._packCategoryTags(p).includes(catId));
           if (packs.length > 0) {
             artGrid.appendChild(this._buildCategoryTile(catId, packs));
           }
         }
-        
-        const prodPacks = this._scenePacks.filter(p => this._isProductivityPack(p));
+
+        const prodPacks = visiblePacks.filter(p => this._isProductivityPack(p));
         for (const pack of prodPacks) {
           prodGrid.appendChild(this._buildPackCard(pack));
         }
@@ -7578,7 +7622,7 @@
 
       grid.className = 'lib-grid';
       grid.innerHTML = '';
-      for (const pack of this._scenePacks.filter(p => {
+      for (const pack of visiblePacks.filter(p => {
         return !this._isProductivityPack(p) && this._packCategoryTags(p).includes(this._packCategory);
       })) {
         grid.appendChild(this._buildPackCard(pack));
@@ -7736,9 +7780,16 @@
     // contract between a pack manifest (frame-addons/scene_packs/index.json)
     // and the install modal -- add a field type here once, and every add-on
     // manifest can use it without another fraimic-homeassistant release.
+    // Also reused by the xOTD instance modal (_openXotdModal) for both the
+    // xotd catalog pack's own fields and its synthetic image-mode-only
+    // fields, passing idPrefix='xotd' so its DOM ids (xotd-field-<name>,
+    // xotd-row-<name>) never collide with the widget-install modal's
+    // (widget-field-<name>/widget-row-<name>) -- both overlays exist in the
+    // shadow DOM at once, just one hidden, so a shared id would silently
+    // read/write the wrong modal's element.
     // Supported field shape:
-    //   name       (required) -- maps to script_config[name] and DOM id widget-field-<name>
-    //   type       'string' (default) | 'select' | 'entity' | 'json'
+    //   name       (required) -- maps to script_config[name] and DOM id <idPrefix>-field-<name>
+    //   type       'string' (default) | 'select' | 'entity' | 'json' | 'boolean'
     //   label, placeholder, help (help supports **bold**)
     //   default    initial value for a fresh install
     //   required   enforced only while the field is visible (see show_if)
@@ -7756,8 +7807,8 @@
     //   custom quotes/scriptures list) that a plain string can't express --
     //   validated as JSON on submit and parsed into real config.json
     //   structure server-side (see scene_packs.py's _async_install_widget).
-    _renderConfigField(field) {
-      const fieldId = `widget-field-${field.name}`;
+    _renderConfigField(field, idPrefix = 'widget') {
+      const fieldId = `${idPrefix}-field-${field.name}`;
       const label = this._esc(field.label || field.name);
       const placeholder = this._esc(field.placeholder || '');
       let inputHtml;
@@ -7805,6 +7856,13 @@
           : `<select id="${fieldId}" disabled><option value="">No ${this._esc(field.domain)} entities found</option></select>`;
       } else if (field.type === 'json') {
         inputHtml = `<textarea id="${fieldId}" rows="5" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:12px" placeholder="${placeholder}"></textarea>`;
+      } else if (field.type === 'boolean') {
+        // A plain checkbox, not squeezed into the same width:100% row shape
+        // as text/select inputs -- label sits inline beside it instead of
+        // above, since "Label: [long input]" reads oddly for a toggle.
+        // Default value is applied by the generic default-fill loop
+        // (_openWidgetConfigModal), same as every other field type.
+        inputHtml = `<input type="checkbox" id="${fieldId}" style="width:auto;margin:0">`;
       } else {
         inputHtml = `<input type="text" id="${fieldId}" placeholder="${placeholder}">`;
       }
@@ -7813,8 +7871,18 @@
         ? `<div style="font-size:11px;color:var(--secondary-text-color);margin-top:4px;line-height:1.4">${this._escHelp(field.help)}</div>`
         : '';
 
+      if (field.type === 'boolean') {
+        return `
+          <div class="modal-row" id="${idPrefix}-row-${field.name}" style="flex-direction:row;align-items:center;gap:8px">
+            ${inputHtml}
+            <label for="${fieldId}" style="margin:0">${label}</label>
+            ${helpHtml}
+          </div>
+        `;
+      }
+
       return `
-        <div class="modal-row" id="widget-row-${field.name}">
+        <div class="modal-row" id="${idPrefix}-row-${field.name}">
           <label for="${fieldId}">${label}</label>
           ${inputHtml}
           ${helpHtml}
@@ -7825,11 +7893,16 @@
     // Field-type-aware value get/set -- the generic engine (show_if,
     // defaults, restore-on-edit, submit) reads/writes through these instead
     // of a bare el.value, since a multi-select 'entity' field's element is a
-    // checkbox-group container div, not a single value-bearing input. Value
-    // is a comma-joined list of entity ids either way.
+    // checkbox-group container div, not a single value-bearing input, and a
+    // 'boolean' field's element is a bare checkbox (el.value is always the
+    // string "on", useless -- el.checked is the real state). Entity value
+    // is a comma-joined list of entity ids.
     _getFieldValue(field, el) {
       if (field.type === 'entity' && field.multiple) {
         return [...el.querySelectorAll('input[type="checkbox"]:checked')].map(cb => cb.value).join(',');
+      }
+      if (field.type === 'boolean') {
+        return el.checked;
       }
       return el.value;
     }
@@ -7838,6 +7911,10 @@
       if (field.type === 'entity' && field.multiple) {
         const selected = new Set(String(value || '').split(',').map(s => s.trim()).filter(Boolean));
         el.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = selected.has(cb.value); });
+        return;
+      }
+      if (field.type === 'boolean') {
+        el.checked = !!value;
         return;
       }
       el.value = value;
@@ -8005,7 +8082,10 @@
         };
         
         const values = {};
-        for (const [name, el] of Object.entries(fieldEls)) values[name] = this._getFieldValue(fieldsByName[name], el).trim();
+        for (const [name, el] of Object.entries(fieldEls)) {
+          const raw = this._getFieldValue(fieldsByName[name], el);
+          values[name] = typeof raw === 'string' ? raw.trim() : raw;
+        }
 
         for (const field of (pack.config_schema || [])) {
           if (!(field.name in values)) continue;
@@ -8078,6 +8158,437 @@
         overlay.style.display = 'none';
       });
       
+      overlay.style.display = 'flex';
+    }
+
+    // -----------------------------------------------------------------------
+    // xOTD (Day-of-the-Day) instances -- the "Daily Content" tab. Unlike
+    // every other pack, xotd is never installed via the Add-ons flow above
+    // (see MULTI_INSTANCE_PACK_IDS): a user instead creates any number of
+    // independent instances here, each pairing one content_mode with one
+    // frame and its own schedule. Joke/Quote/Scripture/Word instances use
+    // the xotd catalog pack's own config_schema (rendered generically, same
+    // as any widget); Image instances have no catalog backing at all --
+    // their fields are hardcoded below, since that mode runs entirely
+    // in-process in the integration (see xotd.py), never through a
+    // downloaded script.
+    // -----------------------------------------------------------------------
+
+    _xotdContentModeLabel(mode) {
+      return {
+        joke: 'Joke of the Day',
+        quote: 'Quote of the Day',
+        scripture: 'Scripture of the Day',
+        word: 'Word of the Day',
+        image: 'Image of the Day',
+      }[mode] || mode;
+    }
+
+    _xotdScheduleSummary(schedule) {
+      if (!schedule) return '';
+      return schedule.type === 'daily'
+        ? `Daily at ${this._esc(schedule.time || '07:00:00')}`
+        : 'Hourly';
+    }
+
+    _xotdFrameTitle(frameId) {
+      const frame = (this._frames || []).find(f => f.entryId === frameId);
+      return frame ? frame.title : 'Unknown frame';
+    }
+
+    async _loadXotdInstances() {
+      const fb = this.shadowRoot.getElementById('xotd-fb');
+      if (fb) fb.style.display = 'none';
+      try {
+        const resp = await fetch('/api/fraimic/xotd', { headers: this._authHeaders() });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        this._xotdInstances = result.instances || [];
+      } catch (err) {
+        console.error('[fraimic-panel] xotd instances load failed:', err);
+        this._xotdInstances = this._xotdInstances || [];
+        if (fb) {
+          fb.className = 'feedback err';
+          fb.textContent = `Couldn't load Daily Content instances: ${err.message}`;
+          fb.style.display = 'block';
+        }
+      }
+    }
+
+    _renderXotdInstances() {
+      const grid = this.shadowRoot.getElementById('xotd-grid');
+      const instances = this._xotdInstances || [];
+
+      if (!instances.length) {
+        grid.className = 'lib-grid';
+        grid.innerHTML = `
+          <div class="empty">
+            <div class="empty-icon">◈</div>
+            <h2>No instances yet</h2>
+            <p>Click "＋ New Instance" to send a Joke, Quote, Scripture, Word,
+               or Image of the Day to one of your frames.</p>
+          </div>
+        `;
+        return;
+      }
+
+      grid.className = 'lib-grid';
+      grid.innerHTML = '';
+      for (const instance of instances) {
+        grid.appendChild(this._buildXotdCard(instance));
+      }
+    }
+
+    _buildXotdCard(instance) {
+      const el = document.createElement('div');
+      el.className = 'card pack-card';
+      const sid = this._sid(instance.instance_id);
+      const modeLabel = this._esc(this._xotdContentModeLabel(instance.content_mode));
+      const frameTitle = this._esc(this._xotdFrameTitle(instance.frame_id));
+      const scheduleLabel = this._xotdScheduleSummary(instance.schedule);
+
+      const mc = instance.mode_config || {};
+      let subLabel = '';
+      if (instance.content_mode === 'image') {
+        subLabel = mc.sub_mode === 'image_album'
+          ? `Album: ${this._esc(mc.album || '')}`
+          : `Feed: ${this._esc(mc.feed_provider || '')}`;
+      }
+      const pausedLabel = instance.enabled === false ? ' · Paused' : '';
+
+      el.innerHTML = `
+        <div class="scene-card-title">${modeLabel} → ${frameTitle}</div>
+        <div class="scene-card-summary">${scheduleLabel}${subLabel ? ' · ' + subLabel : ''}${pausedLabel}</div>
+        <div class="btns" style="margin-top:10px">
+          <button class="btn-ghost" id="xotd-edit-${sid}">✎ Edit</button>
+          <button class="btn-ghost" id="xotd-delete-${sid}">🗑 Delete</button>
+        </div>
+        <div class="feedback" id="xotd-card-fb-${sid}"></div>
+      `;
+
+      el.querySelector(`#xotd-edit-${sid}`).addEventListener('click', () => this._openXotdModal(instance));
+      el.querySelector(`#xotd-delete-${sid}`).addEventListener('click', () => this._deleteXotdInstance(instance, el, sid));
+
+      return el;
+    }
+
+    async _deleteXotdInstance(instance, el, sid) {
+      if (!window.confirm(`Delete this ${this._xotdContentModeLabel(instance.content_mode)} instance?`)) return;
+
+      const btn = el.querySelector(`#xotd-delete-${sid}`);
+      const fb = el.querySelector(`#xotd-card-fb-${sid}`);
+      btn.disabled = true;
+      btn.textContent = '⏳ Deleting…';
+
+      try {
+        const resp = await fetch(`/api/fraimic/xotd/${instance.instance_id}`, {
+          method: 'DELETE', headers: this._authHeaders(),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+        }
+        await this._loadXotdInstances();
+        this._renderXotdInstances();
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Delete failed: ${err.message}`;
+        fb.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = '🗑 Delete';
+      }
+    }
+
+    // The 4 text modes' fields come from the xotd catalog pack's own
+    // config_schema (content_mode field skipped -- this synthetic 5-way
+    // selector, including "image", supersedes it). Image mode's fields
+    // have no catalog backing since that mode never runs a downloaded
+    // script; they're hardcoded here instead.
+    _xotdContentModeField() {
+      return {
+        name: 'content_mode', type: 'select', label: 'Content Type', default: 'quote',
+        options: [
+          { value: 'joke', label: 'Joke of the Day' },
+          { value: 'quote', label: 'Quote of the Day' },
+          { value: 'scripture', label: 'Scripture of the Day' },
+          { value: 'word', label: 'Word of the Day' },
+          { value: 'image', label: 'Image of the Day' },
+        ],
+      };
+    }
+
+    _xotdImageFields() {
+      const albumOptions = (this._albums || []).map(a => ({ value: a.name, label: a.name }));
+      return [
+        {
+          name: 'sub_mode', type: 'select', label: 'Source', default: 'image_feed',
+          show_if: { field: 'content_mode', equals: 'image' },
+          options: [
+            { value: 'image_feed', label: 'Daily web feed' },
+            { value: 'image_album', label: 'Random from an album' },
+          ],
+        },
+        {
+          name: 'feed_provider', type: 'select', label: 'Feed', default: 'nasa_apod',
+          show_if: { field: 'sub_mode', equals: 'image_feed' },
+          options: [
+            { value: 'nasa_apod', label: 'NASA Astronomy Picture of the Day' },
+            { value: 'wikimedia_potd', label: 'Wikimedia Picture of the Day' },
+            { value: 'bing_wallpaper', label: 'Bing Daily Wallpaper' },
+          ],
+        },
+        {
+          name: 'nasa_api_key', type: 'string', label: 'NASA API Key (optional)', required: false,
+          placeholder: 'Leave blank to use DEMO_KEY',
+          show_if: { field: 'feed_provider', equals: 'nasa_apod' },
+        },
+        {
+          name: 'album', type: 'select', label: 'Album',
+          show_if: { field: 'sub_mode', equals: 'image_album' },
+          options: albumOptions.length ? albumOptions : [{ value: '', label: 'No albums available' }],
+        },
+      ];
+    }
+
+    _openXotdModal(instance) {
+      const overlay = this.shadowRoot.getElementById('xotd-modal-overlay');
+      const title = this.shadowRoot.getElementById('xotd-modal-title');
+      const fieldsContainer = this.shadowRoot.getElementById('xotd-modal-fields');
+      const submitBtn = this.shadowRoot.getElementById('xotd-modal-submit');
+      const fb = this.shadowRoot.getElementById('xotd-modal-fb');
+
+      fb.style.display = 'none';
+      title.textContent = instance ? 'Edit Instance' : 'New Instance';
+      submitBtn.disabled = false;
+      submitBtn.textContent = instance ? 'Save Changes' : 'Create';
+
+      const xotdPack = (this._scenePacks || []).find(p => p.id === 'xotd');
+      const catalogSchema = (xotdPack && xotdPack.config_schema || []).filter(f => f.name !== 'content_mode');
+      const contentModeField = this._xotdContentModeField();
+      const imageFields = this._xotdImageFields();
+      const allFields = [contentModeField, ...catalogSchema, ...imageFields];
+
+      const frameOptions = this._frames.map(f =>
+        `<option value="${f.entryId}">${this._esc(f.title)}</option>`
+      ).join('');
+
+      let html = `
+        <div class="modal-row">
+          <label for="xotd-frame">Target Frame</label>
+          <select id="xotd-frame" ${this._frames.length ? '' : 'disabled'}>
+            ${this._frames.length ? frameOptions : '<option value="">No frames available</option>'}
+          </select>
+        </div>
+      `;
+
+      html += this._renderConfigField(contentModeField, 'xotd');
+      for (const field of catalogSchema) html += this._renderConfigField(field, 'xotd');
+      for (const field of imageFields) html += this._renderConfigField(field, 'xotd');
+
+      html += `
+        <div class="modal-row">
+          <label for="xotd-schedule-type">Update Schedule</label>
+          <select id="xotd-schedule-type">
+            <option value="hourly">Hourly</option>
+            <option value="daily">Daily at specific time</option>
+          </select>
+        </div>
+        <div class="modal-row" id="xotd-schedule-time-row" style="display:none">
+          <label for="xotd-schedule-time">Daily Update Time (24h format)</label>
+          <input type="text" id="xotd-schedule-time" value="07:00:00" placeholder="e.g. 07:30:00">
+        </div>
+      `;
+
+      fieldsContainer.innerHTML = html;
+
+      const schedTypeSel = this.shadowRoot.getElementById('xotd-schedule-type');
+      const schedTimeRow = this.shadowRoot.getElementById('xotd-schedule-time-row');
+      schedTypeSel.addEventListener('change', () => {
+        schedTimeRow.style.display = schedTypeSel.value === 'daily' ? 'block' : 'none';
+      });
+
+      // Generic "Select all / Clear" toolbar wiring, same as the widget
+      // modal -- no current xotd field uses type:entity,multiple:true, but
+      // this keeps that combination working for free if one ever does.
+      fieldsContainer.querySelectorAll('.entity-select-all, .entity-clear-all').forEach(link => {
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          const container = this.shadowRoot.getElementById(link.dataset.target);
+          if (!container) return;
+          const checkAll = link.classList.contains('entity-select-all');
+          container.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = checkAll; });
+          container.dispatchEvent(new Event('change'));
+        });
+      });
+
+      const fieldEls = {};
+      const fieldsByName = {};
+      for (const field of allFields) {
+        fieldsByName[field.name] = field;
+        const el = this.shadowRoot.getElementById(`xotd-field-${field.name}`);
+        if (el) fieldEls[field.name] = el;
+      }
+
+      const updateConditionalRows = () => {
+        const values = {};
+        for (const [name, el] of Object.entries(fieldEls)) values[name] = this._getFieldValue(fieldsByName[name], el);
+        for (const field of allFields) {
+          if (!field.show_if) continue;
+          const row = this.shadowRoot.getElementById(`xotd-row-${field.name}`);
+          if (row) row.style.display = values[field.show_if.field] === field.show_if.equals ? 'block' : 'none';
+        }
+      };
+
+      for (const field of allFields) {
+        if (field.default !== undefined && fieldEls[field.name]) {
+          this._setFieldValue(field, fieldEls[field.name], field.default);
+        }
+      }
+      for (const el of Object.values(fieldEls)) {
+        el.addEventListener('change', updateConditionalRows);
+      }
+
+      const frameSel = this.shadowRoot.getElementById('xotd-frame');
+
+      if (instance) {
+        frameSel.value = instance.frame_id;
+        if (fieldEls.content_mode) {
+          this._setFieldValue(contentModeField, fieldEls.content_mode, instance.content_mode);
+        }
+        const modeConfig = instance.mode_config || {};
+        for (const [name, el] of Object.entries(fieldEls)) {
+          if (name === 'content_mode') continue;
+          if (modeConfig[name] !== undefined) this._setFieldValue(fieldsByName[name], el, modeConfig[name]);
+        }
+        if (instance.schedule) {
+          schedTypeSel.value = instance.schedule.type || 'hourly';
+          if (schedTypeSel.value === 'daily') {
+            schedTimeRow.style.display = 'block';
+            this.shadowRoot.getElementById('xotd-schedule-time').value = instance.schedule.time || '07:00:00';
+          }
+        }
+      }
+
+      updateConditionalRows();
+
+      const submitHandler = async () => {
+        const frameId = frameSel.value;
+        if (!frameId) {
+          fb.textContent = 'Please select a target frame.';
+          fb.className = 'feedback err';
+          fb.style.display = 'block';
+          return;
+        }
+
+        const values = {};
+        for (const [name, el] of Object.entries(fieldEls)) {
+          const raw = this._getFieldValue(fieldsByName[name], el);
+          values[name] = typeof raw === 'string' ? raw.trim() : raw;
+        }
+
+        const contentMode = values.content_mode;
+        const modeConfig = {};
+
+        // Built explicitly from contentMode (not from each field's own
+        // computed visibility) so a hidden field's stale leftover value
+        // from a previously-selected mode never leaks into the payload.
+        if (contentMode === 'image') {
+          for (const field of imageFields) {
+            const visible = !field.show_if || values[field.show_if.field] === field.show_if.equals;
+            if (!visible) continue;
+            const val = values[field.name];
+            if (field.required && !val) {
+              fb.textContent = `${field.label || field.name} is required.`;
+              fb.className = 'feedback err';
+              fb.style.display = 'block';
+              return;
+            }
+            modeConfig[field.name] = val;
+          }
+          if (!modeConfig.sub_mode) {
+            fb.textContent = 'Please choose an image source.';
+            fb.className = 'feedback err';
+            fb.style.display = 'block';
+            return;
+          }
+          if (modeConfig.sub_mode === 'image_album' && !modeConfig.album) {
+            fb.textContent = 'Please choose an album.';
+            fb.className = 'feedback err';
+            fb.style.display = 'block';
+            return;
+          }
+        } else {
+          for (const field of catalogSchema) {
+            const visible = !field.show_if || values[field.show_if.field] === field.show_if.equals;
+            const val = values[field.name];
+            if (field.required && visible && !val) {
+              fb.textContent = `${field.label || field.name} is required.`;
+              fb.className = 'feedback err';
+              fb.style.display = 'block';
+              return;
+            }
+            if (field.type === 'json' && visible && val) {
+              try {
+                JSON.parse(val);
+              } catch (e) {
+                fb.textContent = `${field.label || field.name} must be valid JSON.`;
+                fb.className = 'feedback err';
+                fb.style.display = 'block';
+                return;
+              }
+            }
+            modeConfig[field.name] = val;
+          }
+        }
+
+        const payload = {
+          content_mode: contentMode,
+          frame_id: frameId,
+          schedule: {
+            type: schedTypeSel.value,
+            time: this.shadowRoot.getElementById('xotd-schedule-time').value,
+          },
+          mode_config: modeConfig,
+        };
+
+        newSubmitBtn.disabled = true;
+        newSubmitBtn.textContent = instance ? 'Saving…' : 'Creating…';
+
+        try {
+          const url = instance ? `/api/fraimic/xotd/${instance.instance_id}` : '/api/fraimic/xotd';
+          const resp = await fetch(url, {
+            method: 'POST',
+            headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const result = await resp.json().catch(() => ({}));
+          if (!resp.ok || !result.success) {
+            throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+          }
+
+          overlay.style.display = 'none';
+          await this._loadXotdInstances();
+          this._renderXotdInstances();
+        } catch (err) {
+          fb.textContent = `${instance ? 'Save' : 'Create'} failed: ${err.message}`;
+          fb.className = 'feedback err';
+          fb.style.display = 'block';
+          newSubmitBtn.disabled = false;
+          newSubmitBtn.textContent = instance ? 'Save Changes' : 'Create';
+        }
+      };
+
+      const newSubmitBtn = submitBtn.cloneNode(true);
+      submitBtn.parentNode.replaceChild(newSubmitBtn, submitBtn);
+      newSubmitBtn.addEventListener('click', submitHandler);
+
+      const cancelBtn = this.shadowRoot.getElementById('xotd-modal-cancel');
+      const newCancelBtn = cancelBtn.cloneNode(true);
+      cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+      newCancelBtn.addEventListener('click', () => {
+        overlay.style.display = 'none';
+      });
+
       overlay.style.display = 'flex';
     }
 

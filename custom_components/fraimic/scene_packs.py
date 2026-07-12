@@ -183,7 +183,10 @@ class ScenePackManager:
             )
         return result
 
-    async def _async_get_pack(self, pack_id: str) -> dict[str, Any]:
+    async def async_get_pack(self, pack_id: str) -> dict[str, Any]:
+        """Look up one catalog entry by id -- public since XotdManager also
+        needs the "xotd" pack's script_url/config_schema for its own
+        per-instance script execution (see xotd.py)."""
         for pack in await self._async_fetch_index():
             if pack["id"] == pack_id:
                 return pack
@@ -217,7 +220,7 @@ class ScenePackManager:
     async def async_install_pack(
         self, pack_id: str, config_data: dict[str, Any] = None
     ) -> dict[str, Any]:
-        pack = await self._async_get_pack(pack_id)
+        pack = await self.async_get_pack(pack_id)
 
         if pack.get("type") == "widget":
             return await self._async_install_widget(pack_id, pack, config_data)
@@ -334,7 +337,7 @@ class ScenePackManager:
         if pack_id in self._installing:
             raise ScenePackError(f"Pack '{pack_id}' is already being installed")
 
-        pack = await self._async_get_pack(pack_id)
+        pack = await self.async_get_pack(pack_id)
         album = installed.get("album", pack["name"])
         session = async_get_clientsession(self.hass)
 
@@ -407,7 +410,7 @@ class ScenePackManager:
         # Get all library images to check their album tags
         library_images = await self._library.async_list_images()
         images_by_id = {img["image_id"]: img for img in library_images}
-        pack = await self._async_get_pack(pack_id)
+        pack = await self.async_get_pack(pack_id)
         album_to_remove = installed.get("album", pack["name"])
 
         remaining: list[str] = []

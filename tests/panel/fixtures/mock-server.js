@@ -69,16 +69,21 @@ function parseMultipartFields(buf) {
 // albums: [{ name, count, cover_image_id }]
 // walls: [{ wall_id, name, placements }]
 // scenePacks: [{ id, name, categories, ... }]
+// xotdInstances: [{ instance_id, content_mode, frame_id, schedule, mode_config, enabled }]
 // onboardingComplete: the server-side first-run-wizard flag. Defaults to
 // true so every non-onboarding suite loads straight to the dashboard;
 // onboarding tests opt in with false.
-function createMockServer({ frames = [], scenes = [], images = [], albums = [], walls = [], scenePacks = [], schedules = [], discoveredFlows = [], onboardingComplete = true, failing = false, onboardingBroken = false } = {}) {
+function createMockServer({ frames = [], scenes = [], images = [], albums = [], walls = [], scenePacks = [], schedules = [], xotdInstances = [], discoveredFlows = [], onboardingComplete = true, failing = false, onboardingBroken = false } = {}) {
   let sceneList = scenes.map((s) => ({ created_at: 0, album: null, source: 'user', ...s }));
   let scheduleList = schedules.map((s) => ({
     enabled: true, status: 'pending', fired_late: false,
     created_at: '2026-01-01T00:00:00', last_fired_at: null, ...s,
   }));
   let nextScheduleId = scheduleList.length + 1;
+  let xotdInstanceList = xotdInstances.map((x) => ({
+    enabled: true, mode_config: {}, created_at: '2026-01-01T00:00:00', last_run_at: null, ...x,
+  }));
+  let nextXotdId = xotdInstanceList.length + 1;
   // The backend guarantees the default "All Frames" wall exists with a
   // placement for every configured frame -- mirror that here unless a test
   // seeds its own default wall record.
@@ -406,6 +411,55 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [], 
       }
     }
 
+    if (p === '/api/fraimic/xotd') {
+      if (req.method === 'GET') {
+        return json(res, 200, { instances: xotdInstanceList });
+      }
+      if (req.method === 'POST') {
+        const parsed = await readJsonBody(req);
+        const validModes = ['joke', 'quote', 'scripture', 'word', 'image'];
+        if (!validModes.includes(parsed.content_mode)) {
+          return json(res, 400, { message: `Invalid content_mode: ${parsed.content_mode}` });
+        }
+        if (!parsed.frame_id) {
+          return json(res, 400, { message: 'Selected target frame was not found' });
+        }
+        const scheduleType = parsed.schedule && parsed.schedule.type;
+        if (!['hourly', 'daily'].includes(scheduleType)) {
+          return json(res, 400, { message: `Invalid schedule type: ${scheduleType}` });
+        }
+        const instance = {
+          instance_id: `xotd_${nextXotdId++}`,
+          content_mode: parsed.content_mode,
+          frame_id: parsed.frame_id,
+          schedule: parsed.schedule,
+          mode_config: parsed.mode_config || {},
+          enabled: parsed.enabled !== false,
+          created_at: '2026-01-01T00:00:00',
+          last_run_at: null,
+        };
+        xotdInstanceList.push(instance);
+        return json(res, 200, { success: true, instance });
+      }
+    }
+    const xotdMatch = p.match(/^\/api\/fraimic\/xotd\/([^/]+)$/);
+    if (xotdMatch) {
+      const instanceId = xotdMatch[1];
+      if (req.method === 'POST') {
+        const parsed = await readJsonBody(req);
+        const instance = xotdInstanceList.find((i) => i.instance_id === instanceId);
+        if (!instance) return json(res, 404, { message: `Instance '${instanceId}' not found` });
+        for (const key of ['content_mode', 'frame_id', 'schedule', 'mode_config', 'enabled']) {
+          if (key in parsed) instance[key] = parsed[key];
+        }
+        return json(res, 200, { success: true, instance });
+      }
+      if (req.method === 'DELETE') {
+        xotdInstanceList = xotdInstanceList.filter((i) => i.instance_id !== instanceId);
+        return json(res, 200, { success: true });
+      }
+    }
+
     if (p === '/api/fraimic/walls') {
       if (req.method === 'GET') return json(res, 200, { walls: wallList });
       if (req.method === 'POST') {
@@ -459,6 +513,7 @@ function createMockServer({ frames = [], scenes = [], images = [], albums = [], 
     entryDeletes,
     get scenes() { return sceneList; },
     get schedules() { return scheduleList; },
+    get xotdInstances() { return xotdInstanceList; },
     get walls() { return wallList; },
     setFailing(value) { failing = value; },
     get onboardingComplete() { return onboardingComplete; },
