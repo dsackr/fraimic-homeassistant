@@ -30,12 +30,10 @@
     productivity: { label: 'Productivity' }
   };
   const PRODUCTIVITY_CATEGORY = 'productivity';
-  // Packs whose Add-ons card is a plain Install/Remove on/off switch
-  // (XotdManager.async_set_enabled) rather than the generic single-
-  // instance config modal -- "xotd"'s actual instances (each its own
-  // content_mode + frame + schedule) are created separately, in the
-  // "Daily Content" tab that installing this reveals. See
-  // _buildAnyPackCard/_buildXotdPackCard.
+  // Packs excluded from every Add-ons catalog listing entirely (see
+  // _renderScenePacks) -- "xotd" is just the script source skills.py
+  // downloads for text-mode rendering, not something a user installs;
+  // skills themselves are managed from the "Daily Content" tab.
   const MULTI_INSTANCE_PACK_IDS = ['xotd'];
   const PACK_CATEGORY_ORDER = [
     'famous_artists',
@@ -1803,6 +1801,28 @@
     .wall-tile-badge[data-kind="staged"]  { background: var(--primary-color, #03a9f4); }
     .wall-tile-badge[data-kind="scene"]   { background: #8b5cf6; }
     .wall-tile-badge[data-kind="onframe"] { background: rgba(100, 116, 139, .9); }
+    .wall-tile-badge[data-kind="skill"]   { background: #d97706; }
+    .wall-tile-skill {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 6px;
+      text-align: center;
+      padding: 0 6px;
+      box-sizing: border-box;
+      background: var(--card-background-color, #1e1e1e);
+    }
+    .wall-tile-skill .wall-tile-skill-icon { font-size: 28px; line-height: 1; }
+    .wall-tile-skill .wall-tile-skill-label {
+      font-size: 12px;
+      color: var(--primary-text-color);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
     .discovery-banner .banner-add-btn {
       padding: 6px 14px;
       border-radius: 8px;
@@ -1895,8 +1915,7 @@
 
       this._scenePacks    = [];       // [{ id, name, description, categories, license, cover, images, installed, scene_created }]
       this._scenePacksLoadedAt = 0;   // Date.now() of the last successful catalog fetch -- see _refreshScenePacksIfStale
-      this._xotdInstances = [];       // [{ instance_id, content_mode, frame_id, schedule, mode_config, enabled }] -- loaded at boot and refreshed on tab activation, see _setTab
-      this._xotdEnabled = false;      // whether the xOTD add-on itself is installed -- gates the "Daily Content" tab's visibility
+      this._skills = [];              // [{ skill_id, name, content_mode, config }] -- loaded at boot and refreshed on tab activation, see _setTab; also feeds the wall picker's Skills section
       this._activeTab     = 'dashboard'; // 'dashboard' | 'addons' | 'xotd'
       this._packCategory  = null;     // null = category-tile view; otherwise the category id being browsed
       this._packPreview   = null;     // { pack, index } while the read-only image gallery is open, else null
@@ -2124,9 +2143,6 @@
       const albumsP  = this._withInitRetry('albums',  () => this._loadAlbums());
       const scenesP  = this._withInitRetry('scenes',  () => this._loadScenes());
       const wallsP   = this._withInitRetry('walls',   () => this._loadWalls());
-      // Must resolve before first paint decides whether the "Daily
-      // Content" tab button is even shown -- a hidden-by-default button
-      // that only reveals itself after a delay would flash into existence.
       const xotdP    = this._withInitRetry('xotd',    () => this._loadXotdInstances());
 
       await framesP;
@@ -2150,7 +2166,7 @@
       // (everyone else) -- on top of the rendered dashboard.
       this._maybeOpenOnboarding();
       await xotdP;
-      this._updateXotdTabVisibility();
+      this._renderXotdInstances();
       await packsP;
       this._renderScenePacks();
 
@@ -2230,23 +2246,8 @@
       // re-rendering once the (throttled) refetch resolves.
       if (name === 'addons') this._refreshScenePacksIfStale();
       if (name === 'xotd') {
-        this._loadXotdInstances().then(() => {
-          this._renderXotdInstances();
-          this._updateXotdTabVisibility();
-        });
+        this._loadXotdInstances().then(() => this._renderXotdInstances());
       }
-    }
-
-    // Hides the "Daily Content" tab button entirely until xOTD is
-    // installed (this._xotdEnabled, set by _loadXotdInstances) -- it's not
-    // just an empty/CTA state inside the tab, the tab shouldn't be
-    // reachable at all until the user opts in via the Add-ons card. If
-    // it's disabled while the user is looking at it, bounce to Dashboard
-    // rather than leaving them on a tab whose button just vanished.
-    _updateXotdTabVisibility() {
-      const btn = this.shadowRoot.querySelector('.tab-btn[data-tab="xotd"]');
-      if (btn) btn.style.display = this._xotdEnabled ? '' : 'none';
-      if (!this._xotdEnabled && this._activeTab === 'xotd') this._setTab('dashboard');
     }
 
     _buildShell() {
@@ -2256,7 +2257,7 @@
         <div class="tab-bar" id="tab-bar">
           <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
           <button class="tab-btn" data-tab="addons">Add-ons</button>
-          <button class="tab-btn" data-tab="xotd" style="display:none">Daily Content</button>
+          <button class="tab-btn" data-tab="xotd">Daily Content</button>
         </div>
 
         <div class="tab-content active" id="tab-dashboard">
@@ -2366,16 +2367,16 @@
 
         <div class="tab-content" id="tab-xotd">
         <p style="font-size:12px;color:var(--secondary-text-color);margin:0 0 14px">
-          Pick a content type below to create an instance -- each pairs one
-          content type with one target frame and its own schedule, so e.g. a
-          Joke can run hourly on one frame while a Scripture runs daily on
-          another, independently. Create as many as you like, including more
-          than one of the same type.
+          A skill is a piece of content -- Word/Joke/Quote/Scripture of the
+          Day, or a rotating photo feed/album -- with no frame or schedule
+          of its own. Create one below, then treat it like a photo: drop it
+          on a wall tile, send it to any frame on demand, or schedule it
+          from the Schedules tab.
         </p>
         <div class="feedback" id="xotd-fb"></div>
-        <h3 style="margin:0 0 10px;font-size:14px">Add a New Instance</h3>
+        <h3 style="margin:0 0 10px;font-size:14px">Add a New Skill</h3>
         <div class="xotd-mode-grid" id="xotd-mode-grid"></div>
-        <h3 style="margin:24px 0 10px;font-size:14px">Your Instances</h3>
+        <h3 style="margin:24px 0 10px;font-size:14px">Your Skills</h3>
         <div class="lib-grid" id="xotd-grid">
           <div class="empty">
             <div class="empty-icon">⋯</div>
@@ -6432,8 +6433,19 @@
           item.className = 'wall-palette-item';
           item.dataset.entryId = frame.entryId;
 
-          const imageId = this._wallEffectiveMapping(frame.entryId);
-          if (imageId) {
+          const mapping = this._wallEffectiveMapping(frame.entryId);
+          const isSkill = mapping && typeof mapping === 'object' && mapping.type === 'skill';
+          if (isSkill) {
+            const skill = (this._skills || []).find(s => s.skill_id === mapping.skill_id);
+            item.style.display = 'flex';
+            item.style.alignItems = 'center';
+            item.style.gap = '8px';
+            item.style.cursor = 'grab';
+            item.innerHTML = `
+              <div class="wall-palette-thumb">${this._skillIcon(skill ? skill.content_mode : null)}</div>
+              <div style="flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this._esc(frame.title)}</div>
+            `;
+          } else if (mapping) {
             item.style.display = 'flex';
             item.style.alignItems = 'center';
             item.style.gap = '8px';
@@ -6442,7 +6454,7 @@
               <div class="wall-palette-thumb">🖼</div>
               <div style="flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this._esc(frame.title)}</div>
             `;
-            this._loadThumbnail(imageId, item.querySelector('.wall-palette-thumb'));
+            this._loadThumbnail(mapping, item.querySelector('.wall-palette-thumb'));
           } else {
             item.textContent = frame.title;
           }
@@ -6555,13 +6567,17 @@
       const fb  = this.shadowRoot.getElementById('wall-scene-fb');
       const btn = this.shadowRoot.getElementById('wall-send-btn');
 
+      // Skill-type mappings are excluded here: instant "Send to Frames"
+      // sends a stored library image_id directly, and a skill has no
+      // image_id to send this way -- send a skill via its own "Send Now"
+      // (Daily Content tab), Save Scene + Send, or a schedule instead.
       const targets = this._frames
         .map(frame => ({
           entryId: frame.entryId,
           frame,
           imageId: this._wallEffectiveMapping(frame.entryId),
         }))
-        .filter(t => t.frame && t.frame.entityId && t.imageId);
+        .filter(t => t.frame && t.frame.entityId && t.imageId && typeof t.imageId === 'string');
 
       if (!targets.length) {
         fb.className = 'feedback err';
@@ -6674,16 +6690,32 @@
         tile.appendChild(badge);
       }
 
-      const imageId = this._wallEffectiveMapping(entryId);
+      const mapping = this._wallEffectiveMapping(entryId);
+      const stagedThisSession =
+        Object.prototype.hasOwnProperty.call(this._wallPendingMappings, entryId)
+        && this._wallPendingMappings[entryId];
+
+      if (mapping && typeof mapping === 'object' && mapping.type === 'skill') {
+        const skill = (this._skills || []).find(s => s.skill_id === mapping.skill_id);
+        media.className = 'wall-tile-media wall-tile-skill';
+        media.innerHTML = `
+          <div class="wall-tile-skill-icon">${this._skillIcon(skill ? skill.content_mode : null)}</div>
+          <div class="wall-tile-skill-label">${this._esc(skill ? skill.name : 'Skill')}</div>
+        `;
+        badge.textContent = stagedThisSession ? 'staged' : 'skill';
+        badge.dataset.kind = stagedThisSession ? 'staged' : 'skill';
+        badge.style.display = '';
+        return;
+      }
+      media.className = 'wall-tile-media';
+
+      const imageId = mapping;
       if (imageId) {
         media.innerHTML = '';
         // _loadThumbnail paints synchronously on a cache hit and dedupes
         // concurrent fetches, so repeated renders and same-image tiles are
         // cheap.
         this._loadThumbnail(imageId, media);
-        const stagedThisSession =
-          Object.prototype.hasOwnProperty.call(this._wallPendingMappings, entryId)
-          && this._wallPendingMappings[entryId];
         badge.textContent = stagedThisSession ? 'staged' : 'scene';
         badge.dataset.kind = stagedThisSession ? 'staged' : 'scene';
         badge.style.display = '';
@@ -7200,7 +7232,9 @@
       fb.style.display = 'none';
 
       if (!this._albums || !this._albums.length) await this._loadAlbums();
+      if (!this._skills) await this._loadXotdInstances();
       albumSelect.innerHTML = '<option value="">All Photos</option>' +
+        '<option value="__skills__">✨ Skills</option>' +
         this._albums.map(a => `<option value="${this._esc(a.name)}">${this._esc(a.name)}</option>`).join('');
       // An add-on scene's images all ship in one dedicated album -- default
       // straight to it instead of "All Photos" so picking a replacement for
@@ -7286,6 +7320,12 @@
         hint.style.display = 'block';
       }
 
+      if (album === '__skills__') {
+        this._renderWallPickerSkillsGrid(entryId, grid);
+        this._updateWallPickerSendButton();
+        return;
+      }
+
       let images = [];
       try {
         const url = album
@@ -7341,18 +7381,74 @@
       this._updateWallPickerSendButton();
     }
 
+    // The picker's "Skills" filter: same grid, same staging model as a
+    // photo pick (see _loadWallImagePickerImages above) -- selecting a
+    // skill sets a {type:'skill', skill_id} mapping instead of a bare
+    // image_id, and the tile preview (_renderWallTileContent) renders it
+    // as an icon+label rather than a thumbnail. Skill-type mappings are
+    // NOT sendable via this picker's instant "▶ Send" button (see
+    // _updateWallPickerSendButton) -- only via Save Scene + Send, or a
+    // schedule -- so this grid never wires a send action, just staging.
+    _renderWallPickerSkillsGrid(entryId, grid) {
+      const skills = this._skills || [];
+      if (!skills.length) {
+        grid.innerHTML = '<div class="modal-file-summary">No skills yet -- create one from the Daily Content tab.</div>';
+        return;
+      }
+
+      const current = this._wallEffectiveMapping(entryId);
+      const currentSkillId = current && typeof current === 'object' && current.type === 'skill'
+        ? current.skill_id
+        : null;
+
+      grid.innerHTML = '';
+      for (const skill of skills) {
+        const cell = document.createElement('div');
+        cell.className = 'image-picker-cell';
+        cell.dataset.skillId = skill.skill_id;
+        cell.title = skill.name;
+        cell.innerHTML = `
+          <div class="image-picker-thumb" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">
+            <div style="font-size:26px">${this._skillIcon(skill.content_mode)}</div>
+            <div style="font-size:10px;text-align:center;padding:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">${this._esc(skill.name)}</div>
+          </div>
+        `;
+        if (skill.skill_id === currentSkillId) cell.classList.add('selected');
+        cell.addEventListener('click', () => {
+          this._wallPickerSelectedFile = null;
+          this._wallPendingMappings[entryId] = { type: 'skill', skill_id: skill.skill_id };
+          // Not a real album -- guarantees this reads as an "off-lock" pick
+          // for an add-on scene locked to a specific photo album (see
+          // _wallHasOffAlbumPick), which is the right call: a skill's
+          // generated content was never part of that pack's own images.
+          this._wallPendingPickAlbum[entryId] = '__skill__';
+          this._closeWallImagePicker();
+          this._renderWallCanvas();
+        });
+        grid.appendChild(cell);
+      }
+    }
+
     _updateWallPickerSendButton() {
       const btn = this.shadowRoot.getElementById('wall-picker-send-btn');
       const schedBtn = this.shadowRoot.getElementById('wall-picker-schedule-btn');
       const entryId = this._wallImagePickerEntryId;
       const frame = entryId && this._frames.find(f => f.entryId === entryId);
-      const imageId = frame ? this._wallEffectiveMapping(entryId) : null;
-      // Scheduling stores a library image_id, so it needs a library pick --
-      // a staged upload file doesn't exist in the library until it's sent.
+      const mapping = frame ? this._wallEffectiveMapping(entryId) : null;
+      const isSkillMapping = !!mapping && typeof mapping === 'object' && mapping.type === 'skill';
+      const imageId = isSkillMapping ? null : mapping;
+      // A skill has no library image_id -- it can't be sent from this
+      // instant button or scheduled through the image-picker path; use the
+      // Daily Content tab's own "Send Now", Save Scene + Send, or the
+      // Schedules tab instead. Scheduling otherwise stores a library
+      // image_id, so it also needs a library pick -- a staged upload file
+      // doesn't exist in the library until it's sent.
       schedBtn.disabled = !frame || !imageId || !!this._wallPickerSelectedFile;
-      schedBtn.title = this._wallPickerSelectedFile
-        ? 'Scheduling needs a photo from the library — uploads can only be sent now'
-        : 'Send this image at a future time';
+      schedBtn.title = isSkillMapping
+        ? 'Schedule a skill from the Schedules tab instead'
+        : (this._wallPickerSelectedFile
+          ? 'Scheduling needs a photo from the library — uploads can only be sent now'
+          : 'Send this image at a future time');
       if (!frame) {
         btn.disabled = true;
         btn.textContent = '▶ Send';
@@ -7363,18 +7459,29 @@
         btn.textContent = `▶ Send "${this._wallPickerSelectedFile.name}" to ${frame.title}`;
         return;
       }
+      if (isSkillMapping) {
+        btn.disabled = true;
+        btn.title = 'Save the scene, or use the Daily Content tab\'s "Send Now", to send a skill';
+        btn.textContent = '▶ Send';
+        return;
+      }
+      btn.title = '';
       btn.disabled = !imageId;
       btn.textContent = `▶ Send to ${frame.title}`;
     }
 
     // The picker's one transmit action: sends whatever is staged (a library
-    // selection, or an uploaded file) to this frame, then closes.
+    // selection, or an uploaded file) to this frame, then closes. Skill
+    // mappings are never staged as sendable here (see
+    // _updateWallPickerSendButton) -- the button stays disabled, but this
+    // guards defensively too.
     async _sendFromWallPicker() {
       const entryId = this._wallImagePickerEntryId;
       const frame = entryId && this._frames.find(f => f.entryId === entryId);
       if (!frame || !frame.entityId) return;
       const file = this._wallPickerSelectedFile;
-      const imageId = this._wallEffectiveMapping(entryId);
+      const mapping = this._wallEffectiveMapping(entryId);
+      const imageId = typeof mapping === 'string' ? mapping : null;
       if (!file && !imageId) return;
       this._closeWallImagePicker();
 
@@ -7613,15 +7720,12 @@
     // Packs are browsed through a category tile view first (this._packCategory
     // === null) and only fan out into a flat pack grid once a tile is clicked --
     // avoids dumping every pack (art + seasonal) into one undifferentiated grid.
-    // xotd shows a normal-looking pack card (Install/Remove), it just
-    // isn't backed by ScenePackManager's per-pack config/frame/schedule --
-    // installing it is a simple on/off switch (XotdManager.async_set_
-    // enabled) that reveals the "Daily Content" tab, where instances (each
-    // with their own frame/schedule) get created separately.
+    // xotd is filtered out of every catalog listing before this is ever
+    // called (see _renderScenePacks) -- it's no longer a user-installable
+    // pack, just the script source skills.py downloads for text-mode
+    // rendering; skills themselves are managed from the "Daily Content" tab.
     _buildAnyPackCard(pack) {
-      return MULTI_INSTANCE_PACK_IDS.includes(pack.id)
-        ? this._buildXotdPackCard(pack)
-        : this._buildPackCard(pack);
+      return this._buildPackCard(pack);
     }
 
     _renderScenePacks() {
@@ -7668,7 +7772,9 @@
           }
         }
 
-        const prodPacks = visiblePacks.filter(p => this._isProductivityPack(p));
+        const prodPacks = visiblePacks.filter(p =>
+          this._isProductivityPack(p) && !MULTI_INSTANCE_PACK_IDS.includes(p.id)
+        );
         for (const pack of prodPacks) {
           prodGrid.appendChild(this._buildAnyPackCard(pack));
         }
@@ -7760,79 +7866,6 @@
         this._renderScenePacks();
       });
       return el;
-    }
-
-    // xotd's card: a plain Install/Remove switch (this._xotdEnabled),
-    // never the generic config modal -- ScenePackManager doesn't even
-    // know this pack is installed (that state lives entirely in
-    // XotdManager), so this branch can't reuse pack.installed/pack.config
-    // the way _buildPackCard does for every other widget.
-    _buildXotdPackCard(pack) {
-      const el = document.createElement('div');
-      el.className = 'card pack-card';
-      const coverUrl = `${SCENE_PACK_RAW_BASE}/${pack.cover}`;
-      const enabled = !!this._xotdEnabled;
-
-      const statusHtml = enabled
-        ? `<button class="btn-ghost" id="xotd-pack-remove">🗑 Remove</button>`
-        : `<button class="btn-primary" id="xotd-pack-install">⬇ Install</button>`;
-      const badgeHtml = enabled
-        ? `<div style="margin-top:10px"><span class="badge-installed">✓ Installed -- see the Daily Content tab</span></div>`
-        : '';
-
-      el.innerHTML = `
-        <img class="pack-cover" src="${this._esc(coverUrl)}" alt="${this._esc(pack.name)}" loading="lazy">
-        <div class="scene-card-title">${this._esc(pack.name)}</div>
-        <div class="pack-desc">${this._esc(pack.description || '')}</div>
-        <div class="scene-card-summary">Create Joke/Quote/Scripture/Word/Image instances, each with its own frame and schedule, from the Daily Content tab</div>
-        <div class="btns" style="margin-top:10px">${statusHtml}</div>
-        ${badgeHtml}
-        <div class="feedback" id="xotd-pack-fb"></div>
-      `;
-
-      if (enabled) {
-        el.querySelector('#xotd-pack-remove').addEventListener('click', () => this._setXotdEnabled(false, el));
-      } else {
-        el.querySelector('#xotd-pack-install').addEventListener('click', () => this._setXotdEnabled(true, el));
-      }
-
-      return el;
-    }
-
-    async _setXotdEnabled(enabled, el) {
-      if (!enabled) {
-        const count = (this._xotdInstances || []).length;
-        const msg = count
-          ? `Remove xOTD? This deletes all ${count} Daily Content instance${count === 1 ? '' : 's'} you've created.`
-          : 'Remove xOTD?';
-        if (!window.confirm(msg)) return;
-      }
-
-      const fb = el.querySelector('#xotd-pack-fb');
-      const btn = el.querySelector(enabled ? '#xotd-pack-install' : '#xotd-pack-remove');
-      if (btn) btn.disabled = true;
-
-      try {
-        const resp = await fetch('/api/fraimic/xotd/enabled', {
-          method: 'POST',
-          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled }),
-        });
-        const result = await resp.json().catch(() => ({}));
-        if (!resp.ok || !result.success) {
-          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
-        }
-
-        await this._loadXotdInstances();
-        this._updateXotdTabVisibility();
-        this._renderScenePacks();
-        if (enabled) this._setTab('xotd');
-      } catch (err) {
-        fb.className = 'feedback err';
-        fb.textContent = `${enabled ? 'Install' : 'Remove'} failed: ${err.message}`;
-        fb.style.display = 'block';
-        if (btn) btn.disabled = false;
-      }
     }
 
     _buildPackCard(pack) {
@@ -8301,17 +8334,17 @@
     }
 
     // -----------------------------------------------------------------------
-    // xOTD (Day-of-the-Day) instances -- the "Daily Content" tab. Installed
-    // like any other pack (a plain Install/Remove switch, _buildXotdPackCard),
-    // but that switch just flips XotdManager's enabled flag -- it doesn't
-    // configure a frame/schedule itself. Once installed, this tab appears
-    // (see _updateXotdTabVisibility) and a user creates any number of
-    // independent instances here, each pairing one content_mode with one
-    // frame and its own schedule. Joke/Quote/Scripture/Word instances use
+    // Skills (frame-agnostic content presets: Word/Joke/Quote/Scripture of
+    // the Day, or a rotating photo feed/album) -- the "Daily Content" tab.
+    // Unlike the retired per-instance xOTD model, a skill has no frame or
+    // schedule of its own: it's created once here, then assigned to a wall
+    // tile (see the wall image picker's Skills section), sent ad hoc to any
+    // frame from this tab's "Send Now", or scheduled via the Schedules tab
+    // -- all three reuse the same skill_id. Joke/Quote/Scripture/Word use
     // the xotd catalog pack's own config_schema (rendered generically, same
-    // as any widget); Image instances have no catalog backing at all --
-    // their fields are hardcoded below, since that mode runs entirely
-    // in-process in the integration (see xotd.py), never through a
+    // as any widget); image_feed/image_album have no catalog backing at all
+    // -- their fields are hardcoded below, since those modes run entirely
+    // in-process in the integration (see skills.py), never through a
     // downloaded script.
     // -----------------------------------------------------------------------
 
@@ -8321,22 +8354,38 @@
         quote: 'Quote of the Day',
         scripture: 'Scripture of the Day',
         word: 'Word of the Day',
-        image: 'Image of the Day',
+        image_feed: 'Image Feed',
+        image_album: 'Image Album',
       }[mode] || mode;
     }
 
-    // One tile per content type -- clicking a tile opens the New Instance
+    // Shared between a skill's Daily Content card and its wall-tile
+    // rendering (see _renderWallTileContent) so the same content type reads
+    // the same everywhere.
+    _skillIcon(contentMode) {
+      return {
+        joke: '😂',
+        quote: '💬',
+        scripture: '📖',
+        word: '🔤',
+        image_feed: '🖼',
+        image_album: '🖼',
+      }[contentMode] || '◈';
+    }
+
+    // One tile per content type -- clicking a tile opens the New Skill
     // modal with that type pre-selected. This is the entry point for
-    // creating an instance now (there's no bare "+ New Instance" button);
-    // the tile grid itself never changes with existing instances, so it's
+    // creating a skill now (there's no bare "+ New Skill" button); the
+    // tile grid itself never changes with existing skills, so it's
     // rendered once at panel boot, not on every _renderXotdInstances().
     _xotdModeTileDefs() {
       return [
-        { mode: 'joke', icon: '😂', desc: 'A daily dad joke, setup + punchline.' },
-        { mode: 'quote', icon: '💬', desc: 'An inspirational quote, with author.' },
-        { mode: 'scripture', icon: '📖', desc: 'A daily Bible verse and reference.' },
-        { mode: 'word', icon: '🔤', desc: 'A word, definition, and example.' },
-        { mode: 'image', icon: '🖼', desc: 'A web feed photo, or a random pick from an album.' },
+        { mode: 'joke', icon: this._skillIcon('joke'), desc: 'A daily dad joke, setup + punchline.' },
+        { mode: 'quote', icon: this._skillIcon('quote'), desc: 'An inspirational quote, with author.' },
+        { mode: 'scripture', icon: this._skillIcon('scripture'), desc: 'A daily Bible verse and reference.' },
+        { mode: 'word', icon: this._skillIcon('word'), desc: 'A word, definition, and example.' },
+        { mode: 'image_feed', icon: this._skillIcon('image_feed'), desc: 'A daily web feed photo (NASA, Wikimedia, Bing).' },
+        { mode: 'image_album', icon: this._skillIcon('image_album'), desc: 'A random pick from one of your albums.' },
       ];
     }
 
@@ -8361,34 +8410,20 @@
       return el;
     }
 
-    _xotdScheduleSummary(schedule) {
-      if (!schedule) return '';
-      return schedule.type === 'daily'
-        ? `Daily at ${this._esc(schedule.time || '07:00:00')}`
-        : 'Hourly';
-    }
-
-    _xotdFrameTitle(frameId) {
-      const frame = (this._frames || []).find(f => f.entryId === frameId);
-      return frame ? frame.title : 'Unknown frame';
-    }
-
     async _loadXotdInstances() {
       const fb = this.shadowRoot.getElementById('xotd-fb');
       if (fb) fb.style.display = 'none';
       try {
-        const resp = await fetch('/api/fraimic/xotd', { headers: this._authHeaders() });
+        const resp = await fetch('/api/fraimic/skills', { headers: this._authHeaders() });
         const result = await resp.json().catch(() => ({}));
         if (!resp.ok) throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
-        this._xotdInstances = result.instances || [];
-        this._xotdEnabled = !!result.enabled;
+        this._skills = result.skills || [];
       } catch (err) {
-        console.error('[fraimic-panel] xotd instances load failed:', err);
-        this._xotdInstances = this._xotdInstances || [];
-        this._xotdEnabled = !!this._xotdEnabled;
+        console.error('[fraimic-panel] skills load failed:', err);
+        this._skills = this._skills || [];
         if (fb) {
           fb.className = 'feedback err';
-          fb.textContent = `Couldn't load Daily Content instances: ${err.message}`;
+          fb.textContent = `Couldn't load skills: ${err.message}`;
           fb.style.display = 'block';
         }
       }
@@ -8396,16 +8431,18 @@
 
     _renderXotdInstances() {
       const grid = this.shadowRoot.getElementById('xotd-grid');
-      const instances = this._xotdInstances || [];
+      if (!grid) return;
+      const skills = this._skills || [];
 
-      if (!instances.length) {
+      if (!skills.length) {
         grid.className = 'lib-grid';
         grid.innerHTML = `
           <div class="empty">
             <div class="empty-icon">◈</div>
-            <h2>No instances yet</h2>
-            <p>Pick a content type above to send a Joke, Quote, Scripture,
-               Word, or Image of the Day to one of your frames.</p>
+            <h2>No skills yet</h2>
+            <p>Pick a content type above to create a Joke, Quote, Scripture,
+               Word, or Image skill you can send to any frame, drop onto a
+               wall tile, or schedule.</p>
           </div>
         `;
         return;
@@ -8413,56 +8450,70 @@
 
       grid.className = 'lib-grid';
       grid.innerHTML = '';
-      for (const instance of instances) {
-        grid.appendChild(this._buildXotdCard(instance));
+      for (const skill of skills) {
+        grid.appendChild(this._buildXotdCard(skill));
       }
     }
 
-    _buildXotdCard(instance) {
+    _buildXotdCard(skill) {
       const el = document.createElement('div');
       el.className = 'card pack-card';
-      const sid = this._sid(instance.instance_id);
-      const modeLabel = this._esc(this._xotdContentModeLabel(instance.content_mode));
-      const frameTitle = this._esc(this._xotdFrameTitle(instance.frame_id));
-      const scheduleLabel = this._xotdScheduleSummary(instance.schedule);
+      const sid = this._sid(skill.skill_id);
+      const modeLabel = this._esc(this._xotdContentModeLabel(skill.content_mode));
 
-      const mc = instance.mode_config || {};
+      const cfg = skill.config || {};
       let subLabel = '';
-      if (instance.content_mode === 'image') {
-        subLabel = mc.sub_mode === 'image_album'
-          ? `Album: ${this._esc(mc.album || '')}`
-          : `Feed: ${this._esc(mc.feed_provider || '')}`;
-      }
-      const pausedLabel = instance.enabled === false ? ' · Paused' : '';
+      if (skill.content_mode === 'image_album') subLabel = `Album: ${this._esc(cfg.album || '')}`;
+      if (skill.content_mode === 'image_feed') subLabel = `Feed: ${this._esc(cfg.feed_provider || '')}`;
+
+      const frameOptions = (this._frames || []).map(f =>
+        `<option value="${f.entryId}">${this._esc(f.title)}</option>`
+      ).join('');
 
       el.innerHTML = `
-        <div class="scene-card-title">${modeLabel} → ${frameTitle}</div>
-        <div class="scene-card-summary">${scheduleLabel}${subLabel ? ' · ' + subLabel : ''}${pausedLabel}</div>
-        <div class="btns" style="margin-top:10px">
-          <button class="btn-primary" id="xotd-run-${sid}">▶ Send Now</button>
+        <div class="scene-card-title">${this._esc(skill.name)}</div>
+        <div class="scene-card-summary">${modeLabel}${subLabel ? ' · ' + subLabel : ''}</div>
+        <div class="modal-row" style="margin-top:10px">
+          <select id="xotd-send-frame-${sid}" ${this._frames.length ? '' : 'disabled'}>
+            ${this._frames.length ? frameOptions : '<option value="">No frames available</option>'}
+          </select>
+        </div>
+        <div class="btns" style="margin-top:6px">
+          <button class="btn-primary" id="xotd-run-${sid}" ${this._frames.length ? '' : 'disabled'}>▶ Send Now</button>
           <button class="btn-ghost" id="xotd-edit-${sid}">✎ Edit</button>
           <button class="btn-ghost" id="xotd-delete-${sid}">🗑 Delete</button>
         </div>
         <div class="feedback" id="xotd-card-fb-${sid}"></div>
       `;
 
-      el.querySelector(`#xotd-run-${sid}`).addEventListener('click', () => this._runXotdInstanceNow(instance, el, sid));
-      el.querySelector(`#xotd-edit-${sid}`).addEventListener('click', () => this._openXotdModal(instance));
-      el.querySelector(`#xotd-delete-${sid}`).addEventListener('click', () => this._deleteXotdInstance(instance, el, sid));
+      el.querySelector(`#xotd-run-${sid}`).addEventListener('click', () => this._runXotdInstanceNow(skill, el, sid));
+      el.querySelector(`#xotd-edit-${sid}`).addEventListener('click', () => this._openXotdModal(skill));
+      el.querySelector(`#xotd-delete-${sid}`).addEventListener('click', () => this._deleteXotdInstance(skill, el, sid));
 
       return el;
     }
 
-    async _runXotdInstanceNow(instance, el, sid) {
+    async _runXotdInstanceNow(skill, el, sid) {
       const btn = el.querySelector(`#xotd-run-${sid}`);
       const fb = el.querySelector(`#xotd-card-fb-${sid}`);
+      const frameSel = el.querySelector(`#xotd-send-frame-${sid}`);
+      const entryId = frameSel && frameSel.value;
+      if (!entryId) {
+        fb.className = 'feedback err';
+        fb.textContent = 'Choose a frame to send to first.';
+        fb.style.display = 'block';
+        return;
+      }
+
       btn.disabled = true;
       const prevText = btn.textContent;
       btn.textContent = '⏳ Sending…';
 
       try {
-        const resp = await fetch(`/api/fraimic/xotd/${instance.instance_id}/run`, {
-          method: 'POST', headers: this._authHeaders(),
+        const resp = await fetch(`/api/fraimic/skills/${skill.skill_id}/send`, {
+          method: 'POST',
+          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ entry_id: entryId }),
         });
         const result = await resp.json().catch(() => ({}));
         if (!resp.ok || !result.success) {
@@ -8482,8 +8533,8 @@
       }
     }
 
-    async _deleteXotdInstance(instance, el, sid) {
-      if (!window.confirm(`Delete this ${this._xotdContentModeLabel(instance.content_mode)} instance?`)) return;
+    async _deleteXotdInstance(skill, el, sid) {
+      if (!window.confirm(`Delete the "${skill.name}" skill? Any wall tile or schedule using it will stop working.`)) return;
 
       const btn = el.querySelector(`#xotd-delete-${sid}`);
       const fb = el.querySelector(`#xotd-card-fb-${sid}`);
@@ -8491,7 +8542,7 @@
       btn.textContent = '⏳ Deleting…';
 
       try {
-        const resp = await fetch(`/api/fraimic/xotd/${instance.instance_id}`, {
+        const resp = await fetch(`/api/fraimic/skills/${skill.skill_id}`, {
           method: 'DELETE', headers: this._authHeaders(),
         });
         const result = await resp.json().catch(() => ({}));
@@ -8510,10 +8561,10 @@
     }
 
     // The 4 text modes' fields come from the xotd catalog pack's own
-    // config_schema (content_mode field skipped -- this synthetic 5-way
-    // selector, including "image", supersedes it). Image mode's fields
-    // have no catalog backing since that mode never runs a downloaded
-    // script; they're hardcoded here instead.
+    // config_schema (content_mode field skipped -- this synthetic selector
+    // supersedes it). image_feed/image_album have no catalog backing since
+    // those modes never run a downloaded script; their fields are
+    // hardcoded here instead.
     _xotdContentModeField() {
       return {
         name: 'content_mode', type: 'select', label: 'Content Type', default: 'quote',
@@ -8522,7 +8573,8 @@
           { value: 'quote', label: 'Quote of the Day' },
           { value: 'scripture', label: 'Scripture of the Day' },
           { value: 'word', label: 'Word of the Day' },
-          { value: 'image', label: 'Image of the Day' },
+          { value: 'image_feed', label: 'Image Feed' },
+          { value: 'image_album', label: 'Image Album' },
         ],
       };
     }
@@ -8531,16 +8583,8 @@
       const albumOptions = (this._albums || []).map(a => ({ value: a.name, label: a.name }));
       return [
         {
-          name: 'sub_mode', type: 'select', label: 'Source', default: 'image_feed',
-          show_if: { field: 'content_mode', equals: 'image' },
-          options: [
-            { value: 'image_feed', label: 'Daily web feed' },
-            { value: 'image_album', label: 'Random from an album' },
-          ],
-        },
-        {
           name: 'feed_provider', type: 'select', label: 'Feed', default: 'nasa_apod',
-          show_if: { field: 'sub_mode', equals: 'image_feed' },
+          show_if: { field: 'content_mode', equals: 'image_feed' },
           options: [
             { value: 'nasa_apod', label: 'NASA Astronomy Picture of the Day' },
             { value: 'wikimedia_potd', label: 'Wikimedia Picture of the Day' },
@@ -8554,7 +8598,7 @@
         },
         {
           name: 'album', type: 'select', label: 'Album',
-          show_if: { field: 'sub_mode', equals: 'image_album' },
+          show_if: { field: 'content_mode', equals: 'image_album' },
           options: albumOptions.length ? albumOptions : [{ value: '', label: 'No albums available' }],
         },
       ];
@@ -8569,8 +8613,8 @@
 
       fb.style.display = 'none';
       title.textContent = instance
-        ? `Edit ${this._xotdContentModeLabel(instance.content_mode)}`
-        : `New ${this._xotdContentModeLabel(presetMode || 'quote')} Instance`;
+        ? `Edit "${instance.name}"`
+        : `New ${this._xotdContentModeLabel(presetMode || 'quote')} Skill`;
       submitBtn.disabled = false;
       submitBtn.textContent = instance ? 'Save Changes' : 'Create';
 
@@ -8581,28 +8625,22 @@
       const imageFields = this._xotdImageFields();
       const allFields = [contentModeField, ...catalogSchema, ...imageFields];
 
-      const frameOptions = this._frames.map(f =>
-        `<option value="${f.entryId}">${this._esc(f.title)}</option>`
-      ).join('');
-
       let html = `
         <div class="modal-row">
-          <label for="xotd-frame">Target Frame</label>
-          <select id="xotd-frame" ${this._frames.length ? '' : 'disabled'}>
-            ${this._frames.length ? frameOptions : '<option value="">No frames available</option>'}
-          </select>
+          <label for="xotd-name">Name</label>
+          <input type="text" id="xotd-name" placeholder="e.g. Word of the Day">
         </div>
       `;
 
       html += this._renderConfigField(contentModeField, 'xotd');
 
       // Wrapped in their own containers (rather than relying on each
-      // field's own show_if) since NONE of these fields apply when
-      // content_mode is 'image' -- the catalog schema's own content_mode
-      // field never includes 'image' as an option (that mode has no
-      // script/catalog backing at all), so fields like theme/drop_cap that
-      // intentionally have no per-field show_if (they apply to all 4 text
-      // modes) would otherwise render for Image mode too.
+      // field's own show_if) since NONE of these fields apply for the two
+      // image modes -- the catalog schema's own content_mode field never
+      // includes them (they have no script/catalog backing at all), so
+      // fields like theme/drop_cap that intentionally have no per-field
+      // show_if (they apply to all 4 text modes) would otherwise render
+      // for an image skill too.
       html += `<div id="xotd-text-fields-wrap">`;
       for (const field of catalogSchema) html += this._renderConfigField(field, 'xotd');
       html += `</div>`;
@@ -8610,27 +8648,7 @@
       for (const field of imageFields) html += this._renderConfigField(field, 'xotd');
       html += `</div>`;
 
-      html += `
-        <div class="modal-row">
-          <label for="xotd-schedule-type">Update Schedule</label>
-          <select id="xotd-schedule-type">
-            <option value="hourly">Hourly</option>
-            <option value="daily">Daily at specific time</option>
-          </select>
-        </div>
-        <div class="modal-row" id="xotd-schedule-time-row" style="display:none">
-          <label for="xotd-schedule-time">Daily Update Time (24h format)</label>
-          <input type="text" id="xotd-schedule-time" value="07:00:00" placeholder="e.g. 07:30:00">
-        </div>
-      `;
-
       fieldsContainer.innerHTML = html;
-
-      const schedTypeSel = this.shadowRoot.getElementById('xotd-schedule-type');
-      const schedTimeRow = this.shadowRoot.getElementById('xotd-schedule-time-row');
-      schedTypeSel.addEventListener('change', () => {
-        schedTimeRow.style.display = schedTypeSel.value === 'daily' ? 'block' : 'none';
-      });
 
       // Generic "Select all / Clear" toolbar wiring, same as the widget
       // modal -- no current xotd field uses type:entity,multiple:true, but
@@ -8656,11 +8674,12 @@
 
       const textFieldsWrap = this.shadowRoot.getElementById('xotd-text-fields-wrap');
       const imageFieldsWrap = this.shadowRoot.getElementById('xotd-image-fields-wrap');
+      const isImageMode = (mode) => mode === 'image_feed' || mode === 'image_album';
 
       const updateConditionalRows = () => {
         const values = {};
         for (const [name, el] of Object.entries(fieldEls)) values[name] = this._getFieldValue(fieldsByName[name], el);
-        const isImage = values.content_mode === 'image';
+        const isImage = isImageMode(values.content_mode);
         textFieldsWrap.style.display = isImage ? 'none' : 'block';
         imageFieldsWrap.style.display = isImage ? 'block' : 'none';
         for (const field of allFields) {
@@ -8679,33 +8698,28 @@
         el.addEventListener('change', updateConditionalRows);
       }
 
-      const frameSel = this.shadowRoot.getElementById('xotd-frame');
+      const nameInput = this.shadowRoot.getElementById('xotd-name');
 
       if (instance) {
-        frameSel.value = instance.frame_id;
+        nameInput.value = instance.name || '';
         if (fieldEls.content_mode) {
           this._setFieldValue(contentModeField, fieldEls.content_mode, instance.content_mode);
         }
-        const modeConfig = instance.mode_config || {};
+        const config = instance.config || {};
         for (const [name, el] of Object.entries(fieldEls)) {
           if (name === 'content_mode') continue;
-          if (modeConfig[name] !== undefined) this._setFieldValue(fieldsByName[name], el, modeConfig[name]);
+          if (config[name] !== undefined) this._setFieldValue(fieldsByName[name], el, config[name]);
         }
-        if (instance.schedule) {
-          schedTypeSel.value = instance.schedule.type || 'hourly';
-          if (schedTypeSel.value === 'daily') {
-            schedTimeRow.style.display = 'block';
-            this.shadowRoot.getElementById('xotd-schedule-time').value = instance.schedule.time || '07:00:00';
-          }
-        }
+      } else {
+        nameInput.value = this._xotdContentModeLabel(presetMode || 'quote');
       }
 
       updateConditionalRows();
 
       const submitHandler = async () => {
-        const frameId = frameSel.value;
-        if (!frameId) {
-          fb.textContent = 'Please select a target frame.';
+        const name = nameInput.value.trim();
+        if (!name) {
+          fb.textContent = 'Please give this skill a name.';
           fb.className = 'feedback err';
           fb.style.display = 'block';
           return;
@@ -8718,12 +8732,12 @@
         }
 
         const contentMode = values.content_mode;
-        const modeConfig = {};
+        const config = {};
 
         // Built explicitly from contentMode (not from each field's own
         // computed visibility) so a hidden field's stale leftover value
         // from a previously-selected mode never leaks into the payload.
-        if (contentMode === 'image') {
+        if (isImageMode(contentMode)) {
           for (const field of imageFields) {
             const visible = !field.show_if || values[field.show_if.field] === field.show_if.equals;
             if (!visible) continue;
@@ -8734,15 +8748,9 @@
               fb.style.display = 'block';
               return;
             }
-            modeConfig[field.name] = val;
+            config[field.name] = val;
           }
-          if (!modeConfig.sub_mode) {
-            fb.textContent = 'Please choose an image source.';
-            fb.className = 'feedback err';
-            fb.style.display = 'block';
-            return;
-          }
-          if (modeConfig.sub_mode === 'image_album' && !modeConfig.album) {
+          if (contentMode === 'image_album' && !config.album) {
             fb.textContent = 'Please choose an album.';
             fb.className = 'feedback err';
             fb.style.display = 'block';
@@ -8768,25 +8776,17 @@
                 return;
               }
             }
-            modeConfig[field.name] = val;
+            config[field.name] = val;
           }
         }
 
-        const payload = {
-          content_mode: contentMode,
-          frame_id: frameId,
-          schedule: {
-            type: schedTypeSel.value,
-            time: this.shadowRoot.getElementById('xotd-schedule-time').value,
-          },
-          mode_config: modeConfig,
-        };
+        const payload = { name, content_mode: contentMode, config };
 
         newSubmitBtn.disabled = true;
         newSubmitBtn.textContent = instance ? 'Saving…' : 'Creating…';
 
         try {
-          const url = instance ? `/api/fraimic/xotd/${instance.instance_id}` : '/api/fraimic/xotd';
+          const url = instance ? `/api/fraimic/skills/${instance.skill_id}` : '/api/fraimic/skills';
           const resp = await fetch(url, {
             method: 'POST',
             headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },

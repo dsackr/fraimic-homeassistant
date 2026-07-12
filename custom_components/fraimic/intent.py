@@ -1,8 +1,9 @@
-"""Custom Assist/LLM intent: generate an AI image and send it to a named
-Fraimic frame in a single voice command.
+"""Custom Assist/LLM intents: generate an AI image, or send a skill (Word of
+the Day, Joke of the Day, ...), to a named Fraimic frame in a single voice
+command.
 
 Registered once at domain setup (not per config entry) via
-async_register_intents, so it's available to any LLM-backed conversation
+async_register_intents, so they're available to any LLM-backed conversation
 agent (Google Generative AI, OpenAI, etc.) the moment Fraimic is installed --
 no user-authored script or manual "expose to Assist" step required.
 """
@@ -10,6 +11,7 @@ no user-authored script or manual "expose to Assist" step required.
 from __future__ import annotations
 
 import logging
+from typing import Any, Callable
 
 import voluptuous as vol
 
@@ -23,10 +25,48 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 INTENT_GENERATE_AI_IMAGE = "FraimicGenerateAIImage"
+INTENT_SEND_SKILL = "FraimicSendSkill"
 
 
 def _normalize(name: str) -> str:
     return "".join(ch for ch in name.lower() if ch.isalnum())
+
+
+def _match_by_name(
+    spoken_name: str,
+    candidates: list[Any],
+    *,
+    get_name: Callable[[Any], str],
+    kind: str,
+) -> Any:
+    """Resolve a spoken name against a list of candidates (frame devices,
+    skills, ...): exact match first, falling back to a single unambiguous
+    substring match (so "office" matches "Office Frame"). Raises
+    HomeAssistantError -- listing every candidate's name -- on zero or
+    ambiguous (>1) matches.
+    """
+    if not candidates:
+        raise HomeAssistantError(f"No Fraimic {kind}s are configured")
+
+    target = _normalize(spoken_name)
+    named = [(candidate, _normalize(get_name(candidate) or "")) for candidate in candidates]
+
+    exact = [candidate for candidate, name in named if name == target]
+    if len(exact) == 1:
+        return exact[0]
+
+    partial = [candidate for candidate, name in named if target and target in name]
+    if len(partial) == 1:
+        return partial[0]
+
+    options = ", ".join(get_name(candidate) or "?" for candidate in candidates)
+    if len(partial) > 1:
+        raise HomeAssistantError(
+            f"'{spoken_name}' matches more than one {kind} ({options}) -- be more specific"
+        )
+    raise HomeAssistantError(
+        f"No Fraimic {kind} matches '{spoken_name}'. Configured {kind}s: {options}"
+    )
 
 
 def _match_frame_device_id(hass: HomeAssistant, frame_name: str) -> str:
@@ -42,28 +82,21 @@ def _match_frame_device_id(hass: HomeAssistant, frame_name: str) -> str:
         for device in dev_reg.devices.values()
         if any(identifier[0] == DOMAIN for identifier in device.identifiers)
     ]
-    if not frames:
-        raise HomeAssistantError("No Fraimic frames are configured")
-
-    target = _normalize(frame_name)
-    named = [(device, _normalize(device.name_by_user or device.name or "")) for device in frames]
-
-    exact = [device for device, name in named if name == target]
-    if len(exact) == 1:
-        return exact[0].id
-
-    partial = [device for device, name in named if target and target in name]
-    if len(partial) == 1:
-        return partial[0].id
-
-    options = ", ".join(device.name_by_user or device.name or "?" for device in frames)
-    if len(partial) > 1:
-        raise HomeAssistantError(
-            f"'{frame_name}' matches more than one frame ({options}) -- be more specific"
-        )
-    raise HomeAssistantError(
-        f"No Fraimic frame matches '{frame_name}'. Configured frames: {options}"
+    device = _match_by_name(
+        frame_name,
+        frames,
+        get_name=lambda d: d.name_by_user or d.name or "",
+        kind="frame",
     )
+    return device.id
+
+
+def _match_skill_id(hass: HomeAssistant, skill_name: str) -> str:
+    """Resolve a spoken skill name (e.g. "word of the day") to a skill_id."""
+    skill_manager = hass.data.get(DOMAIN, {}).get("_skills")
+    skills = list(skill_manager.skills.values()) if skill_manager is not None else []
+    skill = _match_by_name(skill_name, skills, get_name=lambda s: s.name, kind="skill")
+    return skill.skill_id
 
 
 class FraimicGenerateAIImageIntent(intent.IntentHandler):
@@ -121,6 +154,65 @@ class FraimicGenerateAIImageIntent(intent.IntentHandler):
         return response
 
 
+class FraimicSendSkillIntent(intent.IntentHandler):
+    """Send a skill (Word of the Day, Joke of the Day, ...) to a named
+    frame -- works even if that skill has never been mapped to that frame
+    before, since the skill is rendered fresh at send time."""
+
+    intent_type = INTENT_SEND_SKILL
+    description = (
+        "Send a Fraimic skill (like Word of the Day or Joke of the Day) to "
+        "a named Fraimic e-ink photo frame."
+    )
+
+    @property
+    def slot_schema(self) -> dict:
+        return {
+            vol.Required(
+                "skill", description="Name of the skill to send"
+            ): intent.non_empty_string,
+            vol.Required(
+                "frame", description="Name of the Fraimic frame to send it to"
+            ): intent.non_empty_string,
+        }
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        hass = intent_obj.hass
+        slots = self.async_validate_slots(intent_obj.slots)
+        skill_name: str = slots["skill"]["value"]
+        frame_name: str = slots["frame"]["value"]
+
+        response = intent_obj.create_response()
+
+        try:
+            device_id = _match_frame_device_id(hass, frame_name)
+            skill_id = _match_skill_id(hass, skill_name)
+        except HomeAssistantError as err:
+            response.async_set_error(
+                intent.IntentResponseErrorCode.NO_VALID_TARGETS, str(err)
+            )
+            return response
+
+        try:
+            await hass.services.async_call(
+                DOMAIN,
+                "send_skill",
+                {"device_id": device_id, "skill_id": skill_id},
+                blocking=True,
+            )
+        except HomeAssistantError as err:
+            _LOGGER.error("send_skill intent failed: %s", err)
+            response.async_set_error(
+                intent.IntentResponseErrorCode.FAILED_TO_HANDLE,
+                f"Couldn't send {skill_name}: {err}",
+            )
+            return response
+
+        response.async_set_speech(f"Sure, sending {skill_name} to {frame_name} now.")
+        return response
+
+
 def async_register_intents(hass: HomeAssistant) -> None:
     """Register Fraimic's custom Assist intents."""
     intent.async_register(hass, FraimicGenerateAIImageIntent())
+    intent.async_register(hass, FraimicSendSkillIntent())

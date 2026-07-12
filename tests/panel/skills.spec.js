@@ -2,17 +2,17 @@ const { test, expect } = require('@playwright/test');
 const { createMockServer } = require('./fixtures/mock-server');
 const { gotoPanel } = require('./fixtures/panel-page');
 
-// xOTD ("Daily Content"): installed like any other Add-on (a plain
-// Install/Remove switch, XotdManager.async_set_enabled -- see
-// _buildXotdPackCard in fraimic-panel.js), which reveals the "Daily
-// Content" tab. That tab shows one tile per content type (Joke/Quote/
-// Scripture/Word/Image); clicking a tile opens the New Instance modal
-// pre-selected to that type. Each instance pairs one content_mode with
-// one frame and its own schedule.
+// Skills ("Daily Content" tab): frame-agnostic content presets (Word/Joke/
+// Quote/Scripture of the Day, or an image feed/album) -- unlike the retired
+// per-instance xOTD model, a skill has no frame or schedule of its own, so
+// the tab has no install gate and no Target Frame/Schedule fields. One tile
+// per content type opens the New Skill modal pre-selected to that type;
+// each card gets its own frame <select> + "Send Now" button since sending
+// is ad hoc, not tied to a fixed frame.
 //
-// This mirrors the real scene_packs/index.json "xotd" catalog entry
-// closely enough (content_mode + joke/quote/scripture + theme/drop_cap
-// fields) to exercise the generic config_schema engine the same way
+// This mirrors the real scene_packs/index.json "xotd" catalog entry closely
+// enough (content_mode + joke/quote/scripture + theme/drop_cap fields) to
+// exercise the generic config_schema engine the same way
 // agenda-calendar-source.spec.js does for daily_agenda.
 const XOTD_PACK = {
   id: 'xotd',
@@ -48,7 +48,7 @@ const XOTD_PACK = {
       show_if: { field: 'content_mode', equals: 'scripture' },
     },
     // Deliberately no show_if -- these apply "to all 4 text modes", the
-    // exact case that once leaked into Image mode's fields too.
+    // exact case that once leaked into the image modes' fields too.
     {
       name: 'theme', type: 'select', label: 'Visual Theme', default: 'classic',
       options: [{ value: 'classic', label: 'Classic' }, { value: 'retro_atomic', label: 'Retro Atomic Age' }],
@@ -64,16 +64,6 @@ function frames() {
     { entry_id: 'entry_1', title: 'Living Room Frame' },
     { entry_id: 'entry_2', title: 'Office Frame' },
   ];
-}
-
-async function openAddonsTab(page) {
-  await page.evaluate(() => {
-    document.getElementById('panel').shadowRoot.querySelector('.tab-btn[data-tab="addons"]').click();
-  });
-  await page.waitForFunction(() => {
-    const root = document.getElementById('panel').shadowRoot;
-    return root.getElementById('pack-grid').children.length > 0;
-  });
 }
 
 function xotdTabButtonDisplay(page) {
@@ -106,8 +96,8 @@ async function clickModeTile(page, mode) {
   });
 }
 
-// Find the xotd instance card whose title contains `titleSubstring`, then
-// click a button inside it matching `buttonText`.
+// Find the skill card whose title contains `titleSubstring`, then click a
+// button inside it matching `buttonText`.
 async function clickCardButton(page, titleSubstring, buttonText) {
   await page.evaluate(({ titleSubstring, buttonText }) => {
     const root = document.getElementById('panel').shadowRoot;
@@ -116,6 +106,17 @@ async function clickCardButton(page, titleSubstring, buttonText) {
     const btn = [...card.querySelectorAll('button')].find((b) => b.textContent.includes(buttonText));
     btn.click();
   }, { titleSubstring, buttonText });
+}
+
+async function selectCardFrame(page, titleSubstring, entryId) {
+  await page.evaluate(({ titleSubstring, entryId }) => {
+    const root = document.getElementById('panel').shadowRoot;
+    const card = [...root.getElementById('xotd-grid').querySelectorAll('.pack-card')]
+      .find((c) => c.querySelector('.scene-card-title').textContent.includes(titleSubstring));
+    const select = card.querySelector('select');
+    select.value = entryId;
+    select.dispatchEvent(new Event('change'));
+  }, { titleSubstring, entryId });
 }
 
 function fieldValue(page, id) {
@@ -143,139 +144,70 @@ async function setFieldValue(page, id, value) {
   }, { elId: id, val: value });
 }
 
-test.describe('xOTD install gate (Add-ons tab)', () => {
-  test('the Daily Content tab is hidden until xOTD is installed', async ({ page }) => {
+test.describe('Skills ("Daily Content" tab)', () => {
+  test('the tab is always visible -- no install gate', async ({ page }) => {
     const mock = createMockServer({ frames: frames(), scenePacks: [XOTD_PACK] });
     const baseUrl = await mock.start();
     try {
       await gotoPanel(page, baseUrl, { frames: frames() });
-      expect(await xotdTabButtonDisplay(page)).toBe('none');
+      expect(await xotdTabButtonDisplay(page)).not.toBe('none');
     } finally {
       await mock.stop();
     }
   });
 
-  test('xotd appears as a plain Install/Remove card, never the config modal', async ({ page }) => {
+  test('creating two skills via mode tiles keeps them independent, with no frame/schedule fields', async ({ page }) => {
     const mock = createMockServer({ frames: frames(), scenePacks: [XOTD_PACK] });
-    const baseUrl = await mock.start();
-    try {
-      await gotoPanel(page, baseUrl, { frames: frames() });
-      await openAddonsTab(page);
-
-      const card = await page.evaluate(() => {
-        const root = document.getElementById('panel').shadowRoot;
-        const el = [...root.querySelectorAll('.pack-card')]
-          .find((c) => c.querySelector('.scene-card-title').textContent.includes('xOTD'));
-        return {
-          found: !!el,
-          hasInstallButton: !!el.querySelector('#xotd-pack-install'),
-          buttonLabel: el.querySelector('#xotd-pack-install').textContent.trim(),
-        };
-      });
-      expect(card.found).toBe(true);
-      expect(card.hasInstallButton).toBe(true);
-      expect(card.buttonLabel).toContain('Install');
-
-      // Clicking Install must never open the generic per-frame config modal.
-      await page.evaluate(() => {
-        document.getElementById('panel').shadowRoot.getElementById('xotd-pack-install').click();
-      });
-      await expect.poll(() => mock.xotdEnabled).toBe(true);
-      const widgetModalDisplay = await page.evaluate(() => {
-        const overlay = document.getElementById('panel').shadowRoot.getElementById('widget-config-overlay');
-        return overlay.style.display;
-      });
-      expect(widgetModalDisplay).not.toBe('flex');
-
-      // Installing reveals the tab and switches to it.
-      expect(await xotdTabButtonDisplay(page)).toBe('');
-      const activeTab = await page.evaluate(() => document.getElementById('panel').shadowRoot.getElementById('tab-xotd').classList.contains('active'));
-      expect(activeTab).toBe(true);
-    } finally {
-      await mock.stop();
-    }
-  });
-
-  test('removing xotd deletes every instance and hides the tab again', async ({ page }) => {
-    const mock = createMockServer({
-      frames: frames(),
-      scenePacks: [XOTD_PACK],
-      xotdInstances: [{ instance_id: 'xotd_1', content_mode: 'joke', frame_id: 'entry_1', schedule: { type: 'hourly' } }],
-    });
-    const baseUrl = await mock.start();
-    try {
-      await gotoPanel(page, baseUrl, { frames: frames() });
-      expect(await xotdTabButtonDisplay(page)).toBe('');
-
-      await openAddonsTab(page);
-      page.once('dialog', (dialog) => dialog.accept());
-      await page.evaluate(() => {
-        document.getElementById('panel').shadowRoot.getElementById('xotd-pack-remove').click();
-      });
-
-      await expect.poll(() => mock.xotdEnabled).toBe(false);
-      expect(mock.xotdInstances.length).toBe(0);
-      expect(await xotdTabButtonDisplay(page)).toBe('none');
-    } finally {
-      await mock.stop();
-    }
-  });
-});
-
-test.describe('xOTD "Daily Content" tab', () => {
-  test('creating two instances via mode tiles keeps them independent', async ({ page }) => {
-    const mock = createMockServer({ frames: frames(), scenePacks: [XOTD_PACK], xotdEnabled: true });
     const baseUrl = await mock.start();
     try {
       await gotoPanel(page, baseUrl, { frames: frames() });
       await openXotdTab(page);
 
-      // First instance: Joke -> Frame A, hourly.
+      // First skill: Joke.
       await clickModeTile(page, 'joke');
       expect(await fieldValue(page, 'xotd-field-content_mode')).toBe('joke');
-      await setFieldValue(page, 'xotd-frame', 'entry_1');
+      // No frame/schedule fields exist anymore -- a skill is frame-agnostic.
+      expect(await page.evaluate(() => !!document.getElementById('panel').shadowRoot.getElementById('xotd-frame'))).toBe(false);
+      expect(await page.evaluate(() => !!document.getElementById('panel').shadowRoot.getElementById('xotd-schedule-type'))).toBe(false);
+      await setFieldValue(page, 'xotd-name', 'My Daily Joke');
       await page.evaluate(() => {
         document.getElementById('panel').shadowRoot.getElementById('xotd-modal-submit').click();
       });
-      await expect.poll(() => mock.xotdInstances.length).toBe(1);
+      await expect.poll(() => mock.skills.length).toBe(1);
 
-      // Second instance: Scripture -> Frame B, daily at 08:00:00.
+      // Second skill: Scripture.
       await clickModeTile(page, 'scripture');
       expect(await fieldValue(page, 'xotd-field-content_mode')).toBe('scripture');
-      await setFieldValue(page, 'xotd-frame', 'entry_2');
-      await setFieldValue(page, 'xotd-schedule-type', 'daily');
-      await setFieldValue(page, 'xotd-schedule-time', '08:00:00');
+      await setFieldValue(page, 'xotd-name', 'Morning Verse');
       await page.evaluate(() => {
         document.getElementById('panel').shadowRoot.getElementById('xotd-modal-submit').click();
       });
-      await expect.poll(() => mock.xotdInstances.length).toBe(2);
+      await expect.poll(() => mock.skills.length).toBe(2);
 
-      const [first, second] = mock.xotdInstances;
+      const [first, second] = mock.skills;
       expect(first.content_mode).toBe('joke');
-      expect(first.frame_id).toBe('entry_1');
-      expect(first.schedule.type).toBe('hourly');
+      expect(first.name).toBe('My Daily Joke');
       expect(second.content_mode).toBe('scripture');
-      expect(second.frame_id).toBe('entry_2');
-      expect(second.schedule).toEqual({ type: 'daily', time: '08:00:00' });
+      expect(second.name).toBe('Morning Verse');
 
-      const titles = await page.evaluate(() => [
+      // The card list re-render is a separate async chain from the mock
+      // server's own state update above (fetch -> reload -> re-render), so
+      // poll the DOM rather than reading it the instant the server confirms.
+      await expect.poll(() => page.evaluate(() => [
         ...document.getElementById('panel').shadowRoot.querySelectorAll('#xotd-grid .scene-card-title'),
-      ].map((el) => el.textContent));
-      expect(titles.some((t) => t.includes('Joke') && t.includes('Living Room Frame'))).toBe(true);
-      expect(titles.some((t) => t.includes('Scripture') && t.includes('Office Frame'))).toBe(true);
+      ].map((el) => el.textContent))).toEqual(expect.arrayContaining(['My Daily Joke', 'Morning Verse']));
     } finally {
       await mock.stop();
     }
   });
 
-  test('editing one instance\'s schedule does not affect the other', async ({ page }) => {
+  test('editing one skill\'s name does not affect the other', async ({ page }) => {
     const mock = createMockServer({
       frames: frames(),
       scenePacks: [XOTD_PACK],
-      xotdEnabled: true,
-      xotdInstances: [
-        { instance_id: 'xotd_1', content_mode: 'joke', frame_id: 'entry_1', schedule: { type: 'hourly' } },
-        { instance_id: 'xotd_2', content_mode: 'scripture', frame_id: 'entry_2', schedule: { type: 'hourly' } },
+      skills: [
+        { skill_id: 'skill_1', name: 'Joke of the Day', content_mode: 'joke' },
+        { skill_id: 'skill_2', name: 'Scripture of the Day', content_mode: 'scripture' },
       ],
     });
     const baseUrl = await mock.start();
@@ -283,38 +215,33 @@ test.describe('xOTD "Daily Content" tab', () => {
       await gotoPanel(page, baseUrl, { frames: frames() });
       await openXotdTab(page);
 
-      await clickCardButton(page, 'Joke', 'Edit');
+      await clickCardButton(page, 'Joke of the Day', 'Edit');
       await page.waitForFunction(() => {
         const overlay = document.getElementById('panel').shadowRoot.getElementById('xotd-modal-overlay');
         return overlay && overlay.style.display === 'flex';
       });
-      expect(await fieldValue(page, 'xotd-schedule-type')).toBe('hourly');
+      expect(await fieldValue(page, 'xotd-name')).toBe('Joke of the Day');
 
-      await setFieldValue(page, 'xotd-schedule-type', 'daily');
-      await setFieldValue(page, 'xotd-schedule-time', '09:30:00');
+      await setFieldValue(page, 'xotd-name', 'Renamed Joke');
       await page.evaluate(() => {
         document.getElementById('panel').shadowRoot.getElementById('xotd-modal-submit').click();
       });
 
-      await expect.poll(() => mock.xotdInstances.find((i) => i.instance_id === 'xotd_1').schedule.type).toBe('daily');
-      const edited = mock.xotdInstances.find((i) => i.instance_id === 'xotd_1');
-      const untouched = mock.xotdInstances.find((i) => i.instance_id === 'xotd_2');
-      expect(edited.schedule).toEqual({ type: 'daily', time: '09:30:00' });
-      expect(untouched.schedule).toEqual({ type: 'hourly' });
-      expect(untouched.frame_id).toBe('entry_2');
+      await expect.poll(() => mock.skills.find((s) => s.skill_id === 'skill_1').name).toBe('Renamed Joke');
+      const untouched = mock.skills.find((s) => s.skill_id === 'skill_2');
+      expect(untouched.name).toBe('Scripture of the Day');
     } finally {
       await mock.stop();
     }
   });
 
-  test('deleting one instance leaves the other running', async ({ page }) => {
+  test('deleting one skill leaves the other intact', async ({ page }) => {
     const mock = createMockServer({
       frames: frames(),
       scenePacks: [XOTD_PACK],
-      xotdEnabled: true,
-      xotdInstances: [
-        { instance_id: 'xotd_1', content_mode: 'joke', frame_id: 'entry_1', schedule: { type: 'hourly' } },
-        { instance_id: 'xotd_2', content_mode: 'scripture', frame_id: 'entry_2', schedule: { type: 'hourly' } },
+      skills: [
+        { skill_id: 'skill_1', name: 'Joke of the Day', content_mode: 'joke' },
+        { skill_id: 'skill_2', name: 'Scripture of the Day', content_mode: 'scripture' },
       ],
     });
     const baseUrl = await mock.start();
@@ -323,10 +250,10 @@ test.describe('xOTD "Daily Content" tab', () => {
       await openXotdTab(page);
 
       page.once('dialog', (dialog) => dialog.accept());
-      await clickCardButton(page, 'Joke', 'Delete');
+      await clickCardButton(page, 'Joke of the Day', 'Delete');
 
-      await expect.poll(() => mock.xotdInstances.length).toBe(1);
-      expect(mock.xotdInstances[0].instance_id).toBe('xotd_2');
+      await expect.poll(() => mock.skills.length).toBe(1);
+      expect(mock.skills[0].skill_id).toBe('skill_2');
 
       // The card removal is async (delete -> reload -> re-render), so poll
       // the DOM rather than reading it the instant the server confirms.
@@ -342,21 +269,21 @@ test.describe('xOTD "Daily Content" tab', () => {
     }
   });
 
-  test('"Send Now" fires the instance immediately', async ({ page }) => {
+  test('"Send Now" sends to whichever frame is chosen in the card\'s own select', async ({ page }) => {
     const mock = createMockServer({
       frames: frames(),
       scenePacks: [XOTD_PACK],
-      xotdEnabled: true,
-      xotdInstances: [{ instance_id: 'xotd_1', content_mode: 'joke', frame_id: 'entry_1', schedule: { type: 'hourly' } }],
+      skills: [{ skill_id: 'skill_1', name: 'Joke of the Day', content_mode: 'joke' }],
     });
     const baseUrl = await mock.start();
     try {
       await gotoPanel(page, baseUrl, { frames: frames() });
       await openXotdTab(page);
 
-      await clickCardButton(page, 'Joke', 'Send Now');
+      await selectCardFrame(page, 'Joke of the Day', 'entry_2');
+      await clickCardButton(page, 'Joke of the Day', 'Send Now');
 
-      await expect.poll(() => mock.xotdRunCalls).toEqual(['xotd_1']);
+      await expect.poll(() => mock.skillSendCalls).toEqual([{ skill_id: 'skill_1', entry_id: 'entry_2' }]);
     } finally {
       await mock.stop();
     }
@@ -366,16 +293,13 @@ test.describe('xOTD "Daily Content" tab', () => {
     const mock = createMockServer({
       frames: frames(),
       scenePacks: [XOTD_PACK],
-      xotdEnabled: true,
       albums: [{ name: 'Vacation', count: 3, cover_image_id: null }, { name: 'Family', count: 5, cover_image_id: null }],
     });
     const baseUrl = await mock.start();
     try {
       await gotoPanel(page, baseUrl, { frames: frames() });
       await openXotdTab(page);
-      await clickModeTile(page, 'image');
-
-      await setFieldValue(page, 'xotd-field-sub_mode', 'image_album');
+      await clickModeTile(page, 'image album');
 
       const albumOptions = await page.evaluate(() => [
         ...document.getElementById('panel').shadowRoot.getElementById('xotd-field-album').querySelectorAll('option'),
@@ -389,7 +313,7 @@ test.describe('xOTD "Daily Content" tab', () => {
 
   test('content_mode switching shows/hides the right field groups', async ({ page }) => {
     const mock = createMockServer({
-      frames: frames(), scenePacks: [XOTD_PACK], xotdEnabled: true, albums: [{ name: 'Vacation', count: 1 }],
+      frames: frames(), scenePacks: [XOTD_PACK], albums: [{ name: 'Vacation', count: 1 }],
     });
     const baseUrl = await mock.start();
     try {
@@ -400,7 +324,6 @@ test.describe('xOTD "Daily Content" tab', () => {
       await setFieldValue(page, 'xotd-field-content_mode', 'joke');
       expect(await fieldDisplay(page, 'xotd-row-joke_feed')).toBe('visible');
       expect(await fieldDisplay(page, 'xotd-row-quote_feed')).toBe('none');
-      expect(await fieldDisplay(page, 'xotd-row-sub_mode')).toBe('none');
       // theme/drop_cap have no show_if of their own -- they must still show
       // for every text mode via the wrapping container.
       expect(await fieldDisplay(page, 'xotd-row-theme')).toBe('visible');
@@ -410,41 +333,38 @@ test.describe('xOTD "Daily Content" tab', () => {
       expect(await fieldDisplay(page, 'xotd-row-joke_feed')).toBe('none');
       expect(await fieldDisplay(page, 'xotd-row-quote_feed')).toBe('visible');
 
-      await setFieldValue(page, 'xotd-field-content_mode', 'image');
+      await setFieldValue(page, 'xotd-field-content_mode', 'image_feed');
       expect(await fieldDisplay(page, 'xotd-row-quote_feed')).toBe('none');
-      expect(await fieldDisplay(page, 'xotd-row-sub_mode')).toBe('visible');
+      expect(await fieldDisplay(page, 'xotd-row-feed_provider')).toBe('visible');
+      expect(await fieldDisplay(page, 'xotd-row-album')).toBe('none');
       // The bug this test pins: Visual Theme / Drop Cap must NOT show for
-      // Image mode -- they're text-mode-only fields with no show_if of
+      // an image mode -- they're text-mode-only fields with no show_if of
       // their own, so without the wrapping container they'd leak through.
       expect(await fieldDisplay(page, 'xotd-row-theme')).toBe('none');
       expect(await fieldDisplay(page, 'xotd-row-drop_cap')).toBe('none');
-      // sub_mode defaults to image_feed -- feed_provider shows, album doesn't.
-      expect(await fieldDisplay(page, 'xotd-row-feed_provider')).toBe('visible');
-      expect(await fieldDisplay(page, 'xotd-row-album')).toBe('none');
 
-      await setFieldValue(page, 'xotd-field-sub_mode', 'image_album');
-      expect(await fieldDisplay(page, 'xotd-row-feed_provider')).toBe('none');
-      expect(await fieldDisplay(page, 'xotd-row-album')).toBe('visible');
-
-      await setFieldValue(page, 'xotd-field-sub_mode', 'image_feed');
       await setFieldValue(page, 'xotd-field-feed_provider', 'nasa_apod');
       expect(await fieldDisplay(page, 'xotd-row-nasa_api_key')).toBe('visible');
       await setFieldValue(page, 'xotd-field-feed_provider', 'wikimedia_potd');
       expect(await fieldDisplay(page, 'xotd-row-nasa_api_key')).toBe('none');
+
+      await setFieldValue(page, 'xotd-field-content_mode', 'image_album');
+      expect(await fieldDisplay(page, 'xotd-row-feed_provider')).toBe('none');
+      expect(await fieldDisplay(page, 'xotd-row-album')).toBe('visible');
     } finally {
       await mock.stop();
     }
   });
 
-  test('submit is rejected with no target frame selected', async ({ page }) => {
-    const mock = createMockServer({ frames: frames(), scenePacks: [XOTD_PACK], xotdEnabled: true });
+  test('submit is rejected with no name given', async ({ page }) => {
+    const mock = createMockServer({ frames: frames(), scenePacks: [XOTD_PACK] });
     const baseUrl = await mock.start();
     try {
       await gotoPanel(page, baseUrl, { frames: frames() });
       await openXotdTab(page);
       await clickModeTile(page, 'joke');
 
-      await setFieldValue(page, 'xotd-frame', '');
+      await setFieldValue(page, 'xotd-name', '');
       await page.evaluate(() => {
         document.getElementById('panel').shadowRoot.getElementById('xotd-modal-submit').click();
       });
@@ -454,8 +374,8 @@ test.describe('xOTD "Daily Content" tab', () => {
         return { text: el.textContent, display: el.style.display };
       });
       expect(fb.display).toBe('block');
-      expect(fb.text).toContain('select a target frame');
-      expect(mock.xotdInstances.length).toBe(0);
+      expect(fb.text).toContain('name');
+      expect(mock.skills.length).toBe(0);
     } finally {
       await mock.stop();
     }

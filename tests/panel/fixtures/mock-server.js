@@ -69,13 +69,13 @@ function parseMultipartFields(buf) {
 // albums: [{ name, count, cover_image_id }]
 // walls: [{ wall_id, name, placements }]
 // scenePacks: [{ id, name, categories, ... }]
-// xotdInstances: [{ instance_id, content_mode, frame_id, schedule, mode_config, enabled }]
+// skills: [{ skill_id, name, content_mode, config }]
 // onboardingComplete: the server-side first-run-wizard flag. Defaults to
 // true so every non-onboarding suite loads straight to the dashboard;
 // onboarding tests opt in with false.
 function createMockServer({
   frames = [], scenes = [], images = [], albums = [], walls = [], scenePacks = [], schedules = [],
-  xotdInstances = [], xotdEnabled = xotdInstances.length > 0, discoveredFlows = [],
+  skills = [], discoveredFlows = [],
   onboardingComplete = true, failing = false, onboardingBroken = false,
 } = {}) {
   let sceneList = scenes.map((s) => ({ created_at: 0, album: null, source: 'user', ...s }));
@@ -84,12 +84,11 @@ function createMockServer({
     created_at: '2026-01-01T00:00:00', last_fired_at: null, ...s,
   }));
   let nextScheduleId = scheduleList.length + 1;
-  let xotdInstanceList = xotdInstances.map((x) => ({
-    enabled: true, mode_config: {}, created_at: '2026-01-01T00:00:00', last_run_at: null, ...x,
+  let skillList = skills.map((s) => ({
+    config: {}, created_at: 0, ...s,
   }));
-  let nextXotdId = xotdInstanceList.length + 1;
-  let xotdEnabledState = xotdEnabled;
-  const xotdRunCalls = []; // instance_id per /xotd/:id/run POST
+  let nextSkillId = skillList.length + 1;
+  const skillSendCalls = []; // { skill_id, entry_id } per /skills/:id/send POST
   // The backend guarantees the default "All Frames" wall exists with a
   // placement for every configured frame -- mirror that here unless a test
   // seeds its own default wall record.
@@ -417,65 +416,52 @@ function createMockServer({
       }
     }
 
-    if (p === '/api/fraimic/xotd/enabled' && req.method === 'POST') {
+    const skillSendMatch = p.match(/^\/api\/fraimic\/skills\/([^/]+)\/send$/);
+    if (skillSendMatch && req.method === 'POST') {
+      const skillId = skillSendMatch[1];
+      const skill = skillList.find((s) => s.skill_id === skillId);
+      if (!skill) return json(res, 404, { message: `Skill '${skillId}' not found` });
       const parsed = await readJsonBody(req);
-      xotdEnabledState = !!parsed.enabled;
-      if (!xotdEnabledState) xotdInstanceList = [];
-      return json(res, 200, { success: true, enabled: xotdEnabledState });
+      if (!parsed.entry_id) return json(res, 400, { message: 'Request body needs an entry_id' });
+      skillSendCalls.push({ skill_id: skillId, entry_id: parsed.entry_id });
+      return json(res, 200, { success: true, results: [{ entry_id: parsed.entry_id, success: true }] });
     }
-    const xotdRunMatch = p.match(/^\/api\/fraimic\/xotd\/([^/]+)\/run$/);
-    if (xotdRunMatch && req.method === 'POST') {
-      const instanceId = xotdRunMatch[1];
-      const instance = xotdInstanceList.find((i) => i.instance_id === instanceId);
-      if (!instance) return json(res, 404, { message: `Instance '${instanceId}' not found` });
-      xotdRunCalls.push(instanceId);
-      return json(res, 200, { success: true });
-    }
-    if (p === '/api/fraimic/xotd') {
+    if (p === '/api/fraimic/skills') {
       if (req.method === 'GET') {
-        return json(res, 200, { enabled: xotdEnabledState, instances: xotdInstanceList });
+        return json(res, 200, { skills: skillList });
       }
       if (req.method === 'POST') {
         const parsed = await readJsonBody(req);
-        const validModes = ['joke', 'quote', 'scripture', 'word', 'image'];
+        const validModes = ['joke', 'quote', 'scripture', 'word', 'image_feed', 'image_album'];
+        if (!parsed.name) return json(res, 400, { message: "Skill name can't be empty" });
         if (!validModes.includes(parsed.content_mode)) {
           return json(res, 400, { message: `Invalid content_mode: ${parsed.content_mode}` });
         }
-        if (!parsed.frame_id) {
-          return json(res, 400, { message: 'Selected target frame was not found' });
-        }
-        const scheduleType = parsed.schedule && parsed.schedule.type;
-        if (!['hourly', 'daily'].includes(scheduleType)) {
-          return json(res, 400, { message: `Invalid schedule type: ${scheduleType}` });
-        }
-        const instance = {
-          instance_id: `xotd_${nextXotdId++}`,
+        const skill = {
+          skill_id: `skill_${nextSkillId++}`,
+          name: parsed.name,
           content_mode: parsed.content_mode,
-          frame_id: parsed.frame_id,
-          schedule: parsed.schedule,
-          mode_config: parsed.mode_config || {},
-          enabled: parsed.enabled !== false,
+          config: parsed.config || {},
           created_at: '2026-01-01T00:00:00',
-          last_run_at: null,
         };
-        xotdInstanceList.push(instance);
-        return json(res, 200, { success: true, instance });
+        skillList.push(skill);
+        return json(res, 200, { success: true, skill });
       }
     }
-    const xotdMatch = p.match(/^\/api\/fraimic\/xotd\/([^/]+)$/);
-    if (xotdMatch) {
-      const instanceId = xotdMatch[1];
+    const skillMatch = p.match(/^\/api\/fraimic\/skills\/([^/]+)$/);
+    if (skillMatch) {
+      const skillId = skillMatch[1];
       if (req.method === 'POST') {
         const parsed = await readJsonBody(req);
-        const instance = xotdInstanceList.find((i) => i.instance_id === instanceId);
-        if (!instance) return json(res, 404, { message: `Instance '${instanceId}' not found` });
-        for (const key of ['content_mode', 'frame_id', 'schedule', 'mode_config', 'enabled']) {
-          if (key in parsed) instance[key] = parsed[key];
+        const skill = skillList.find((s) => s.skill_id === skillId);
+        if (!skill) return json(res, 404, { message: `Skill '${skillId}' not found` });
+        for (const key of ['name', 'content_mode', 'config']) {
+          if (key in parsed) skill[key] = parsed[key];
         }
-        return json(res, 200, { success: true, instance });
+        return json(res, 200, { success: true, skill });
       }
       if (req.method === 'DELETE') {
-        xotdInstanceList = xotdInstanceList.filter((i) => i.instance_id !== instanceId);
+        skillList = skillList.filter((s) => s.skill_id !== skillId);
         return json(res, 200, { success: true });
       }
     }
@@ -533,9 +519,8 @@ function createMockServer({
     entryDeletes,
     get scenes() { return sceneList; },
     get schedules() { return scheduleList; },
-    get xotdInstances() { return xotdInstanceList; },
-    get xotdEnabled() { return xotdEnabledState; },
-    xotdRunCalls,
+    get skills() { return skillList; },
+    skillSendCalls,
     get walls() { return wallList; },
     setFailing(value) { failing = value; },
     get onboardingComplete() { return onboardingComplete; },

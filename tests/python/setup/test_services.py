@@ -268,3 +268,94 @@ def _canned_result(results):
         return {"results": results}
 
     return _fake
+
+
+def _canned_mappings_result(results):
+    async def _fake(hass, mappings):
+        return {"results": results}
+
+    return _fake
+
+
+# ---------------------------------------------------------------------------
+# send_skill
+# ---------------------------------------------------------------------------
+
+
+async def test_send_skill_success_routes_through_send_mappings(
+    hass, make_frame_entry, monkeypatch
+):
+    entry = await _setup_frame(hass, make_frame_entry)
+    device_id = _device_id_for_entry(hass, entry)
+    scene_manager = hass.data[DOMAIN]["_scenes"]
+
+    calls = []
+
+    async def _fake_send_mappings(hass_arg, mappings):
+        calls.append(mappings)
+        return {"results": [{"entry_id": entry.entry_id, "success": True}]}
+
+    monkeypatch.setattr(scene_manager, "async_send_mappings", _fake_send_mappings)
+
+    await hass.services.async_call(
+        DOMAIN,
+        "send_skill",
+        {"device_id": device_id, "skill_id": "word_of_the_day"},
+        blocking=True,
+    )
+
+    assert calls == [{entry.entry_id: {"type": "skill", "skill_id": "word_of_the_day"}}]
+
+
+async def test_send_skill_failure_raises(hass, make_frame_entry, monkeypatch):
+    entry = await _setup_frame(hass, make_frame_entry)
+    device_id = _device_id_for_entry(hass, entry)
+    scene_manager = hass.data[DOMAIN]["_scenes"]
+
+    monkeypatch.setattr(
+        scene_manager,
+        "async_send_mappings",
+        _canned_mappings_result(
+            [{"entry_id": entry.entry_id, "success": False, "message": "Rendering failed: boom"}]
+        ),
+    )
+
+    with pytest.raises(HomeAssistantError, match="Rendering failed: boom"):
+        await hass.services.async_call(
+            DOMAIN,
+            "send_skill",
+            {"device_id": device_id, "skill_id": "word_of_the_day"},
+            blocking=True,
+        )
+
+
+async def test_send_skill_queued_does_not_raise(hass, make_frame_entry, monkeypatch):
+    entry = await _setup_frame(hass, make_frame_entry)
+    device_id = _device_id_for_entry(hass, entry)
+    scene_manager = hass.data[DOMAIN]["_scenes"]
+
+    monkeypatch.setattr(
+        scene_manager,
+        "async_send_mappings",
+        _canned_mappings_result([{"entry_id": entry.entry_id, "success": False, "queued": True}]),
+    )
+
+    # A queued mapping isn't a failure -- must not raise.
+    await hass.services.async_call(
+        DOMAIN,
+        "send_skill",
+        {"device_id": device_id, "skill_id": "word_of_the_day"},
+        blocking=True,
+    )
+
+
+async def test_send_skill_unknown_device_raises(hass, make_frame_entry):
+    await _setup_frame(hass, make_frame_entry)
+
+    with pytest.raises(HomeAssistantError, match="not found in device registry"):
+        await hass.services.async_call(
+            DOMAIN,
+            "send_skill",
+            {"device_id": "does-not-exist", "skill_id": "word_of_the_day"},
+            blocking=True,
+        )

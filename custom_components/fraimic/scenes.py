@@ -1,11 +1,14 @@
-"""Scenes: named (frame, image) assignment lists that can be sent all at
+"""Scenes: named (frame, content) assignment lists that can be sent all at
 once -- e.g. four frames on a wall each showing a different image, sent
 together as one action.
 
-A scene maps a config entry_id (the frame) to a library image_id. Config
-entries only exist on this Home Assistant instance, so scenes are pure local
-state -- there's no reason to replicate them across the shared library's
-storage backends (Local/Dropbox/Google Drive) the way images are.
+A scene maps a config entry_id (the frame) to either a library image_id
+(str) or a skill assignment (`{"type": "skill", "skill_id": ...}`, see
+skills.py) -- a piece of content generated fresh at send time instead of
+read from storage. Config entries only exist on this Home Assistant
+instance, so scenes are pure local state -- there's no reason to replicate
+them across the shared library's storage backends (Local/Dropbox/Google
+Drive) the way images are.
 """
 
 from __future__ import annotations
@@ -27,18 +30,35 @@ if TYPE_CHECKING:
 _STORAGE_KEY = f"{DOMAIN}_scenes"
 _STORAGE_VERSION = 1
 
+# Bounds a skill mapping's full render (script fetch + content fetch +
+# subprocess, or a feed download) so one hung render fails just its own
+# mapping instead of stalling an entire scene/schedule fan-out.
+_SKILL_RENDER_TIMEOUT = 60
+
 
 class SceneError(Exception):
     """Raised for invalid scene operations (bad name, empty mappings, not found)."""
 
 
+def _validate_mapping_value(entry_id: str, value: Any) -> str | dict[str, Any]:
+    """A mapping value is either a library image_id (str) or a skill
+    assignment (`{"type": "skill", "skill_id": ...}`) -- anything else is
+    rejected up front rather than stored and only failing at send time."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict) and value.get("type") == "skill" and value.get("skill_id"):
+        return {"type": "skill", "skill_id": value["skill_id"]}
+    raise SceneError(f"Invalid mapping value for '{entry_id}': {value!r}")
+
+
 @dataclass
 class Scene:
-    """A named set of (frame entry_id -> library image_id) assignments."""
+    """A named set of (frame entry_id -> image_id | skill assignment)
+    assignments."""
 
     scene_id: str
     name: str
-    mappings: dict[str, str] = field(default_factory=dict)
+    mappings: dict[str, str | dict[str, Any]] = field(default_factory=dict)
     created_at: float = 0.0
     # Which album the editor was scoped to when this scene was built. Purely
     # a UI convenience for reopening the editor pre-scoped -- sending a scene
@@ -111,7 +131,7 @@ class SceneManager:
     async def async_save_scene(
         self,
         name: str,
-        mappings: dict[str, str],
+        mappings: dict[str, str | dict[str, Any]],
         scene_id: str | None = None,
         album: str | None = None,
         source: str = "user",
@@ -122,9 +142,9 @@ class SceneManager:
             raise SceneError("Scene name can't be empty")
 
         mappings = {
-            entry_id: image_id
-            for entry_id, image_id in (mappings or {}).items()
-            if entry_id and image_id
+            entry_id: _validate_mapping_value(entry_id, value)
+            for entry_id, value in (mappings or {}).items()
+            if entry_id and value
         }
         if not mappings:
             raise SceneError("A scene needs at least one frame/image assignment")
@@ -193,24 +213,25 @@ class SceneManager:
         return await self.async_send_mappings(hass, scene.mappings)
 
     async def async_send_mappings(
-        self, hass: "HomeAssistant", mappings: dict[str, str]
+        self, hass: "HomeAssistant", mappings: dict[str, str | dict[str, Any]]
     ) -> dict[str, Any]:
-        """Send each (frame entry_id -> library image_id) assignment.
+        """Send each (frame entry_id -> image_id | skill assignment).
 
         The single executor for every multi-frame (or scheduled) send in
-        the integration: scene sends, and fired schedules (scenes.py has no
-        knowledge of schedules -- schedules.py calls down into this), all
-        terminate here. Keep it the only place this fan-out logic lives.
+        the integration: scene sends, fired schedules (scenes.py has no
+        knowledge of schedules -- schedules.py calls down into this), and
+        the fraimic.send_skill service/voice intent's one-entry mappings
+        all terminate here. Keep it the only place this fan-out logic lives.
 
-        Each mapping is independent -- a frame that's been removed or an
-        image that's been deleted since the mapping was created only fails
-        that one mapping, not the whole send.
+        Each mapping is independent -- a frame that's been removed, an image
+        that's been deleted, or a skill render that failed since the mapping
+        was created only fails that one mapping, not the whole send.
 
         Two phases, each internally concurrent: every mapping's .bin is
-        resolved first (cache lookup, or original fetch + conversion when
-        cold), then every frame upload fires together -- resolving fully
+        resolved first (library cache lookup / conversion, or a fresh skill
+        render), then every frame upload fires together -- resolving fully
         before uploading anything is what makes the frames update together
-        even when some bins are cold and others cached. Concurrent
+        even when some are cold/generated and others cached. Concurrent
         resolution is safe: the only shared state it touches is the
         manifest update inside async_save_bin, and every backend wraps that
         read-modify-write in its _manifest_lock.
@@ -221,10 +242,12 @@ class SceneManager:
 
         from .helpers import render_spec_for_entry  # noqa: PLC0415
 
-        prepared: dict[str, tuple[Any, bytes, str]] = {}
+        prepared: dict[str, tuple[Any, bytes, str | None]] = {}
         results: list[dict[str, Any]] = []
 
-        async def _prepare_one(entry_id: str, image_id: str) -> dict[str, Any] | None:
+        async def _prepare_one(
+            entry_id: str, value: str | dict[str, Any]
+        ) -> dict[str, Any] | None:
             """Resolve one mapping's bin; returns a failure record, or None
             after stashing the ready-to-send bytes in `prepared`."""
             entry = hass.config_entries.async_get_entry(entry_id)
@@ -241,6 +264,39 @@ class SceneManager:
                     "success": False,
                     "message": "Frame coordinator not available",
                 }
+
+            image_id: str
+            if isinstance(value, dict):
+                if value.get("type") != "skill" or not value.get("skill_id"):
+                    return {
+                        "entry_id": entry_id,
+                        "success": False,
+                        "message": f"Invalid mapping: {value!r}",
+                    }
+                skill_manager = hass.data.get(DOMAIN, {}).get("_skills")
+                if skill_manager is None:
+                    return {
+                        "entry_id": entry_id,
+                        "success": False,
+                        "message": "Skill manager not initialised",
+                    }
+                try:
+                    render_result = await asyncio.wait_for(
+                        skill_manager.async_render_for_entry(value["skill_id"], entry),
+                        timeout=_SKILL_RENDER_TIMEOUT,
+                    )
+                except Exception as err:  # noqa: BLE001
+                    return {"entry_id": entry_id, "success": False, "message": str(err)}
+                if render_result["kind"] == "bin":
+                    # Freshly generated, not stored -- no image_id to pass
+                    # (and nothing to cache), same as generate_ai_image's
+                    # pre-upload bytes.
+                    prepared[entry_id] = (coordinator, render_result["bytes"], None)
+                    return None
+                image_id = render_result["image_id"]
+            else:
+                image_id = value
+
             try:
                 bin_bytes = await library_manager.async_get_bin_for_send(
                     image_id, render_spec_for_entry(entry)
@@ -252,13 +308,13 @@ class SceneManager:
 
         failures = await asyncio.gather(
             *(
-                _prepare_one(entry_id, image_id)
-                for entry_id, image_id in mappings.items()
+                _prepare_one(entry_id, value)
+                for entry_id, value in mappings.items()
             )
         )
         results.extend(failure for failure in failures if failure is not None)
 
-        async def _send_one(coordinator: Any, bin_bytes: bytes, image_id: str) -> dict[str, Any]:
+        async def _send_one(coordinator: Any, bin_bytes: bytes, image_id: str | None) -> dict[str, Any]:
             # async_send_image_or_queue queues (rather than raising) if the
             # frame is asleep/unreachable, and already updates last_image_id
             # on immediate success -- see FraimicCoordinator.
@@ -280,3 +336,15 @@ class SceneManager:
                 results.append({"entry_id": entry_id, "success": True})
 
         return {"results": results}
+
+
+def unwrap_single_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Collapse an async_send_mappings() result down to the single entry a
+    one-mapping caller (the fraimic.send_skill service, the skills HTTP send
+    view) cares about, so each doesn't re-index results[0] ad hoc. Shape
+    matches one entry of `results`: {"success": bool, "queued"?: bool,
+    "message"?: str}."""
+    results = result.get("results") or []
+    if results:
+        return results[0]
+    return {"success": False, "message": "No mapping was sent"}

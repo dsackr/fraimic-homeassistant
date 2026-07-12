@@ -95,3 +95,21 @@ send_scene:
       required: true
       selector:
         text:
+
+send_skill:
+  name: Send Skill
+  description: Render a Fraimic skill (e.g. Word of the Day) fresh and send it to a frame -- no prior mapping between the skill and the frame required.
+  fields:
+    device_id:
+      name: Frame
+      description: The Fraimic frame to send the skill to.
+      required: true
+      selector:
+        device:
+          integration: fraimic
+    skill_id:
+      name: Skill
+      description: The skill to render and send (set up in the Fraimic panel's Daily Content section).
+      required: true
+      selector:
+        text:

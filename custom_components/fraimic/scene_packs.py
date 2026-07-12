@@ -184,9 +184,9 @@ class ScenePackManager:
         return result
 
     async def async_get_pack(self, pack_id: str) -> dict[str, Any]:
-        """Look up one catalog entry by id -- public since XotdManager also
+        """Look up one catalog entry by id -- public since SkillManager also
         needs the "xotd" pack's script_url/config_schema for its own
-        per-instance script execution (see xotd.py)."""
+        per-render script execution (see skills.py)."""
         for pack in await self._async_fetch_index():
             if pack["id"] == pack_id:
                 return pack

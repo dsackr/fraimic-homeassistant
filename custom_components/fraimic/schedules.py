@@ -1,6 +1,6 @@
-"""Scheduled events: send a scene (or a single image to a single frame) at
-a future moment -- a calendar date/time or a daily/weekly/monthly
-recurrence.
+"""Scheduled events: send a scene, a single image, or a single skill to a
+single frame at a future moment -- a calendar date/time or an
+hourly/daily/weekly/monthly recurrence.
 
 A schedule owns *when* and *what*; it never owns *how*. Firing resolves the
 action to plain (entry_id -> image_id) mappings at fire time and hands them
@@ -44,7 +44,7 @@ _STORAGE_VERSION = 1
 # then purged on load once they're this old.
 _COMPLETED_RETENTION = timedelta(days=30)
 
-_FREQS = ("daily", "weekly", "monthly")
+_FREQS = ("hourly", "daily", "weekly", "monthly")
 
 STATUS_PENDING = "pending"
 STATUS_COMPLETED = "completed"
@@ -127,7 +127,11 @@ def _validate_trigger(trigger: Any, *, require_future: bool) -> dict[str, Any]:
     if ttype == "recurring":
         freq = trigger.get("freq")
         if freq not in _FREQS:
-            raise ScheduleError(f"Invalid recurrence: {freq!r} (daily/weekly/monthly)")
+            raise ScheduleError(f"Invalid recurrence: {freq!r} (hourly/daily/weekly/monthly)")
+        if freq == "hourly":
+            # Fires every hour on the wall-clock hour -- no time-of-day to
+            # validate, unlike every other recurrence.
+            return {"type": "recurring", "freq": "hourly"}
         _parse_hhmm(trigger.get("time"))
         cleaned: dict[str, Any] = {
             "type": "recurring", "freq": freq, "time": trigger["time"],
@@ -165,6 +169,14 @@ def _validate_action_shape(action: Any) -> dict[str, Any]:
             "type": "image",
             "entry_id": action["entry_id"],
             "image_id": action["image_id"],
+        }
+    if atype == "skill":
+        if not action.get("entry_id") or not action.get("skill_id"):
+            raise ScheduleError("Skill actions need an entry_id and a skill_id")
+        return {
+            "type": "skill",
+            "entry_id": action["entry_id"],
+            "skill_id": action["skill_id"],
         }
     raise ScheduleError(f"Invalid action type: {atype!r}")
 
@@ -271,6 +283,11 @@ class ScheduleManager:
         entry = self.hass.config_entries.async_get_entry(action["entry_id"])
         if entry is None or entry.domain != DOMAIN:
             raise ScheduleError("That frame is no longer configured")
+        if action["type"] == "skill":
+            skill_manager = self.hass.data.get(DOMAIN, {}).get("_skills")
+            if skill_manager is None or await skill_manager.async_get_skill(action["skill_id"]) is None:
+                raise ScheduleError("That skill no longer exists")
+            return
         library = self.hass.data.get(DOMAIN, {}).get("_library")
         if library is None:
             raise ScheduleError("Library manager not initialised")
@@ -377,6 +394,31 @@ class ScheduleManager:
         await self._async_persist()
         self._signal()
 
+    async def async_handle_skill_deleted(self, skill_id: str) -> None:
+        """Disable (not delete) every schedule referencing a just-deleted
+        skill and mark it target_missing -- same treatment
+        async_handle_scene_deleted gives a deleted scene."""
+        broken = [
+            s
+            for s in self._schedules.values()
+            if s.action.get("type") == "skill"
+            and s.action.get("skill_id") == skill_id
+            and s.status != STATUS_COMPLETED
+        ]
+        if not broken:
+            return
+        for schedule in broken:
+            _LOGGER.warning(
+                "Skill referenced by schedule '%s' was deleted -- disabling "
+                "the schedule",
+                schedule.name,
+            )
+            schedule.status = STATUS_TARGET_MISSING
+            schedule.enabled = False
+            self._disarm(schedule.schedule_id)
+        await self._async_persist()
+        self._signal()
+
     # ------------------------------------------------------------------
     # Arming / firing
     # ------------------------------------------------------------------
@@ -413,9 +455,17 @@ class ScheduleManager:
             )
             return
 
+        freq = trigger.get("freq")
+        if freq == "hourly":
+            # Fires on every wall-clock hour -- no time-of-day to filter on,
+            # unlike every other recurrence.
+            self._schedulers[schedule_id] = async_track_time_change(
+                self.hass, _fire, minute=0, second=0
+            )
+            return
+
         # recurring: a wall-clock daily timer (HA handles DST); weekly and
         # monthly filter inside the callback.
-        freq = trigger.get("freq")
         hour, minute = _parse_hhmm(trigger.get("time"))
 
         async def _maybe_fire(now: datetime) -> None:
@@ -447,10 +497,10 @@ class ScheduleManager:
 
     async def _async_resolve_mappings(
         self, schedule: Schedule
-    ) -> dict[str, str] | None:
-        """The action's (entry_id -> image_id) mappings as of *right now*,
-        or None if the target is gone. Scenes resolve at fire time, so
-        editing a scene updates what its schedules send."""
+    ) -> dict[str, str | dict[str, Any]] | None:
+        """The action's (entry_id -> image_id | skill assignment) mappings
+        as of *right now*, or None if the target is gone. Scenes resolve at
+        fire time, so editing a scene updates what its schedules send."""
         action = schedule.action
         if action.get("type") == "scene":
             scene_manager = self.hass.data.get(DOMAIN, {}).get("_scenes")
@@ -460,6 +510,16 @@ class ScheduleManager:
                 else None
             )
             return dict(scene.mappings) if scene is not None else None
+
+        if action.get("type") == "skill":
+            entry_id, skill_id = action.get("entry_id"), action.get("skill_id")
+            if self.hass.config_entries.async_get_entry(entry_id) is None:
+                return None
+            skill_manager = self.hass.data.get(DOMAIN, {}).get("_skills")
+            if skill_manager is not None:
+                if await skill_manager.async_get_skill(skill_id) is None:
+                    return None
+            return {entry_id: {"type": "skill", "skill_id": skill_id}}
 
         entry_id, image_id = action.get("entry_id"), action.get("image_id")
         if self.hass.config_entries.async_get_entry(entry_id) is None:
@@ -548,11 +608,17 @@ class ScheduleManager:
                 return None
             return at.isoformat() if at > now else None
 
+        freq = trigger.get("freq")
+        if freq == "hourly":
+            candidate = now.replace(minute=0, second=0, microsecond=0)
+            if candidate <= now:
+                candidate += timedelta(hours=1)
+            return candidate.isoformat()
+
         try:
             hour, minute = _parse_hhmm(trigger.get("time"))
         except ScheduleError:
             return None
-        freq = trigger.get("freq")
         candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
         if freq == "daily":

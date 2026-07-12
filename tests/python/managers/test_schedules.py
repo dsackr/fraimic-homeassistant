@@ -46,6 +46,14 @@ class _FakeLibrary:
         return [{"image_id": i} for i in self.image_ids]
 
 
+class _FakeSkillManager:
+    def __init__(self, skill_ids):
+        self.skill_ids = set(skill_ids)
+
+    async def async_get_skill(self, skill_id):
+        return {"skill_id": skill_id} if skill_id in self.skill_ids else None
+
+
 @pytest.fixture(autouse=True)
 async def _utc_time_zone(hass):
     # Recurrence math below freezes wall-clock times as naive UTC strings --
@@ -71,6 +79,13 @@ def fake_library(hass):
     lib = _FakeLibrary(image_ids=set())
     hass.data.setdefault(DOMAIN, {})["_library"] = lib
     return lib
+
+
+@pytest.fixture
+def fake_skill_manager(hass):
+    mgr = _FakeSkillManager(skill_ids=set())
+    hass.data.setdefault(DOMAIN, {})["_skills"] = mgr
+    return mgr
 
 
 # ---------------------------------------------------------------------------
@@ -122,8 +137,16 @@ async def test_invalid_recurrence_freq_rejected(schedule_manager, fake_scene_man
         await schedule_manager.async_create_schedule(
             "Test",
             {"type": "scene", "scene_id": "s1"},
-            {"type": "recurring", "freq": "hourly", "time": "09:00"},
+            {"type": "recurring", "freq": "yearly", "time": "09:00"},
         )
+
+
+async def test_hourly_recurrence_accepted_with_no_time(schedule_manager, fake_scene_manager):
+    fake_scene_manager.scenes["s1"] = _FakeScene("s1", {"e1": "i1"})
+    schedule = await schedule_manager.async_create_schedule(
+        "Test", {"type": "scene", "scene_id": "s1"}, {"type": "recurring", "freq": "hourly"}
+    )
+    assert schedule["trigger"] == {"type": "recurring", "freq": "hourly"}
 
 
 async def test_create_scene_action_target_missing_rejected(schedule_manager, fake_scene_manager):
@@ -141,6 +164,60 @@ async def test_create_image_action_requires_entry_and_image(schedule_manager):
             {"type": "image", "entry_id": "", "image_id": "img1"},
             {"type": "recurring", "freq": "daily", "time": "09:00"},
         )
+
+
+async def test_create_skill_action_requires_entry_and_skill(schedule_manager):
+    with pytest.raises(ScheduleError, match="entry_id and a skill_id"):
+        await schedule_manager.async_create_schedule(
+            "Test",
+            {"type": "skill", "entry_id": "", "skill_id": "word_of_the_day"},
+            {"type": "recurring", "freq": "daily", "time": "09:00"},
+        )
+
+
+async def test_create_skill_action_missing_frame_rejected(
+    schedule_manager, fake_skill_manager
+):
+    fake_skill_manager.skill_ids = {"word_of_the_day"}
+    with pytest.raises(ScheduleError, match="frame is no longer configured"):
+        await schedule_manager.async_create_schedule(
+            "Test",
+            {"type": "skill", "entry_id": "never-configured", "skill_id": "word_of_the_day"},
+            {"type": "recurring", "freq": "daily", "time": "09:00"},
+        )
+
+
+async def test_create_skill_action_missing_skill_rejected(
+    hass, schedule_manager, fake_skill_manager, make_frame_entry
+):
+    entry = make_frame_entry(entry_id="e1")
+    entry.add_to_hass(hass)
+    with pytest.raises(ScheduleError, match="skill no longer exists"):
+        await schedule_manager.async_create_schedule(
+            "Test",
+            {"type": "skill", "entry_id": "e1", "skill_id": "does-not-exist"},
+            {"type": "recurring", "freq": "daily", "time": "09:00"},
+        )
+
+
+async def test_skill_action_fires_through_scene_manager_with_skill_mapping(
+    hass, schedule_manager, fake_scene_manager, fake_skill_manager, make_frame_entry
+):
+    entry = make_frame_entry(entry_id="e1")
+    entry.add_to_hass(hass)
+    fake_skill_manager.skill_ids = {"word_of_the_day"}
+
+    created = await schedule_manager.async_create_schedule(
+        "Word of the Day",
+        {"type": "skill", "entry_id": "e1", "skill_id": "word_of_the_day"},
+        {"type": "recurring", "freq": "hourly"},
+    )
+    schedule = schedule_manager._schedules[created["schedule_id"]]
+    await schedule_manager._async_fire(schedule)
+
+    assert fake_scene_manager.sent == [
+        {"e1": {"type": "skill", "skill_id": "word_of_the_day"}}
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +310,51 @@ async def test_fire_with_deleted_image_target_marks_target_missing(
     assert updated.status == STATUS_TARGET_MISSING
     assert updated.enabled is False
     assert fake_scene_manager.sent == []
+
+
+async def test_fire_with_deleted_skill_target_marks_target_missing(
+    hass, schedule_manager, fake_scene_manager, fake_skill_manager, make_frame_entry
+):
+    entry = make_frame_entry(entry_id="e1")
+    entry.add_to_hass(hass)
+    fake_skill_manager.skill_ids = {"word_of_the_day"}
+
+    created = await schedule_manager.async_create_schedule(
+        "Word of the Day",
+        {"type": "skill", "entry_id": "e1", "skill_id": "word_of_the_day"},
+        {"type": "recurring", "freq": "daily", "time": "09:00"},
+    )
+
+    # Skill deleted before the schedule fires.
+    fake_skill_manager.skill_ids = set()
+
+    schedule = schedule_manager._schedules[created["schedule_id"]]
+    await schedule_manager._async_fire(schedule)
+
+    updated = await schedule_manager.async_get_schedule(created["schedule_id"])
+    assert updated.status == STATUS_TARGET_MISSING
+    assert updated.enabled is False
+    assert fake_scene_manager.sent == []
+
+
+async def test_handle_skill_deleted_disables_referencing_schedules(
+    hass, schedule_manager, fake_scene_manager, fake_skill_manager, make_frame_entry
+):
+    entry = make_frame_entry(entry_id="e1")
+    entry.add_to_hass(hass)
+    fake_skill_manager.skill_ids = {"word_of_the_day"}
+
+    created = await schedule_manager.async_create_schedule(
+        "Word of the Day",
+        {"type": "skill", "entry_id": "e1", "skill_id": "word_of_the_day"},
+        {"type": "recurring", "freq": "daily", "time": "09:00"},
+    )
+
+    await schedule_manager.async_handle_skill_deleted("word_of_the_day")
+
+    updated = await schedule_manager.async_get_schedule(created["schedule_id"])
+    assert updated.status == STATUS_TARGET_MISSING
+    assert updated.enabled is False
 
 
 async def test_edit_resets_broken_schedule_to_pending(

@@ -1,7 +1,8 @@
 // Coverage for the consolidated dashboard: Dashboard is the default tab and
-// hosts the wall canvas (alongside Add-ons and Daily Content), the header's
-// Manage Library and Settings modals, tile footers (name + live status),
-// send-on-pick, and the per-tile "Upload a photo" raw-send path.
+// hosts the wall canvas (alongside Add-ons and Daily Content, both always
+// visible), the header's Manage Library and Settings modals, tile footers
+// (name + live status), send-on-pick, and the per-tile "Upload a photo" raw-
+// send path.
 
 const { test, expect } = require('@playwright/test');
 const { createMockServer } = require('./fixtures/mock-server');
@@ -33,7 +34,7 @@ test.describe('Consolidated dashboard', () => {
     await mockServer.stop();
   });
 
-  test('Dashboard is the default content tab, alongside Add-ons and (hidden until installed) Daily Content', async ({ page }) => {
+  test('Dashboard is the default content tab, alongside Add-ons and Daily Content', async ({ page }) => {
     const state = await page.evaluate(() => {
       const root = document.getElementById('panel').shadowRoot;
       const xotdBtn = root.querySelector('.tab-btn[data-tab="xotd"]');
@@ -42,15 +43,16 @@ test.describe('Consolidated dashboard', () => {
         activeContent: root.getElementById('tab-dashboard').classList.contains('active'),
         headerButtons: ['frame-add-btn', 'library-open-btn', 'settings-open-btn']
           .map((id) => !!root.getElementById(id)),
-        // The button exists in the DOM either way -- xOTD only reveals it
-        // once installed (see _updateXotdTabVisibility), it's not removed.
+        // Daily Content (skills) has no install gate -- always visible,
+        // unlike the retired per-instance xOTD model's hidden-until-
+        // installed tab button.
         xotdTabHidden: xotdBtn.style.display === 'none',
       };
     });
     expect(state.tabs).toEqual(['dashboard', 'addons', 'xotd']);
     expect(state.activeContent).toBe(true);
     expect(state.headerButtons).toEqual([true, true, true]);
-    expect(state.xotdTabHidden).toBe(true);
+    expect(state.xotdTabHidden).toBe(false);
   });
 
   test('tiles carry a footer with the frame name and live status', async ({ page }) => {

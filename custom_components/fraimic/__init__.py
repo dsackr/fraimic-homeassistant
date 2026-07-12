@@ -82,6 +82,13 @@ _SEND_SCENE_SCHEMA = vol.Schema(
     }
 )
 
+_SEND_SKILL_SCHEMA = vol.Schema(
+    {
+        vol.Required("device_id"): cv.string,
+        vol.Required("skill_id"): cv.string,
+    }
+)
+
 
 # ---------------------------------------------------------------------------
 # Domain-level setup (runs once when the domain is first loaded)
@@ -280,29 +287,33 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         except ScenePackError:
             pass  # not installed, nothing to do
 
-    # xOTD: many independent (content_mode, frame, schedule) instances --
-    # e.g. Joke of the Day hourly on one frame and Scripture of the Day
-    # daily on another, running simultaneously. Built on the library and
-    # scene-pack managers above (needs the library for image mode's
-    # upload/list, and the scene-pack manager for the "xotd" catalog
-    # entry's script_url/config_schema).
-    from .xotd import XotdManager  # noqa: PLC0415
+    # Skills: frame-agnostic, on-demand-renderable content presets (Word of
+    # the Day, Joke of the Day, ...) -- the frame-agnostic counterpart to a
+    # library image_id. Built on the library and scene-pack managers above
+    # (needs the library for image-mode upload/list, and the scene-pack
+    # manager for the "xotd" catalog entry's script_url/config_schema).
+    from .skills import SkillManager  # noqa: PLC0415
 
-    xotd_manager = XotdManager(hass, library_manager, scene_pack_manager)
-    await xotd_manager.async_load()
-    hass.data.setdefault(DOMAIN, {})["_xotd"] = xotd_manager
+    skill_manager = SkillManager(hass, library_manager, scene_pack_manager)
+    await skill_manager.async_load()
+    hass.data.setdefault(DOMAIN, {})["_skills"] = skill_manager
 
-    from .xotd_http import (  # noqa: PLC0415
-        FraimicXotdEnabledView,
-        FraimicXotdInstancesView,
-        FraimicXotdInstanceView,
-        FraimicXotdRunView,
+    from .skills_http import (  # noqa: PLC0415
+        FraimicSkillSendView,
+        FraimicSkillsView,
+        FraimicSkillView,
     )
 
-    hass.http.register_view(FraimicXotdInstancesView())
-    hass.http.register_view(FraimicXotdInstanceView())
-    hass.http.register_view(FraimicXotdRunView())
-    hass.http.register_view(FraimicXotdEnabledView())
+    hass.http.register_view(FraimicSkillsView())
+    hass.http.register_view(FraimicSkillView())
+    hass.http.register_view(FraimicSkillSendView())
+
+    # One-time migration: xOTD's old per-instance (content_mode, frame,
+    # schedule) model is retired in favour of frame-agnostic skills
+    # scheduled through the general ScheduleManager. Reads the old storage
+    # key directly (rather than importing the retired xotd.py) and clears
+    # it once done, so this is a no-op on every subsequent restart.
+    await _async_migrate_xotd_instances(hass, skill_manager, schedule_manager)
 
     # Auto-create the device-less "scenes hub" entry (hosts scene.* entities
     # for voice control) if it doesn't exist yet -- self-heals on upgrade,
@@ -427,7 +438,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: "ConfigEntry") -> bool:
         ]
         if not remaining_frame_entries:
             # Remove services when the last frame entry is gone.
-            for service in ("send_image", "send_scene", "refresh", "sleep", "restart"):
+            for service in (
+                "send_image", "send_scene", "send_skill", "refresh", "sleep", "restart",
+            ):
                 hass.services.async_remove(DOMAIN, service)
             
             # Clean up active widget timers!
@@ -439,11 +452,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: "ConfigEntry") -> bool:
             schedules = hass.data[DOMAIN].get("_schedules")
             if schedules:
                 schedules.unload()
-
-            # ... and every armed xOTD instance timer.
-            xotd = hass.data[DOMAIN].get("_xotd")
-            if xotd:
-                xotd.unload()
 
     return unload_ok
 
@@ -590,6 +598,83 @@ def _find_ai_task_image_entity(hass: HomeAssistant) -> str:
         "No AI Task entity with image-generation support is configured "
         "(set up an AI Task-capable conversation agent first)"
     )
+
+
+async def _async_migrate_xotd_instances(hass: HomeAssistant, skill_manager, schedule_manager) -> None:
+    """One-time migration off the retired per-instance xOTD model.
+
+    Reads the old `fraimic_xotd` storage key directly (the retired xotd.py's
+    `XotdInstance`/`XotdManager` classes are gone, so this doesn't import
+    them) and converts each instance 1:1 into a Skill (content_mode +
+    config, no frame/schedule) plus a Schedule with a "skill" action --
+    deliberately no content-based dedup, so a user's distinct instances stay
+    distinct and traceable after upgrade. Clears the old store once done,
+    which makes this naturally a no-op on every subsequent restart.
+    """
+    from homeassistant.helpers.storage import Store  # noqa: PLC0415
+
+    from .schedules import ScheduleError  # noqa: PLC0415
+    from .skills import SkillError  # noqa: PLC0415
+
+    store = Store(hass, 1, f"{DOMAIN}_xotd")
+    stored = await store.async_load()
+    instances = (stored or {}).get("instances") or []
+    if not instances:
+        return
+
+    for data in instances:
+        instance_id = data.get("instance_id", "?")
+        content_mode = data.get("content_mode")
+        frame_id = data.get("frame_id")
+        old_trigger = data.get("schedule") or {"type": "hourly"}
+        mode_config = data.get("mode_config") or {}
+        if not content_mode or not frame_id:
+            _LOGGER.warning("Skipping malformed stored xOTD instance: %s", data)
+            continue
+
+        if content_mode == "image":
+            sub_mode = mode_config.get("sub_mode")
+            if sub_mode not in ("image_feed", "image_album"):
+                _LOGGER.warning(
+                    "Skipping xOTD instance '%s' with unrecognised image sub_mode %r",
+                    instance_id, sub_mode,
+                )
+                continue
+            skill_content_mode = sub_mode
+            skill_config = {k: v for k, v in mode_config.items() if k != "sub_mode"}
+        else:
+            skill_content_mode = content_mode
+            skill_config = mode_config
+
+        label = f"{skill_content_mode.replace('_', ' ').title()} (migrated)"
+        try:
+            skill = await skill_manager.async_save_skill(label, skill_content_mode, skill_config)
+        except SkillError as err:
+            _LOGGER.warning("Failed to migrate xOTD instance '%s': %s", instance_id, err)
+            continue
+
+        if old_trigger.get("type") == "hourly":
+            trigger = {"type": "recurring", "freq": "hourly"}
+        else:
+            # xOTD daily times are HH:MM:SS; ScheduleManager's recurring
+            # trigger takes HH:MM -- truncating seconds is lossless in
+            # practice since the old UI only ever offered :00 seconds.
+            time_str = str(old_trigger.get("time", "07:00:00"))
+            trigger = {"type": "recurring", "freq": "daily", "time": time_str[:5]}
+
+        action = {"type": "skill", "entry_id": frame_id, "skill_id": skill["skill_id"]}
+        try:
+            await schedule_manager.async_create_schedule(
+                label, action, trigger, enabled=bool(data.get("enabled", True))
+            )
+        except ScheduleError as err:
+            _LOGGER.warning(
+                "Migrated skill '%s' but couldn't recreate its schedule: %s",
+                skill["skill_id"], err,
+            )
+
+    await store.async_save({"enabled": False, "instances": []})
+    _LOGGER.info("Migrated %d xOTD instance(s) to skills + schedules", len(instances))
 
 
 def _register_services(hass: HomeAssistant) -> None:
@@ -786,9 +871,42 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, "send_scene", _handle_send_scene, schema=_SEND_SCENE_SCHEMA
     )
+    async def _handle_send_skill(call: ServiceCall) -> None:
+        device_id: str = call.data["device_id"]
+        skill_id: str = call.data["skill_id"]
+
+        _, entry_id = _get_coordinator_by_device_id(hass, device_id)
+
+        scene_manager = hass.data.get(DOMAIN, {}).get("_scenes")
+        if scene_manager is None:
+            raise HomeAssistantError("Scene manager not initialised")
+
+        from .scenes import unwrap_single_result  # noqa: PLC0415
+
+        result = await scene_manager.async_send_mappings(
+            hass, {entry_id: {"type": "skill", "skill_id": skill_id}}
+        )
+        outcome = unwrap_single_result(result)
+
+        if outcome.get("success"):
+            _LOGGER.info("Skill '%s' sent to device %s", skill_id, device_id)
+        elif outcome.get("queued"):
+            # Frame asleep/unreachable -- delivered automatically on wake,
+            # same as send_image/generate_ai_image queuing; not an error.
+            _LOGGER.info(
+                "Skill '%s' queued for device %s (frame asleep)", skill_id, device_id
+            )
+        else:
+            raise HomeAssistantError(
+                outcome.get("message") or f"Failed to send skill '{skill_id}'"
+            )
+
     hass.services.async_register(
         DOMAIN,
         "generate_ai_image",
         _handle_generate_ai_image,
         schema=_GENERATE_AI_IMAGE_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN, "send_skill", _handle_send_skill, schema=_SEND_SKILL_SCHEMA
     )

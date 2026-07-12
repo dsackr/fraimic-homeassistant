@@ -201,3 +201,128 @@ async def test_send_mappings_queued_reported_not_as_failure_shape(
 async def test_send_scene_not_found_raises(hass, scene_manager):
     with pytest.raises(SceneError, match="not found"):
         await scene_manager.async_send_scene(hass, "nonexistent-scene-id")
+
+
+# ---------------------------------------------------------------------------
+# Skill mappings: `{"type": "skill", "skill_id": ...}` instead of a bare
+# library image_id -- generated fresh at send time, see skills.py.
+# ---------------------------------------------------------------------------
+
+
+async def test_save_scene_accepts_skill_mapping(scene_manager):
+    result = await scene_manager.async_save_scene(
+        "Daily Content", {"entry-1": {"type": "skill", "skill_id": "word_of_the_day"}}
+    )
+    assert result["mappings"] == {"entry-1": {"type": "skill", "skill_id": "word_of_the_day"}}
+
+
+async def test_save_scene_rejects_malformed_mapping_value(scene_manager):
+    with pytest.raises(SceneError, match="Invalid mapping"):
+        await scene_manager.async_save_scene("Bad", {"entry-1": {"type": "skill"}})
+    with pytest.raises(SceneError, match="Invalid mapping"):
+        await scene_manager.async_save_scene("Bad", {"entry-1": {"foo": "bar"}})
+
+
+class _FakeSkillManager:
+    def __init__(self):
+        self.rendered_for = []
+
+    async def async_render_for_entry(self, skill_id, entry):
+        self.rendered_for.append((skill_id, entry.entry_id))
+        if skill_id == "broken-skill":
+            raise Exception("render blew up")
+        if skill_id == "image-skill":
+            return {"kind": "image_id", "image_id": "resolved-image"}
+        return {"kind": "bin", "bytes": f"bin-for-{skill_id}".encode()}
+
+
+async def test_send_mappings_skill_bin_kind_sent_without_image_id(
+    hass, scene_manager, library_and_coordinators, monkeypatch
+):
+    entries = library_and_coordinators(count=1)
+    hass.data[DOMAIN]["_skills"] = _FakeSkillManager()
+
+    sent_calls = []
+
+    async def _fake_send(self, image_bytes, *, image_id=None, thumbnail=None):
+        sent_calls.append((image_bytes, image_id))
+        return {"success": True, "queued": False}
+
+    from custom_components.fraimic.coordinator import FraimicCoordinator
+
+    monkeypatch.setattr(FraimicCoordinator, "async_send_image_or_queue", _fake_send)
+
+    mappings = {entries[0].entry_id: {"type": "skill", "skill_id": "word_of_the_day"}}
+    result = await scene_manager.async_send_mappings(hass, mappings)
+
+    assert result["results"] == [{"entry_id": entries[0].entry_id, "success": True}]
+    assert sent_calls == [(b"bin-for-word_of_the_day", None)]
+
+
+async def test_send_mappings_skill_image_kind_routes_through_library(
+    hass, scene_manager, library_and_coordinators, monkeypatch
+):
+    entries = library_and_coordinators(count=1)
+    hass.data[DOMAIN]["_skills"] = _FakeSkillManager()
+
+    async def _fake_send(self, image_bytes, *, image_id=None, thumbnail=None):
+        return {"success": True, "queued": False}
+
+    from custom_components.fraimic.coordinator import FraimicCoordinator
+
+    monkeypatch.setattr(FraimicCoordinator, "async_send_image_or_queue", _fake_send)
+
+    mappings = {entries[0].entry_id: {"type": "skill", "skill_id": "image-skill"}}
+    result = await scene_manager.async_send_mappings(hass, mappings)
+
+    assert result["results"] == [{"entry_id": entries[0].entry_id, "success": True}]
+
+
+async def test_send_mappings_skill_render_failure_does_not_block_other_mappings(
+    hass, scene_manager, library_and_coordinators, monkeypatch
+):
+    entries = library_and_coordinators(count=2)
+    hass.data[DOMAIN]["_skills"] = _FakeSkillManager()
+
+    async def _fake_send(self, image_bytes, *, image_id=None, thumbnail=None):
+        return {"success": True, "queued": False}
+
+    from custom_components.fraimic.coordinator import FraimicCoordinator
+
+    monkeypatch.setattr(FraimicCoordinator, "async_send_image_or_queue", _fake_send)
+
+    mappings = {
+        entries[0].entry_id: {"type": "skill", "skill_id": "broken-skill"},
+        entries[1].entry_id: "img-ok",
+    }
+    result = await scene_manager.async_send_mappings(hass, mappings)
+
+    results_by_entry = {r["entry_id"]: r for r in result["results"]}
+    assert results_by_entry[entries[0].entry_id]["success"] is False
+    assert "render blew up" in results_by_entry[entries[0].entry_id]["message"]
+    assert results_by_entry[entries[1].entry_id]["success"] is True
+
+
+async def test_send_mappings_skill_without_skill_manager_fails_that_mapping_only(
+    hass, scene_manager, library_and_coordinators, monkeypatch
+):
+    entries = library_and_coordinators(count=2)
+    # No "_skills" manager registered at all.
+
+    async def _fake_send(self, image_bytes, *, image_id=None, thumbnail=None):
+        return {"success": True, "queued": False}
+
+    from custom_components.fraimic.coordinator import FraimicCoordinator
+
+    monkeypatch.setattr(FraimicCoordinator, "async_send_image_or_queue", _fake_send)
+
+    mappings = {
+        entries[0].entry_id: {"type": "skill", "skill_id": "word_of_the_day"},
+        entries[1].entry_id: "img-ok",
+    }
+    result = await scene_manager.async_send_mappings(hass, mappings)
+
+    results_by_entry = {r["entry_id"]: r for r in result["results"]}
+    assert results_by_entry[entries[0].entry_id]["success"] is False
+    assert "Skill manager not initialised" in results_by_entry[entries[0].entry_id]["message"]
+    assert results_by_entry[entries[1].entry_id]["success"] is True
