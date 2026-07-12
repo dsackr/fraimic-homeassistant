@@ -7744,9 +7744,11 @@
     //   required   enforced only while the field is visible (see show_if)
     //   options    [{value, label}] -- for type 'select'
     //   domain     entity domain to offer, e.g. 'calendar' -- for type 'entity'
-    //   multiple   for type 'entity': render a checkbox group instead of a
-    //              single <select>; value is a comma-joined list of entity
-    //              ids (see _getFieldValue/_setFieldValue)
+    //   multiple   for type 'entity': render a checkbox group (with a
+    //              generic Select all / Clear toolbar once there's more
+    //              than one entity) instead of a single <select>; value is
+    //              a comma-joined list of entity ids (see
+    //              _getFieldValue/_setFieldValue)
     //   show_if    {field, equals} -- row hidden unless that other field has this value
     //   group      'weather' places the field in the optional Location/Weather section
     //
@@ -7771,8 +7773,18 @@
           .filter(eid => eid.startsWith(domainPrefix))
           .map(eid => ({ id: eid, name: (this._hass.states[eid].attributes || {}).friendly_name || eid }))
           .sort((a, b) => a.name.localeCompare(b.name));
+        // "Select all / Clear" toolbar: generic to any entity+multiple
+        // field (not calendar-specific), so every add-on manifest that
+        // uses this schema shape gets it for free -- wired up in
+        // _openWidgetConfigModal alongside the other generic field wiring.
+        const selectAllHtml = entities.length > 1
+          ? `<div style="display:flex;justify-content:flex-end;gap:14px;margin-bottom:4px">
+              <a href="#" class="entity-select-all" data-target="${fieldId}" style="font-size:12px;color:var(--primary-color);text-decoration:none">Select all</a>
+              <a href="#" class="entity-clear-all" data-target="${fieldId}" style="font-size:12px;color:var(--primary-color);text-decoration:none">Clear</a>
+            </div>`
+          : '';
         inputHtml = entities.length
-          ? `<div id="${fieldId}" style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto;border:1px solid var(--divider-color, #444);border-radius:6px;padding:8px 10px">
+          ? `${selectAllHtml}<div id="${fieldId}" style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto;border:1px solid var(--divider-color, #444);border-radius:6px;padding:8px 10px">
               ${entities.map(e => `
                 <label style="display:flex;align-items:center;gap:8px;font-weight:400;font-size:13.5px;cursor:pointer">
                   <input type="checkbox" value="${this._esc(e.id)}" style="width:auto;margin:0">
@@ -7907,7 +7919,21 @@
       schedTypeSel.addEventListener('change', () => {
         schedTimeRow.style.display = schedTypeSel.value === 'daily' ? 'block' : 'none';
       });
-      
+
+      // Generic "Select all / Clear" toolbar wiring for any entity+multiple
+      // field -- keyed off data-target, not a field name, so it applies to
+      // every checkbox-group field a manifest declares, not just calendars.
+      fieldsContainer.querySelectorAll('.entity-select-all, .entity-clear-all').forEach(link => {
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          const container = this.shadowRoot.getElementById(link.dataset.target);
+          if (!container) return;
+          const checkAll = link.classList.contains('entity-select-all');
+          container.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = checkAll; });
+          container.dispatchEvent(new Event('change'));
+        });
+      });
+
       // Generic show_if engine: any field can gate another field's row by
       // name/value, e.g. quote_api_url only shows while quote_feed=custom,
       // ha_calendar_entity/calendar_url only show for their matching

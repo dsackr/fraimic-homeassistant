@@ -258,4 +258,61 @@ test.describe('Daily Agenda add-on: calendar source picker', () => {
       await mock.stop();
     }
   });
+
+  test('"Select all" / "Clear" toolbar checks and unchecks every calendar', async ({ page }) => {
+    // Generic to any entity+multiple field (see _renderConfigField in
+    // fraimic-panel.js) -- exercised here through the calendar field since
+    // that's the only add-on currently using this schema shape.
+    const mock = createMockServer({
+      frames: [{ entry_id: 'entry_1', title: 'Living Room Frame' }],
+      scenePacks: [DAILY_AGENDA_PACK],
+    });
+    const baseUrl = await mock.start();
+    try {
+      await gotoPanel(page, baseUrl, { frames: [{ entry_id: 'entry_1', title: 'Living Room Frame' }] });
+      await page.evaluate(() => {
+        const states = document.getElementById('panel')._hass.states;
+        states['calendar.home'] = { state: 'off', attributes: { friendly_name: 'Home' } };
+        states['calendar.work'] = { state: 'off', attributes: { friendly_name: 'Work Calendar' } };
+        states['calendar.kids'] = { state: 'off', attributes: { friendly_name: 'Kids' } };
+      });
+
+      await openAddons(page);
+      await openDailyAgendaModal(page);
+
+      const checkedValues = () => page.evaluate(() =>
+        [...document.getElementById('panel').shadowRoot
+          .getElementById('widget-field-ha_calendar_entities').querySelectorAll('input[type="checkbox"]:checked')]
+          .map((cb) => cb.value));
+
+      expect(await checkedValues()).toEqual([]);
+
+      await page.evaluate(() => {
+        document.getElementById('panel').shadowRoot
+          .querySelector('.entity-select-all[data-target="widget-field-ha_calendar_entities"]').click();
+      });
+      expect(await checkedValues()).toEqual(['calendar.home', 'calendar.kids', 'calendar.work']);
+
+      await page.evaluate(() => {
+        document.getElementById('panel').shadowRoot
+          .querySelector('.entity-clear-all[data-target="widget-field-ha_calendar_entities"]').click();
+      });
+      expect(await checkedValues()).toEqual([]);
+
+      // Confirms the click also drives the submit payload, not just the
+      // checkbox DOM state (dispatches 'change' same as a real user click).
+      await page.evaluate(() => {
+        document.getElementById('panel').shadowRoot
+          .querySelector('.entity-select-all[data-target="widget-field-ha_calendar_entities"]').click();
+      });
+      await setFieldValue(page, 'widget-config-frame', 'entry_1');
+      await page.evaluate(() => {
+        document.getElementById('panel').shadowRoot.getElementById('widget-config-submit').click();
+      });
+      await expect.poll(() => mock.installCalls.length).toBe(1);
+      expect(mock.installCalls[0].config.ha_calendar_entities).toBe('calendar.home,calendar.kids,calendar.work');
+    } finally {
+      await mock.stop();
+    }
+  });
 });
