@@ -12,6 +12,7 @@ name: Backend Python tests
 # workflows.
 
 on:
+  workflow_dispatch: # manual run; records to the ledger like a push run
   push:
     branches: [main]
     paths:
@@ -62,7 +63,7 @@ jobs:
           retention-days: 30
       - name: Record result in the test ledger
         # always(): a failed run is exactly what the ledger must not lose.
-        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: always() && contains(fromJSON('["push", "workflow_dispatch"]'), github.event_name) && github.ref == 'refs/heads/main'
         shell: bash
         env:
           JOB_STATUS: ${{ job.status }}
