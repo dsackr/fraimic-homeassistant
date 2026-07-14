@@ -291,8 +291,9 @@ function createMockServer({
     if (p === '/api/fraimic/library/list') {
       // Mirrors library_http.py's FraimicLibraryListView: `album` is an
       // optional filter over the full image list, not a required param.
+      // The default album 'Images' includes all images.
       const album = url.searchParams.get('album');
-      const filtered = album ? images.filter((img) => (img.albums || []).includes(album)) : images;
+      const filtered = (album && album !== 'Images') ? images.filter((img) => (img.albums || []).includes(album)) : images;
       return json(res, 200, { images: filtered, backend: libraryBackend });
     }
     if (p === '/api/fraimic/library/settings') {
@@ -331,6 +332,28 @@ function createMockServer({
       } else if (req.method === 'DELETE') {
         cropDeletes.push({ image_id: parsed.image_id, width: parsed.width, height: parsed.height });
         delete image.crops[key];
+      }
+      return json(res, 200, { success: true, image });
+    }
+
+    if (p.startsWith('/api/fraimic/library/image/') && p.endsWith('/voice_name')) {
+      const parts = p.split('/');
+      const imageId = parts[parts.length - 2];
+      const parsed = await readJsonBody(req);
+      const image = images.find(img => img.image_id === imageId);
+      if (image) {
+        image.voice_name = parsed.voice_name;
+      }
+      return json(res, 200, { success: true, image });
+    }
+
+    if (p.startsWith('/api/fraimic/library/image/') && p.endsWith('/albums')) {
+      const parts = p.split('/');
+      const imageId = parts[parts.length - 2];
+      const parsed = await readJsonBody(req);
+      const image = images.find(img => img.image_id === imageId);
+      if (image) {
+        image.albums = parsed.albums;
       }
       return json(res, 200, { success: true, image });
     }

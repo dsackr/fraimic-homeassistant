@@ -123,7 +123,7 @@ voice names for Assist commands.
   `LocalLibraryBackend`), `library_http.py` (`FraimicLibraryImageVoiceNameView`).
 - **If it silently breaks**: uploads silently fail per-file in a batch,
   thumbnails go stale/broken, or voice name edits fail to persist.
-- **Test status**: Panel-tested (`dashboard.spec.js`, `lazy-thumbs.spec.js`).
+- **Test status**: Panel-tested (`dashboard.spec.js` covers grid rendering, album navigation, and voice name configuration/clearing; `lazy-thumbs.spec.js`).
   **Backend-tested** (local backend) —
   `tests/python/library/test_library_local_backend.py` (single/multi
   upload, undecodable-bytes tolerance, thumbnail cache generation/reuse,

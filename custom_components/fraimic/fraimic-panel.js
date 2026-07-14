@@ -2151,6 +2151,7 @@
       this._wirePackPreview();
       this._wireUploadModal();
       this._wireAlbumPicker();
+      this._wireVoicePicker();
       this._wireAlbumCreate();
       this._wireFlowModal();
       this._wireFrameSettingsMenu();
@@ -2466,6 +2467,25 @@
             <div class="modal-actions">
               <button class="btn-primary" id="album-picker-save">Save</button>
               <button class="btn-ghost" id="album-picker-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-overlay" id="voice-picker-overlay">
+          <div class="modal-box" style="max-width:400px">
+            <h3>Set Voice Name</h3>
+            <div class="modal-row">
+              <label>Voice name (spoken name)</label>
+              <input type="text" id="voice-picker-name" placeholder="e.g. my profile pic">
+              <div style="font-size:11px;color:#6b7280;margin-top:4px">
+                Use this name in voice commands like: <br>
+                <em>"send [voice name] to [frame]"</em> or <em>"show [voice name]"</em>.
+              </div>
+            </div>
+            <div class="feedback" id="voice-picker-fb"></div>
+            <div class="modal-actions">
+              <button class="btn-primary" id="voice-picker-save">Save</button>
+              <button class="btn-ghost" id="voice-picker-cancel">Cancel</button>
             </div>
           </div>
         </div>
@@ -2849,6 +2869,7 @@
               <button class="btn-primary" id="editor-save-crop">💾 Save Crop</button>
               <button class="btn-primary" id="editor-send">⬆ Send to Canvas</button>
               <button class="btn-ghost" id="editor-add-album">＋ Add to Album</button>
+              <button class="btn-ghost" id="editor-voice-name">🗣 Voice Name</button>
               <button class="btn-ghost" id="editor-reset">↺ Reset crop</button>
               <button class="btn-ghost editor-danger" id="editor-delete">🗑 Delete</button>
               <button class="btn-ghost" id="editor-cancel">Cancel</button>
@@ -4677,6 +4698,7 @@
           <div style="font-size:32px;text-align:center;padding:30px 0">🖼</div>
         </div>
         <div class="preview-name">${this._esc(image.filename)}</div>
+        ${image.voice_name ? `<div class="preview-voice" style="font-size:11px;color:#10b981;font-weight:bold;margin-top:2px">🗣 "${this._esc(image.voice_name)}"</div>` : ''}
         <div class="btns" style="margin-top:10px">
           <select id="frame-select-${sid}" ${this._frames.length ? '' : 'disabled'}>
             ${this._frames.length ? '<option value="">Select a Frame</option>' : ''}
@@ -4686,6 +4708,7 @@
         </div>
         <div class="btns">
           <button class="btn-ghost" id="lib-album-${sid}" title="Add to album">🏷 Album</button>
+          <button class="btn-ghost" id="lib-voice-${sid}" title="Set voice name">🗣 Voice Name</button>
           <button class="btn-ghost" id="lib-delete-${sid}" title="Remove from library">🗑 Delete</button>
         </div>
         <div class="feedback" id="lib-card-fb-${sid}"></div>
@@ -4695,6 +4718,10 @@
 
       el.querySelector(`#thumb-${sid}`).addEventListener('click', () => {
         this._openEditor(image);
+      });
+
+      el.querySelector(`#lib-voice-${sid}`).addEventListener('click', () => {
+        this._openVoicePicker(image);
       });
 
       el.querySelector(`#lib-send-${sid}`).addEventListener('click', () => {
@@ -5252,6 +5279,9 @@
       root.getElementById('editor-cancel').addEventListener('click', () => this._closeEditor());
       root.getElementById('editor-reset').addEventListener('click', () => this._editorResetCrop());
       root.getElementById('editor-add-album').addEventListener('click', () => this._editorAddToAlbum());
+      root.getElementById('editor-voice-name').addEventListener('click', () => {
+        if (this._editorState) this._openVoicePicker(this._editorState.image);
+      });
       root.getElementById('editor-save-crop').addEventListener('click', () => this._editorSaveCropAction());
       root.getElementById('editor-send').addEventListener('click', () => this._editorSendToCanvas());
       root.getElementById('editor-delete').addEventListener('click', () => this._editorDeleteImage());
@@ -5336,7 +5366,7 @@
 
       const overlay = this.shadowRoot.getElementById('editor-overlay');
       overlay.style.display = 'flex';
-      this.shadowRoot.getElementById('editor-title').textContent = image.filename;
+      this.shadowRoot.getElementById('editor-title').innerHTML = `${this._esc(image.filename)}${image.voice_name ? ` <span style="font-size:12px;color:#10b981;font-weight:bold;margin-left:8px">🗣 "${this._esc(image.voice_name)}"</span>` : ''}`;
 
       const img = this.shadowRoot.getElementById('editor-img');
       img.removeAttribute('src');
@@ -5794,6 +5824,83 @@
 
       saveBtn.disabled = false;
       saveBtn.textContent = 'Save';
+    }
+
+    // -----------------------------------------------------------------------
+    // Voice name picker (used from library cards and crop editor)
+    // -----------------------------------------------------------------------
+
+    _wireVoicePicker() {
+      this.shadowRoot.getElementById('voice-picker-cancel').addEventListener('click', () => this._closeVoicePicker());
+      this.shadowRoot.getElementById('voice-picker-save').addEventListener('click', () => this._saveVoicePicker());
+    }
+
+    _openVoicePicker(image) {
+      this._voicePickerImage = image;
+      const overlay = this.shadowRoot.getElementById('voice-picker-overlay');
+      const input = this.shadowRoot.getElementById('voice-picker-name');
+      const fb = this.shadowRoot.getElementById('voice-picker-fb');
+
+      input.value = image.voice_name || '';
+      fb.style.display = 'none';
+      overlay.style.display = 'flex';
+    }
+
+    _closeVoicePicker() {
+      this.shadowRoot.getElementById('voice-picker-overlay').style.display = 'none';
+      this._voicePickerImage = null;
+    }
+
+    async _saveVoicePicker() {
+      const image = this._voicePickerImage;
+      if (!image) return;
+
+      const input = this.shadowRoot.getElementById('voice-picker-name');
+      const fb = this.shadowRoot.getElementById('voice-picker-fb');
+      const saveBtn = this.shadowRoot.getElementById('voice-picker-save');
+
+      const name = input.value.trim();
+
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+      fb.style.display = 'none';
+
+      try {
+        const resp = await fetch(`/api/fraimic/library/image/${image.image_id}/voice_name`, {
+          method: 'POST',
+          headers: {
+            ...this._authHeaders(),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ voice_name: name || null }),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (resp.ok && result.success) {
+          image.voice_name = name || null;
+          const libImg = this._library.find(i => i.image_id === image.image_id);
+          if (libImg) libImg.voice_name = name || null;
+
+          const editorOverlay = this.shadowRoot.getElementById('editor-overlay');
+          if (editorOverlay && editorOverlay.style.display === 'flex') {
+            const titleEl = this.shadowRoot.getElementById('editor-title');
+            titleEl.innerHTML = `${this._esc(image.filename)}${image.voice_name ? ` <span style="font-size:12px;color:#10b981;font-weight:bold;margin-left:8px">🗣 "${this._esc(image.voice_name)}"</span>` : ''}`;
+          }
+
+          this._renderLibrary();
+          this._closeVoicePicker();
+        } else {
+          fb.className = 'feedback err';
+          fb.textContent = result.message || 'Failed to save voice name';
+          fb.style.display = 'block';
+        }
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Network error: ${err.message}`;
+        fb.style.display = 'block';
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+      }
     }
 
     // -----------------------------------------------------------------------
@@ -7537,7 +7644,7 @@
         const cell = document.createElement('div');
         cell.className = 'image-picker-cell';
         cell.dataset.imageId = image.image_id;
-        cell.title = image.filename;
+        cell.title = image.voice_name ? `${image.filename} (🗣 ${image.voice_name})` : image.filename;
         cell.innerHTML = `<div class="image-picker-thumb">🖼</div>`;
 
         this._loadThumbnail(image.image_id, cell.querySelector('.image-picker-thumb'));
