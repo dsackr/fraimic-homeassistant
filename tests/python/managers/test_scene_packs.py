@@ -82,6 +82,10 @@ class _FakeLibrary:
         if image_id in self._images:
             self._images[image_id]["albums"] = list(albums)
 
+    async def async_set_image_voice_name(self, image_id, voice_name):
+        if image_id in self._images:
+            self._images[image_id]["voice_name"] = voice_name
+
 
 @pytest.fixture
 def fake_library():
@@ -123,7 +127,7 @@ async def test_install_pack_success(
     entry.add_to_hass(hass)
 
     images = [
-        {"filename": "a.jpg", "path": "scene_packs/monet/a.jpg"},
+        {"filename": "a.jpg", "path": "scene_packs/monet/a.jpg", "title": "Impression, Sunrise"},
         {"filename": "b.jpg", "path": "scene_packs/monet/b.jpg"},
     ]
     url, body = _catalog_url_and_body(images)
@@ -137,6 +141,14 @@ async def test_install_pack_success(
     assert result["images_added"] == 2
     assert result["scene_created"] is True
     assert result["errors"] == []
+
+    # Verify voice name was populated from the spec's title
+    lib_images = await scene_pack_manager._library.async_list_images()
+    assert len(lib_images) == 2
+    img_a = next(img for img in lib_images if img["filename"] == "a.jpg")
+    assert img_a.get("voice_name") == "Impression, Sunrise"
+    img_b = next(img for img in lib_images if img["filename"] == "b.jpg")
+    assert img_b.get("voice_name") is None
 
 
 async def test_install_pack_per_image_failure_does_not_strand_others(

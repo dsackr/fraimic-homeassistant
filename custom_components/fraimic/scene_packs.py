@@ -215,6 +215,9 @@ class ScenePackManager:
             raw_bytes = await resp.read()
         width, height = await self.hass.async_add_executor_job(_dimensions, raw_bytes)
         record = await self._library.async_upload(filename, raw_bytes, [album])
+        title = image_spec.get("title")
+        if title:
+            await self._library.async_set_image_voice_name(record["image_id"], title)
         return record["image_id"], width > height
 
     async def async_install_pack(
