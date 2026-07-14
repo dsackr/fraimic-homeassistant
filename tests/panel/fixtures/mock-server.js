@@ -347,6 +347,17 @@ function createMockServer({
       return json(res, 200, { success: true, image });
     }
 
+    if (p.startsWith('/api/fraimic/library/image/') && p.endsWith('/tags')) {
+      const parts = p.split('/');
+      const imageId = parts[parts.length - 2];
+      const parsed = await readJsonBody(req);
+      const image = images.find(img => img.image_id === imageId);
+      if (image) {
+        image.tags = parsed.tags;
+      }
+      return json(res, 200, { success: true, image });
+    }
+
     if (p.startsWith('/api/fraimic/library/image/') && p.endsWith('/albums')) {
       const parts = p.split('/');
       const imageId = parts[parts.length - 2];

@@ -272,6 +272,39 @@ class FraimicLibraryImageVoiceNameView(HomeAssistantView):
         return self.json({"success": True, "image": record})
 
 
+class FraimicLibraryImageTagsView(HomeAssistantView):
+    """Update the tags on one library image."""
+
+    url = "/api/fraimic/library/image/{image_id}/tags"
+    name = "api:fraimic:library:image:tags"
+    requires_auth = True
+
+    async def post(self, request: web.Request, image_id: str) -> web.Response:
+        hass = request.app["hass"]
+        manager = _get_manager(hass)
+
+        try:
+            body = await request.json()
+        except Exception as err:  # noqa: BLE001
+            return self.json_message(f"Invalid JSON body: {err}", status_code=400)
+
+        tags = (body or {}).get("tags")
+        if tags is not None and not isinstance(tags, list):
+            return self.json_message("tags must be a list of strings or null", status_code=400)
+
+        from .library import LibraryBackendError  # noqa: PLC0415
+
+        try:
+            record = await manager.async_set_image_tags(image_id, tags)
+        except LibraryBackendError as err:
+            return self.json_message(str(err), status_code=404)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Failed to set tags for %s: %s", image_id, err)
+            return self.json_message(f"Failed to set tags: {err}", status_code=500)
+
+        return self.json({"success": True, "image": record})
+
+
 
 class FraimicLibrarySendView(HomeAssistantView):
     """Send an existing library image to a frame.

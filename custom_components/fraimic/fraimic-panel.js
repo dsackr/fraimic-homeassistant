@@ -2152,6 +2152,7 @@
       this._wireUploadModal();
       this._wireAlbumPicker();
       this._wireVoicePicker();
+      this._wireTagsPicker();
       this._wireAlbumCreate();
       this._wireFlowModal();
       this._wireFrameSettingsMenu();
@@ -2486,6 +2487,25 @@
             <div class="modal-actions">
               <button class="btn-primary" id="voice-picker-save">Save</button>
               <button class="btn-ghost" id="voice-picker-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-overlay" id="tags-picker-overlay">
+          <div class="modal-box" style="max-width:400px">
+            <h3>🏷 Edit Tags</h3>
+            <div class="modal-row">
+              <label>Tags (comma-separated)</label>
+              <input type="text" id="tags-picker-input" placeholder="e.g. Alyssa, Kids, beach">
+              <div style="font-size:11px;color:#6b7280;margin-top:4px">
+                Enter tags separated by commas. These group photos by subject or name.<br>
+                Use in voice commands: <em>"put a picture of [tag name] on [frame name]"</em>.
+              </div>
+            </div>
+            <div class="feedback" id="tags-picker-fb"></div>
+            <div class="modal-actions">
+              <button class="btn-primary" id="tags-picker-save">Save</button>
+              <button class="btn-ghost" id="tags-picker-cancel">Cancel</button>
             </div>
           </div>
         </div>
@@ -2870,6 +2890,7 @@
               <button class="btn-primary" id="editor-send">⬆ Send to Canvas</button>
               <button class="btn-ghost" id="editor-add-album">＋ Add to Album</button>
               <button class="btn-ghost" id="editor-voice-name">🗣 Voice Name</button>
+              <button class="btn-ghost" id="editor-tags">🏷 Tags</button>
               <button class="btn-ghost" id="editor-reset">↺ Reset crop</button>
               <button class="btn-ghost editor-danger" id="editor-delete">🗑 Delete</button>
               <button class="btn-ghost" id="editor-cancel">Cancel</button>
@@ -4699,6 +4720,7 @@
         </div>
         <div class="preview-name">${this._esc(image.filename)}</div>
         ${image.voice_name ? `<div class="preview-voice" style="font-size:11px;color:#10b981;font-weight:bold;margin-top:2px">🗣 "${this._esc(image.voice_name)}"</div>` : ''}
+        ${image.tags && image.tags.length ? `<div class="preview-tags" style="font-size:11px;color:#3b82f6;margin-top:2px;display:flex;flex-wrap:wrap;gap:4px">${image.tags.map(t => `<span style="background:rgba(59,130,246,0.1);padding:1px 4px;border-radius:3px">#${this._esc(t)}</span>`).join('')}</div>` : ''}
         <div class="btns" style="margin-top:10px">
           <select id="frame-select-${sid}" ${this._frames.length ? '' : 'disabled'}>
             ${this._frames.length ? '<option value="">Select a Frame</option>' : ''}
@@ -4709,6 +4731,9 @@
         <div class="btns">
           <button class="btn-ghost" id="lib-album-${sid}" title="Add to album">🏷 Album</button>
           <button class="btn-ghost" id="lib-voice-${sid}" title="Set voice name">🗣 Voice Name</button>
+        </div>
+        <div class="btns">
+          <button class="btn-ghost" id="lib-tags-${sid}" title="Edit tags">🏷 Tags</button>
           <button class="btn-ghost" id="lib-delete-${sid}" title="Remove from library">🗑 Delete</button>
         </div>
         <div class="feedback" id="lib-card-fb-${sid}"></div>
@@ -4722,6 +4747,10 @@
 
       el.querySelector(`#lib-voice-${sid}`).addEventListener('click', () => {
         this._openVoicePicker(image);
+      });
+
+      el.querySelector(`#lib-tags-${sid}`).addEventListener('click', () => {
+        this._openTagsPicker(image);
       });
 
       el.querySelector(`#lib-send-${sid}`).addEventListener('click', () => {
@@ -5282,6 +5311,9 @@
       root.getElementById('editor-voice-name').addEventListener('click', () => {
         if (this._editorState) this._openVoicePicker(this._editorState.image);
       });
+      root.getElementById('editor-tags').addEventListener('click', () => {
+        if (this._editorState) this._openTagsPicker(this._editorState.image);
+      });
       root.getElementById('editor-save-crop').addEventListener('click', () => this._editorSaveCropAction());
       root.getElementById('editor-send').addEventListener('click', () => this._editorSendToCanvas());
       root.getElementById('editor-delete').addEventListener('click', () => this._editorDeleteImage());
@@ -5363,10 +5395,17 @@
       select.innerHTML = optionsHtml;
       select.disabled = false;
       select.value = initialVal;
-
       const overlay = this.shadowRoot.getElementById('editor-overlay');
       overlay.style.display = 'flex';
-      this.shadowRoot.getElementById('editor-title').innerHTML = `${this._esc(image.filename)}${image.voice_name ? ` <span style="font-size:12px;color:#10b981;font-weight:bold;margin-left:8px">🗣 "${this._esc(image.voice_name)}"</span>` : ''}`;
+
+      let titleHtml = `${this._esc(image.filename)}`;
+      if (image.voice_name) {
+        titleHtml += ` <span style="font-size:12px;color:#10b981;font-weight:bold;margin-left:8px">🗣 "${this._esc(image.voice_name)}"</span>`;
+      }
+      if (image.tags && image.tags.length) {
+        titleHtml += ` <span style="font-size:12px;color:#3b82f6;font-weight:bold;margin-left:8px">🏷️ ${image.tags.map(t => `#${this._esc(t)}`).join(', ')}</span>`;
+      }
+      this.shadowRoot.getElementById('editor-title').innerHTML = titleHtml;
 
       const img = this.shadowRoot.getElementById('editor-img');
       img.removeAttribute('src');
@@ -5883,7 +5922,14 @@
           const editorOverlay = this.shadowRoot.getElementById('editor-overlay');
           if (editorOverlay && editorOverlay.style.display === 'flex') {
             const titleEl = this.shadowRoot.getElementById('editor-title');
-            titleEl.innerHTML = `${this._esc(image.filename)}${image.voice_name ? ` <span style="font-size:12px;color:#10b981;font-weight:bold;margin-left:8px">🗣 "${this._esc(image.voice_name)}"</span>` : ''}`;
+            let titleHtml = `${this._esc(image.filename)}`;
+            if (image.voice_name) {
+              titleHtml += ` <span style="font-size:12px;color:#10b981;font-weight:bold;margin-left:8px">🗣 "${this._esc(image.voice_name)}"</span>`;
+            }
+            if (image.tags && image.tags.length) {
+              titleHtml += ` <span style="font-size:12px;color:#3b82f6;font-weight:bold;margin-left:8px">🏷️ ${image.tags.map(t => `#${this._esc(t)}`).join(', ')}</span>`;
+            }
+            titleEl.innerHTML = titleHtml;
           }
 
           this._renderLibrary();
@@ -5891,6 +5937,89 @@
         } else {
           fb.className = 'feedback err';
           fb.textContent = result.message || 'Failed to save voice name';
+          fb.style.display = 'block';
+        }
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Network error: ${err.message}`;
+        fb.style.display = 'block';
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+      }
+    }
+
+    _wireTagsPicker() {
+      this.shadowRoot.getElementById('tags-picker-cancel').addEventListener('click', () => this._closeTagsPicker());
+      this.shadowRoot.getElementById('tags-picker-save').addEventListener('click', () => this._saveTagsPicker());
+    }
+
+    _openTagsPicker(image) {
+      this._tagsPickerImage = image;
+      const overlay = this.shadowRoot.getElementById('tags-picker-overlay');
+      const input = this.shadowRoot.getElementById('tags-picker-input');
+      const fb = this.shadowRoot.getElementById('tags-picker-fb');
+
+      input.value = image.tags ? image.tags.join(', ') : '';
+      fb.style.display = 'none';
+      overlay.style.display = 'flex';
+    }
+
+    _closeTagsPicker() {
+      this.shadowRoot.getElementById('tags-picker-overlay').style.display = 'none';
+      this._tagsPickerImage = null;
+    }
+
+    async _saveTagsPicker() {
+      const image = this._tagsPickerImage;
+      if (!image) return;
+
+      const input = this.shadowRoot.getElementById('tags-picker-input');
+      const fb = this.shadowRoot.getElementById('tags-picker-fb');
+      const saveBtn = this.shadowRoot.getElementById('tags-picker-save');
+
+      const tagsList = input.value.split(',')
+        .map(t => t.trim())
+        .filter(t => t.length > 0);
+
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+      fb.style.display = 'none';
+
+      try {
+        const resp = await fetch(`/api/fraimic/library/image/${image.image_id}/tags`, {
+          method: 'POST',
+          headers: {
+            ...this._authHeaders(),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ tags: tagsList }),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (resp.ok && result.success) {
+          const savedTags = result.image ? result.image.tags : tagsList;
+          image.tags = savedTags;
+          const libImg = this._library.find(i => i.image_id === image.image_id);
+          if (libImg) libImg.tags = savedTags;
+
+          const editorOverlay = this.shadowRoot.getElementById('editor-overlay');
+          if (editorOverlay && editorOverlay.style.display === 'flex') {
+            const titleEl = this.shadowRoot.getElementById('editor-title');
+            let titleHtml = `${this._esc(image.filename)}`;
+            if (image.voice_name) {
+              titleHtml += ` <span style="font-size:12px;color:#10b981;font-weight:bold;margin-left:8px">🗣 "${this._esc(image.voice_name)}"</span>`;
+            }
+            if (image.tags && image.tags.length) {
+              titleHtml += ` <span style="font-size:12px;color:#3b82f6;font-weight:bold;margin-left:8px">🏷️ ${image.tags.map(t => `#${this._esc(t)}`).join(', ')}</span>`;
+            }
+            titleEl.innerHTML = titleHtml;
+          }
+
+          this._renderLibrary();
+          this._closeTagsPicker();
+        } else {
+          fb.className = 'feedback err';
+          fb.textContent = result.message || 'Failed to save tags';
           fb.style.display = 'block';
         }
       } catch (err) {

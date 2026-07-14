@@ -365,3 +365,39 @@ async def test_show_image_intent_matches_voice_name(
     assert calls == [(b"bin-for-img1", "img1")]
 
 
+async def test_show_image_intent_tag_match_sends_random_tagged_image(
+    hass, make_frame_entry, make_coordinator, monkeypatch
+):
+    office, coordinator = _make_device_and_coordinator(
+        hass, make_frame_entry, make_coordinator, "Office Frame", "k1"
+    )
+    # 2 images with "Alyssa" tag, 1 with a different tag
+    _register_library(
+        hass,
+        {"image_id": "alyssa_1", "filename": "1.jpg", "tags": ["Alyssa"]},
+        {"image_id": "alyssa_2", "filename": "2.jpg", "tags": ["Alyssa"]},
+        {"image_id": "other", "filename": "3.jpg", "tags": ["other"]},
+    )
+    async_register_intents(hass)
+
+    calls = []
+
+    async def _fake_send(self, image_bytes, *, image_id=None, thumbnail=None):
+        calls.append((image_bytes, image_id))
+        return {"success": True, "queued": False}
+
+    from custom_components.fraimic.coordinator import FraimicCoordinator
+    monkeypatch.setattr(FraimicCoordinator, "async_send_image_or_queue", _fake_send)
+
+    response = await ha_intent.async_handle(
+        hass,
+        "test",
+        INTENT_SHOW_IMAGE,
+        {"image_name": {"value": "Alyssa"}, "frame": {"value": "Office"}},
+    )
+
+    assert response.error_code is None
+    assert len(calls) == 1
+    assert calls[0][1] in ("alyssa_1", "alyssa_2")
+
+

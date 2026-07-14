@@ -328,5 +328,69 @@ test.describe('Consolidated dashboard', () => {
       await customMock.stop();
     }
   });
+
+  test('Manage Library allows setting and displaying tags for a photo', async ({ page }) => {
+    await mockServer.stop();
+    const customMock = createMockServer({
+      frames: FRAMES,
+      images: IMAGES,
+      scenes: SCENES,
+      albums: [{ name: 'Images', count: 2, cover_image_id: 'image_1' }]
+    });
+    const customUrl = await customMock.start();
+    try {
+      await gotoPanel(page, customUrl, { frames: FRAMES });
+
+      // 1. Open Library Modal
+      await page.locator('#panel #library-open-btn').click();
+
+      // 2. Open Default Album
+      await page.locator('#panel .album-tile').filter({ hasText: 'Images' }).click();
+
+      // 3. Click the 🏷 Tags button on the first card
+      const firstImageId = IMAGES[0].image_id;
+      const sid = firstImageId.replace(/[^a-z0-9]/gi, '_');
+      await page.locator(`#panel button#lib-tags-${sid}`).click();
+
+      // 4. Verify Tags picker modal is open and visible
+      const modal = page.locator('#panel #tags-picker-overlay');
+      await expect(modal).toBeVisible();
+
+      // 5. Fill input and Save
+      await page.locator('#panel #tags-picker-input').fill('Alyssa, Kids');
+      await page.locator('#panel #tags-picker-save').click();
+
+      // 6. Verify tags are saved and shown on the card
+      const tagsLabel = page.locator('#panel .lib-card .preview-tags');
+      await expect(tagsLabel).toContainText('#Alyssa');
+      await expect(tagsLabel).toContainText('#Kids');
+
+      // 7. Open Crop Editor
+      await page.locator(`#panel #thumb-${sid}`).click();
+
+      // 8. Verify tags badge is shown in Crop Editor title
+      const editorTitle = page.locator('#panel #editor-title');
+      await expect(editorTitle).toContainText('#Alyssa');
+      await expect(editorTitle).toContainText('#Kids');
+
+      // 9. Click Tags button in editor
+      await page.locator('#panel #editor-tags').click();
+
+      // 10. Clear tags and Save
+      await page.locator('#panel #tags-picker-input').fill('');
+      await page.locator('#panel #tags-picker-save').click();
+
+      // 11. Verify badge is gone from Editor title
+      await expect(editorTitle).not.toContainText('#Alyssa');
+
+      // Close crop editor
+      await page.locator('#panel #editor-cancel').click();
+
+      // Verify tags are gone from the card grid
+      await expect(tagsLabel).toHaveCount(0);
+    } finally {
+      await customMock.stop();
+    }
+  });
 });
 

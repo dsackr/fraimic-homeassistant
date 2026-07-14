@@ -84,14 +84,13 @@ a named scene, or issue restart/sleep/refresh commands.
   (command services, send_image media resolution + path-escape rejection,
   send_scene aggregation semantics).
 
-## 6. Voice/AI: "generate an image of X..." and "show [image name] on [frame]"
-Custom Assist/LLM intents to generate an AI image or display an existing
-library image on a named frame by voice.
+## 6. Voice/AI: "generate an image of X...", "show [image name] on [frame]", and "put a picture of [tag name] on [frame]"
+Custom Assist/LLM intents to generate an AI image, display a specific library image on a named frame, or randomly select and display an image matching a custom tag by voice.
 - **Entry points**: `intent.py` (`FraimicGenerateAIImageIntent`,
-  `FraimicShowImageIntent`, `_match_frame_device_id`).
+  `FraimicShowImageIntent`, `_match_frame_device_id`, `_match_by_tag`).
 - **If it silently breaks**: the voice command errors out, fails to find the
-  image, or resolves to the wrong frame.
-- **Test status**: **Backend-tested** — `tests/python/setup/test_intent.py`.
+  image or tags, or resolves to the wrong frame.
+- **Test status**: **Backend-tested** — `tests/python/setup/test_intent.py` (covers exact voice name matches and random tag-based selections).
 
 ## 7. Image conversion pipeline (Spectra 6 .bin encoding + decoding)
 Converts any Pillow-readable image into the frame's proprietary packed-
@@ -114,20 +113,20 @@ xOTD/skill text renderer — see KPF 28/29).
   has a standalone byte-identity script (`scripts/verify_packing.py`) run
   manually against real photos when touching either packer.
 
-## 8. Shared image library: upload, list, stream original, thumbnail, voice name
+## 8. Shared image library: upload, list, stream original, thumbnail, voice name, tags
 Users upload photos into one shared pool; images are listed/streamed for
 the panel's grids with on-the-fly cached thumbnails, and can carry user-defined
-voice names for Assist commands.
+voice names and tags for Assist commands.
 - **Entry points**: `library.py` (`LibraryManager.async_upload` /
-  `list_images` / `get_original` / `get_thumbnail` / `async_set_image_voice_name`,
-  `LocalLibraryBackend`), `library_http.py` (`FraimicLibraryImageVoiceNameView`).
+  `list_images` / `get_original` / `get_thumbnail` / `async_set_image_voice_name` / `async_set_image_tags`,
+  `LocalLibraryBackend`), `library_http.py` (`FraimicLibraryImageVoiceNameView`, `FraimicLibraryImageTagsView`).
 - **If it silently breaks**: uploads silently fail per-file in a batch,
-  thumbnails go stale/broken, or voice name edits fail to persist.
-- **Test status**: Panel-tested (`dashboard.spec.js` covers grid rendering, album navigation, and voice name configuration/clearing; `lazy-thumbs.spec.js`).
+  thumbnails go stale/broken, or voice name/tag edits fail to persist.
+- **Test status**: Panel-tested (`dashboard.spec.js` covers grid rendering, album navigation, voice name, and tags configuration/clearing; `lazy-thumbs.spec.js`).
   **Backend-tested** (local backend) —
   `tests/python/library/test_library_local_backend.py` (single/multi
   upload, undecodable-bytes tolerance, thumbnail cache generation/reuse,
-  delete purges original + thumbnails, voice name updates).
+  delete purges original + thumbnails, voice name and tags updates).
 
 ## 9. Library storage backend switching (Local / Dropbox / Google Drive)
 User can point the whole library at Dropbox or Google Drive instead of

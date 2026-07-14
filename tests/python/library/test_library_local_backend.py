@@ -145,3 +145,27 @@ async def test_update_voice_name(library_manager, sample_image_bytes):
     images3 = await library_manager.async_list_images()
     assert images3[0]["voice_name"] is None
 
+
+async def test_update_tags(library_manager, sample_image_bytes):
+    record = await library_manager.async_upload("photo.jpg", sample_image_bytes(200, 200))
+    assert record.get("tags") == []
+
+    updated = await library_manager.async_set_image_tags(record["image_id"], ["Alyssa", "Kids"])
+    assert updated["tags"] == ["Alyssa", "Kids"]
+
+    # Verify that listing the images returns the updated tags
+    images = await library_manager.async_list_images()
+    assert len(images) == 1
+    assert images[0]["tags"] == ["Alyssa", "Kids"]
+
+    # Verify that loading from the manifest returns the updated tags (persisted)
+    new_manager = LibraryManager(library_manager.hass)
+    await new_manager.async_load()
+    images2 = await new_manager.async_list_images()
+    assert len(images2) == 1
+    assert images2[0]["tags"] == ["Alyssa", "Kids"]
+
+    # Verify clearing/updating it works and cleans up formatting
+    updated2 = await library_manager.async_set_image_tags(record["image_id"], [" Alyssa  ", "", "kids", "alyssa"])
+    assert updated2["tags"] == ["Alyssa", "kids"]
+

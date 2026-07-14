@@ -67,6 +67,19 @@ def _normalize_albums(albums: list[str] | None) -> list[str]:
             seen.append(name)
     return seen or [DEFAULT_ALBUM]
 
+
+def _normalize_tags(tags: list[str] | None) -> list[str]:
+    """Strip/dedupe (order-preserving) tag names, converting to lowercase for de-duplication
+    but preserving original casing."""
+    seen: set[str] = set()
+    cleaned: list[str] = []
+    for tag in tags if isinstance(tags, list) else []:
+        tag = (tag or "").strip()
+        if tag and tag.lower() not in seen:
+            seen.add(tag.lower())
+            cleaned.append(tag)
+    return cleaned
+
 _CONTENT_TYPE_BY_FORMAT = {
     "JPEG": "image/jpeg",
     "PNG": "image/png",
@@ -143,6 +156,8 @@ class LibraryImage:
     albums: list[str] = field(default_factory=lambda: [DEFAULT_ALBUM])
     # User-defined voice name for voice control matching.
     voice_name: str | None = None
+    # User-defined tags for categorizing/matching.
+    tags: list[str] = field(default_factory=list)
 
     def has_resolution(self, width: int, height: int) -> bool:
         return [width, height] in self.resolutions
@@ -157,6 +172,7 @@ class LibraryImage:
             "crops": self.crops,
             "albums": self.albums,
             "voice_name": self.voice_name,
+            "tags": self.tags,
         }
 
     @classmethod
@@ -170,6 +186,7 @@ class LibraryImage:
             crops=data.get("crops", {}),
             albums=_normalize_albums(data.get("albums")),
             voice_name=data.get("voice_name"),
+            tags=data.get("tags", []),
         )
 
 
@@ -1633,6 +1650,18 @@ class LibraryManager:
         vname = voice_name.strip() if voice_name else None
         await self._backend.async_update_image_fields(image_id, voice_name=vname)
         record.voice_name = vname
+        return record.to_dict()
+
+    async def async_set_image_tags(
+        self, image_id: str, tags: list[str] | None
+    ) -> dict[str, Any]:
+        """Update the tags of one image."""
+        record = await self._find_image(image_id)
+        if record is None:
+            raise LibraryBackendError(f"Image '{image_id}' not found")
+        normalized = _normalize_tags(tags)
+        await self._backend.async_update_image_fields(image_id, tags=normalized)
+        record.tags = normalized
         return record.to_dict()
 
     async def _async_apply_album_transform(

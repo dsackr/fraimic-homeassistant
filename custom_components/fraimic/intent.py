@@ -70,6 +70,22 @@ def _match_by_name(
     )
 
 
+def _match_by_tag(spoken_name: str, images: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Find all library images that carry a tag matching the spoken name.
+    Matches exact tag first, falling back to substring match."""
+    target = _normalize(spoken_name)
+    if not target:
+        return []
+
+    # Exact tag match
+    exact = [img for img in images if any(_normalize(t) == target for t in img.get("tags", []))]
+    if exact:
+        return exact
+
+    # Substring tag match
+    return [img for img in images if any(target in _normalize(t) for t in img.get("tags", []))]
+
+
 def _match_frame_device_id(hass: HomeAssistant, frame_name: str) -> str:
     """Resolve a spoken frame name to a Fraimic device_id.
 
@@ -258,18 +274,23 @@ class FraimicShowImageIntent(intent.IntentHandler):
             return response
 
         images = await library_manager.async_list_images()
-        try:
-            matched_image = _match_by_name(
-                image_name,
-                images,
-                get_name=lambda img: img.get("voice_name") or img["filename"],
-                kind="library image",
-            )
-        except HomeAssistantError as err:
-            response.async_set_error(
-                intent.IntentResponseErrorCode.NO_VALID_TARGETS, str(err)
-            )
-            return response
+        tagged_images = _match_by_tag(image_name, images)
+        if tagged_images:
+            import random  # noqa: PLC0415
+            matched_image = random.choice(tagged_images)
+        else:
+            try:
+                matched_image = _match_by_name(
+                    image_name,
+                    images,
+                    get_name=lambda img: img.get("voice_name") or img["filename"],
+                    kind="library image",
+                )
+            except HomeAssistantError as err:
+                response.async_set_error(
+                    intent.IntentResponseErrorCode.NO_VALID_TARGETS, str(err)
+                )
+                return response
 
         try:
             from . import _get_coordinator_by_device_id  # noqa: PLC0415
