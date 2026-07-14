@@ -26,3 +26,4 @@ Notes on reading it:
 | 2026-07-13 | 9520461 | smoke-hapi | pass | 8/8 KPF checks vs hapi.dalesackrider.com (v0.12.87, real 13.3" frame at .117; card fields verified live) | — | local |
 | 2026-07-13 | 7b545ea | panel-playwright | success | 133 passed | — | CI |
 | 2026-07-13 | 6d9040b | panel-playwright | success | 134 passed | — | CI |
+| 2026-07-14 | a468e13 | backend-pytest | success | 258 passed in 67.22s (0:01:07) | 64% | CI |
