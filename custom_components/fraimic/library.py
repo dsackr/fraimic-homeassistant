@@ -1282,6 +1282,16 @@ class LibraryManager:
     def backend_name(self) -> str:
         return self._backend.name
 
+    @property
+    def ai_auto_tagging(self) -> bool:
+        """Return whether AI auto-tagging is enabled for uploads."""
+        return self._settings.get("ai_auto_tagging", False)
+
+    async def async_set_ai_auto_tagging(self, enabled: bool) -> None:
+        """Enable or disable AI auto-tagging."""
+        self._settings["ai_auto_tagging"] = bool(enabled)
+        await self._store.async_save(self._settings)
+
     async def async_set_backend(self, settings: dict[str, Any]) -> None:
         """Validate then switch backends; only persists on success."""
         candidate = self._build_backend(settings)
@@ -1389,6 +1399,7 @@ class LibraryManager:
             filename, raw_bytes, content_type, _normalize_albums(albums)
         )
         self._schedule_backfill(record.image_id)
+        self._schedule_auto_tagging(record.image_id)
         return record.to_dict()
 
     async def async_discover(self) -> dict[str, Any]:
@@ -1402,6 +1413,8 @@ class LibraryManager:
             )
         discovered = await self._backend.async_discover_new_files()
         self._schedule_backfill(_BACKFILL_SWEEP_ALL)
+        for img in discovered:
+            self._schedule_auto_tagging(img.image_id)
         return {
             "success": True,
             "discovered": len(discovered),
@@ -1738,3 +1751,79 @@ class LibraryManager:
         if updates:
             await self._backend.async_bulk_update_image_fields(updates)
         return len(updates)
+
+    def _find_ai_task_tagging_entity(self) -> str | None:
+        """Return the first ai_task entity that supports data generation and attachments."""
+        for state in self.hass.states.async_all("ai_task"):
+            features = state.attributes.get("supported_features", 0)
+            if (features & 1) and (features & 2):
+                return state.entity_id
+        return None
+
+    def _schedule_auto_tagging(self, image_id: str) -> None:
+        """Queue auto-tagging for an image."""
+        self.hass.async_create_task(self.async_auto_tag_image(image_id))
+
+    async def async_auto_tag_image(self, image_id: str) -> None:
+        """Analyze the image using the default AI Task entity and add tags."""
+        if not self.ai_auto_tagging:
+            _LOGGER.debug("AI auto-tagging is not enabled in Fraimic settings")
+            return
+
+        ai_task_entity = self._find_ai_task_tagging_entity()
+        if not ai_task_entity:
+            _LOGGER.debug(
+                "No AI Task entity supporting data generation and attachments is configured"
+            )
+            return
+
+        images = await self.async_list_images()
+        record = next((img for img in images if img.get("image_id") == image_id), None)
+        if not record:
+            _LOGGER.warning("Image '%s' not found for auto-tagging", image_id)
+            return
+
+        media_content_id = f"media-source://{DOMAIN}/image/{image_id}"
+
+        prompt = (
+            "Analyze the attached image and generate relevant tags (comma-separated, lowercase). "
+            "Describe the artist/creator if known, the subject matter, the setting/scenery (e.g. beach, forest), "
+            "prominent colors, style, objects, and people. "
+            "Return ONLY a comma-separated list of tags, nothing else."
+        )
+
+        _LOGGER.info("Requesting auto-tags for image '%s' using %s", image_id, ai_task_entity)
+
+        try:
+            result = await self.hass.services.async_call(
+                "ai_task",
+                "generate_data",
+                {
+                    "entity_id": ai_task_entity,
+                    "task_name": "Fraimic auto-tagging",
+                    "instructions": prompt,
+                    "attachments": [
+                        {
+                            "media_content_id": media_content_id,
+                            "media_content_type": record.get("content_type", "image/png"),
+                        }
+                    ],
+                },
+                blocking=True,
+                return_response=True,
+            )
+
+            raw_text = result.get("data", "")
+            if not raw_text:
+                _LOGGER.warning("AI Task returned no data for image '%s'", image_id)
+                return
+
+            generated_tags = [t.strip().lower() for t in raw_text.split(",") if t.strip()]
+            if generated_tags:
+                _LOGGER.info("Generated tags for '%s': %s", image_id, generated_tags)
+                existing_tags = record.get("tags") or []
+                merged_tags = list(dict.fromkeys(existing_tags + generated_tags))
+                await self.async_set_image_tags(image_id, merged_tags)
+        except Exception as err:
+            _LOGGER.exception("Failed to auto-tag image '%s': %s", image_id, err)
+

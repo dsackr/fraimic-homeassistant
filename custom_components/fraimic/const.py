@@ -111,3 +111,4 @@ CONF_ROTATE_LANDSCAPE_180 = "rotate_landscape_180"
 CONF_ROTATION_EDGE = "rotation_edge"
 EDGE_LEFT = "left"    # Fraimic default
 EDGE_RIGHT = "right"
+

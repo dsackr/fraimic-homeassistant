@@ -2602,6 +2602,10 @@
               </select>
             </div>
             <div class="backend-config" id="backend-config"></div>
+            <div class="modal-row" style="display:flex; align-items:center; gap:8px; margin-top:16px">
+              <input type="checkbox" id="ai-tagging-checkbox" />
+              <label for="ai-tagging-checkbox" style="display:inline; margin:0; cursor:pointer">Auto-tag uploaded photos using AI</label>
+            </div>
             <div class="feedback" id="settings-fb"></div>
             <div class="modal-actions">
               <button class="btn-ghost" id="settings-modal-close">Close</button>
@@ -3602,6 +3606,8 @@
       overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
       this.shadowRoot.getElementById('backend-select')
         .addEventListener('change', (e) => this._renderBackendConfig(e.target.value));
+      this.shadowRoot.getElementById('ai-tagging-checkbox')
+        .addEventListener('change', (e) => this._toggleAiTagging(e.target.checked));
       const openBtn = this.shadowRoot.getElementById('settings-open-btn');
       if (openBtn) openBtn.addEventListener('click', () => this._openSettingsModal());
     }
@@ -4268,12 +4274,15 @@
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const result = await resp.json();
         this._backend = result.backend || 'local';
+        this._aiAutoTagging = result.ai_auto_tagging || false;
       } catch (err) {
         console.warn('[fraimic-panel] could not load library settings:', err);
         healthy = false;
       }
       const sel = this.shadowRoot.getElementById('backend-select');
       if (sel) sel.value = this._backend;
+      const chk = this.shadowRoot.getElementById('ai-tagging-checkbox');
+      if (chk) chk.checked = this._aiAutoTagging;
       this._renderBackendConfig(this._backend);
       this._syncDiscoverButton();
       return healthy;
@@ -4429,6 +4438,35 @@
       }
       fb.style.display = 'block';
       setTimeout(() => { fb.style.display = 'none'; }, 8000);
+    }
+
+    async _toggleAiTagging(enabled) {
+      const fb = this._settingsFb();
+      try {
+        const resp = await fetch('/api/fraimic/library/settings', {
+          method: 'POST',
+          headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ai_auto_tagging: enabled }),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (resp.ok && result.success) {
+          this._aiAutoTagging = result.ai_auto_tagging;
+          fb.className = 'feedback ok';
+          fb.textContent = `✓ AI Auto-tagging ${enabled ? 'enabled' : 'disabled'}`;
+        } else {
+          fb.className = 'feedback err';
+          fb.textContent = result.message || resp.statusText || `HTTP ${resp.status}`;
+          const chk = this.shadowRoot.getElementById('ai-tagging-checkbox');
+          if (chk) chk.checked = !enabled;
+        }
+      } catch (err) {
+        fb.className = 'feedback err';
+        fb.textContent = `Network error: ${err.message}`;
+        const chk = this.shadowRoot.getElementById('ai-tagging-checkbox');
+        if (chk) chk.checked = !enabled;
+      }
+      fb.style.display = 'block';
+      setTimeout(() => { fb.style.display = 'none'; }, 6000);
     }
 
     async _switchBackend(settings) {

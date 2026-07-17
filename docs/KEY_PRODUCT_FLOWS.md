@@ -484,6 +484,18 @@ frame actually shows.
   frames/thumbnail HTTP views' own marshaling is still a **Gap** with the
   rest of the `*_http.py` layer.
 
+## 30. Media Source integration
+Exposes the Fraimic photo library to Home Assistant's native media source system (browsable under the Media browser and playable/resolvable via `media-source://fraimic/...` URIs) without copying files.
+- **Entry points**: `media_source.py` (`async_get_media_source`, `FraimicMediaSource`).
+- **If it silently breaks**: Fraimic albums and photos do not appear in the Home Assistant Media tab, or resolving a `media-source://` URI fails.
+- **Test status**: **Backend-tested** — `tests/python/library/test_media_source_and_tagging.py`.
+
+## 31. AI Auto-tagging on upload & discovery
+Automatically analyzes uploaded or discovered images using Home Assistant's configured multi-modal `ai_task` entity and updates image tags in `manifest.json`.
+- **Entry points**: `library.py` (`LibraryManager.async_upload`, `async_discover`, `async_auto_tag_image`).
+- **If it silently breaks**: Photos are uploaded or discovered but no tags are generated even when an AI Task entity is active and the option is enabled.
+- **Test status**: **Backend-tested** — `tests/python/library/test_media_source_and_tagging.py`.
+
 ---
 
 ## Coverage summary
@@ -498,6 +510,7 @@ frame actually shows.
 | 5 | Library: local backend, crop, albums, backfill (KPFs 8, 11, 12, 13) | Done |
 | 5b | Library: Dropbox/Google Drive cloud backends + OAuth, discovery (KPFs 9, 10), and the `*_http.py` view layer (KPFs 14, 15, 29's views + the rest) | Planned |
 | — | Panel init-load resilience, panel element lifecycle, Lovelace card (KPFs 26, 27, 29) | Done — frontend side; KPF 29's HTTP views fold into 5b |
+| — | Media Source & AI Auto-tagging (KPFs 30, 31) | Done |
 
 Phase 5b (plus KPF 18's widget scheduling) is scoped here but not yet
 implemented — see [TESTING_STRATEGY.md](../TESTING_STRATEGY.md) for the

@@ -9,7 +9,8 @@
     "frontend",
     "http",
     "panel_custom",
-    "dhcp"
+    "dhcp",
+    "media_source"
   ],
   "dhcp": [
     {

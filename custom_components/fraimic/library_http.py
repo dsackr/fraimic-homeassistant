@@ -712,7 +712,7 @@ class FraimicFrameThumbnailView(HomeAssistantView):
 
 
 class FraimicLibrarySettingsView(HomeAssistantView):
-    """Get/set which storage backend the library uses."""
+    """Get/set which storage backend the library uses and AI auto-tagging options."""
 
     url = "/api/fraimic/library/settings"
     name = "api:fraimic:library:settings"
@@ -721,7 +721,10 @@ class FraimicLibrarySettingsView(HomeAssistantView):
     async def get(self, request: web.Request) -> web.Response:
         hass = request.app["hass"]
         manager = _get_manager(hass)
-        return self.json({"backend": manager.backend_name})
+        return self.json({
+            "backend": manager.backend_name,
+            "ai_auto_tagging": manager.ai_auto_tagging,
+        })
 
     async def post(self, request: web.Request) -> web.Response:
         hass = request.app["hass"]
@@ -732,20 +735,30 @@ class FraimicLibrarySettingsView(HomeAssistantView):
         except Exception as err:  # noqa: BLE001
             return self.json_message(f"Invalid JSON body: {err}", status_code=400)
 
-        if not isinstance(settings, dict) or "backend" not in settings:
-            return self.json_message("'backend' field is required", status_code=400)
+        if not isinstance(settings, dict):
+            return self.json_message("Invalid settings format", status_code=400)
 
         from .library import LibraryBackendError  # noqa: PLC0415
 
-        try:
-            await manager.async_set_backend(settings)
-        except LibraryBackendError as err:
-            return self.json_message(str(err), status_code=400)
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.error("Failed to set library backend: %s", err)
-            return self.json_message(f"Failed to set backend: {err}", status_code=500)
+        # Update backend if requested
+        if "backend" in settings:
+            try:
+                await manager.async_set_backend(settings)
+            except LibraryBackendError as err:
+                return self.json_message(str(err), status_code=400)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.error("Failed to set library backend: %s", err)
+                return self.json_message(f"Failed to set backend: {err}", status_code=500)
 
-        return self.json({"success": True, "backend": manager.backend_name})
+        # Update AI auto-tagging if requested
+        if "ai_auto_tagging" in settings:
+            await manager.async_set_ai_auto_tagging(settings["ai_auto_tagging"])
+
+        return self.json({
+            "success": True,
+            "backend": manager.backend_name,
+            "ai_auto_tagging": manager.ai_auto_tagging,
+        })
 
 
 class FraimicLibraryDiscoverView(HomeAssistantView):
