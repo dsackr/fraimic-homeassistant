@@ -331,15 +331,11 @@ schedule to "broken" instead of erroring at fire time.
   time, target-deleted → target_missing + disabled, edit repairs a broken
   schedule, `next_fire_at` math including monthly day-of-month clamping).
 
-## 21. HA entities: sensors + Orientation select
-Read-only device telemetry (battery/wifi/charging/firmware/IP/queued) plus
-one per-frame Orientation control that persists into config entry options
-and feeds the render pipeline.
+## 21. HA entities: sensors + Orientation select + Camera display
+Read-only device telemetry (battery/wifi/charging/firmware/IP/queued), a per-frame Orientation control that persists into config entry options, and a Camera entity representing the frame's dynamic canvas (active photo display).
 - **Entry points**: `sensor.py` (all `Fraimic*Sensor` classes), `select.py`
-  (`FraimicOrientationSelect`).
-- **If it silently breaks**: wrong/missing sensor values for a firmware
-  shape not yet seen, or selecting an orientation doesn't actually change
-  rendering.
+  (`FraimicOrientationSelect`), `camera.py` (`FraimicCamera`).
+- **If it silently breaks**: wrong/missing sensor values, selecting an orientation doesn't change rendering, or the camera entity fails to load or serve the active frame image.
 - **Test status**: **Backend-tested** — `tests/python/setup/test_entities.py`.
 
 ## 22. Render spec resolution (orientation lock + rotation + hanging edge)

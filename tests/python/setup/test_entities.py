@@ -217,3 +217,35 @@ async def test_orientation_select_default_is_auto(hass, make_frame_entry):
     entity_id = ent_reg.async_get_entity_id("select", DOMAIN, f"{entry.entry_id}_orientation")
     state = hass.states.get(entity_id)
     assert state.state == "Auto (any picture, Fraimic default)"
+
+
+# ---------------------------------------------------------------------------
+# Camera entity
+# ---------------------------------------------------------------------------
+
+
+async def test_camera_entity_setup(hass, make_frame_entry):
+    entry = make_frame_entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    ent_reg = er.async_get(hass)
+    entity_id = ent_reg.async_get_entity_id("camera", DOMAIN, f"{entry.entry_id}_camera")
+    assert entity_id is not None
+    state = hass.states.get(entity_id)
+    assert state.state == "idle"
+    assert state.name == f"{entry.data['name']} Display"
+
+
+async def test_camera_image_returns_coordinator_thumbnail(hass, make_frame_entry):
+    from custom_components.fraimic.camera import FraimicCamera
+    entry = make_frame_entry()
+    coordinator = _fake_coordinator(pending_send=None)
+    coordinator.hass = hass
+    coordinator.last_thumbnail = b"png-bytes"
+    coordinator.last_image_id = None
+
+    camera = FraimicCamera(coordinator, entry)
+    img = await camera.async_camera_image()
+    assert img == b"png-bytes"
