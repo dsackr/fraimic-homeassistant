@@ -170,8 +170,85 @@ shape is server↔device and doesn't pass through the browser. Capturing it need
 network-level interception (transparent proxy) on a frame's own traffic —
 feasibility depends on whether the frame validates TLS. Deferred.
 
+## How cloud slideshows work while a frame "sleeps" (durable notes)
+
+This is the product question that keeps coming back: *how does official
+Fraimic rotate images on a battery frame that is not always awake, without
+HA in the path?*
+
+### Two different delivery models
+
+| Path | Who initiates | Where schedule lives | Sleep behavior |
+|---|---|---|---|
+| **Official cloud** (`app.fraimic.com`) | **Frame pulls** cloud | Cloud album + `schedule` on the account | Frame wakes on its own schedule / keep-awake / tap, then fetches next image |
+| **This HA integration** | **HA pushes** over LAN | HA scenes/schedules | If frame is asleep, send is **queued** and delivered on next successful poll (Fraimic only; Meural has no sleep queue) |
+
+You **cannot** redirect stock Fraimic cloud pull to point at HA. The frame's
+firmware talks to Fraimic's cloud; HA only speaks the **local Spectra HTTP**
+upload path.
+
+### What the browser capture proved (schedule shape)
+
+A cloud "slideshow" is an **album** with:
+
+- `schedule.type`: `"interval"` (every N hours) or day-based
+- `playback_mode`: sequential / random
+- `device_assignments`: which frames run it
+- `upload_ids`: the images
+
+Creating/updating the album is a single REST write to
+`origin.fraimic.com`. That stores the schedule **in the cloud**. Delivery
+to the panel is still **frame-initiated** (see "Send to Canvas" +
+`mark_for_check_for_upload` / `pending_settings` / Keep Device Awake).
+
+So "schedule while sleeping" for official means: **cloud holds the plan;
+the frame is the actor that later wakes and pulls**. It is not HA
+pushing through a sleep window.
+
+### What UniFi on the LAN showed (2026-07-19, skippy@skippys-mini)
+
+Geordi UniFi CLI against Cloud Gateway `192.168.1.1` (controller 10.4.57):
+
+| IP | Role (approx.) | Notes |
+|---|---|---|
+| `.117` `.159` `.205` `.240` | Fraimic espressif | Continuously online ~208h; ~290–300 MB **download to frame** lifetime; non-zero rates even in 15s samples |
+| `.241` | quieter Fraimic | Much lower totals — different keep-awake / usage |
+| `.32` | `meural-canvas` | Online, low background traffic |
+
+Interpretation: frames with cloud slideshow / keep-awake do **steady WAN
+activity** (AP→client `tx_bytes` in UniFi = download onto the frame). That
+fits continuous or frequent poll/pull, not pure offline sleep with zero
+radio.
+
+**Limitations of that probe:** DPI is enabled on the gateway but site/sta
+DPI stats were empty; Traffic Flows returned no rows; client hourly reports
+500'd on this build. UniFi therefore gave **volume/timing**, not destination
+hostnames. TLS body inspection is impossible without MITM. Known cloud hosts
+from browser HAR remain: `origin.fraimic.com`,
+`fraimic-prod-user-files.s3.amazonaws.com`, Supabase auth/realtime. The
+exact **frame→cloud poll URL** is still the open capture gap.
+
+### Battery implication (product)
+
+- Cloud path: battery cost is whatever the frame firmware does for
+  wake/poll/image download; HA cannot reduce that without taking over
+  content delivery (local push + disable cloud keep-awake/slideshow).
+- HA path: battery cost is wake-for-local-HTTP (or queue-until-awake);
+  no cloud image download if the frame is not also running cloud
+  slideshow.
+
+### Next capture ideas (when resuming this thread)
+
+1. Short tcpdump/SNI on CloudGate for Fraimic MACs (DNS + TLS ClientHello).
+2. DNS logging if enabled later.
+3. Lab SSID + transparent proxy only if cert pinning allows.
+
 ## Reproduction / tooling
 
 Captured with the Playwright harness in `scratchpad-capture/` (gitignored):
 `drive.mjs` logs in (creds via `FR_EMAIL`/`FR_PASS` env), reuses `state.json`,
 and records `<phase>.har` with full request/response bodies. Re-runnable.
+
+UniFi probes: `skippy@skippys-mini` → `~/bin/unifi` (Geordi; GCP secrets
+`UNIFI_USERNAME` / `UNIFI_PASSWORD`). Prefer a **single login** session for
+raw multi-request probes — each CLI invocation re-auths and can 429.

@@ -15,12 +15,18 @@
       const states = {};
       const entities = [];
       for (const f of frames) {
-        const batteryId = `sensor.${f.entry_id}_battery`;
+        // Meural (and any driver without battery) uses send_entity: 'ip'.
+        // Default remains battery for Fraimic frames.
+        const sendKind = f.send_entity === 'ip' ? 'ip' : 'battery';
+        const sendId = `sensor.${f.entry_id}_${sendKind}`;
         const orientationId = `select.${f.entry_id}_orientation`;
-        states[batteryId] = { state: '90', attributes: {} };
+        states[sendId] = {
+          state: sendKind === 'battery' ? '90' : (f.host || '192.168.1.32'),
+          attributes: {},
+        };
         states[orientationId] = { state: 'auto', attributes: { options: ['auto', 'portrait', 'landscape'] } };
         entities.push(
-          { device_id: f.entry_id, unique_id: `${f.entry_id}_battery`, entity_id: batteryId },
+          { device_id: f.entry_id, unique_id: `${f.entry_id}_${sendKind}`, entity_id: sendId },
           { device_id: f.entry_id, unique_id: `${f.entry_id}_orientation`, entity_id: orientationId },
         );
       }

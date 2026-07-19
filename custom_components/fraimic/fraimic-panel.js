@@ -3025,17 +3025,25 @@
           const device = devices.find(d =>
             d.config_entries && d.config_entries.includes(entry.entry_id)
           );
+          // Send target entity: Fraimic frames use the battery sensor; Meural
+          // has no battery and only exposes IP (+ firmware). Match
+          // library_http FraimicFramesView (battery_entity_id or ip).
           const batteryEntity = entities.find(e =>
             device && e.device_id === device.id &&
             (e.unique_id || '').endsWith('_battery')
           );
+          const ipEntity = entities.find(e =>
+            device && e.device_id === device.id &&
+            (e.unique_id || '').endsWith('_ip')
+          );
+          const sendEntity = batteryEntity || ipEntity;
           const orientationEntity = entities.find(e =>
             device && e.device_id === device.id &&
             (e.unique_id || '').endsWith('_orientation')
           );
           return {
             title:    entry.title,
-            entityId: batteryEntity ? batteryEntity.entity_id : null,
+            entityId: sendEntity ? sendEntity.entity_id : null,
             orientationEntityId: orientationEntity ? orientationEntity.entity_id : null,
             deviceId: device ? device.id : null,
             entryId:  entry.entry_id,
