@@ -355,6 +355,67 @@ async def test_text_render_builds_preview_png_from_valid_bin(
     assert result["preview"][:8] == b"\x89PNG\r\n\x1a\n"
 
 
+async def test_text_render_meural_returns_jpeg_not_spectra_bin(
+    hass, skill_manager, monkeypatch, mock_script_download,
+):
+    """Meural panels get JPEG postcard bytes from the same xOTD .bin render."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.fraimic.const import (
+        CONF_DEVICE_KEY,
+        CONF_DRIVER,
+        CONF_HEIGHT,
+        CONF_HOST,
+        CONF_MAC,
+        CONF_NAME,
+        CONF_SIZE,
+        CONF_WIDTH,
+        DOMAIN,
+        DRIVER_MEURAL,
+        MEURAL_SIZE_LABEL,
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Kitchen Meural",
+        data={
+            CONF_HOST: "192.168.1.32",
+            CONF_NAME: "Kitchen Meural",
+            CONF_WIDTH: 1920,
+            CONF_HEIGHT: 1080,
+            CONF_SIZE: MEURAL_SIZE_LABEL,
+            CONF_DEVICE_KEY: "meural:test",
+            CONF_MAC: "",
+            CONF_DRIVER: DRIVER_MEURAL,
+        },
+        entry_id="meural_e1",
+    )
+    entry.add_to_hass(hass)
+    await skill_manager.async_load()
+    created = await skill_manager.async_save_skill(
+        "Custom Word", "word", {"word_feed": "custom"}
+    )
+
+    # Valid Spectra bin length at Meural composition size (layout fallback).
+    packed = bytes((1920 * 1080) // 2)
+
+    async def _fake_exec(*args, **kwargs):
+        config_path = args[4]
+        run_dir = os.path.dirname(config_path)
+        with open(os.path.join(run_dir, "xotd.bin"), "wb") as f:
+            f.write(packed)
+        return _FakeProcess(returncode=0)
+
+    monkeypatch.setattr(
+        "custom_components.fraimic.skills.asyncio.create_subprocess_exec", _fake_exec
+    )
+
+    result = await skill_manager.async_render_for_entry(created["skill_id"], entry)
+    assert result["kind"] == "bin"
+    assert result["bytes"][:2] == b"\xff\xd8"
+    assert result["preview"] is not None
+    assert result["preview"][:8] == b"\x89PNG\r\n\x1a\n"
+
+
 async def test_text_render_nonzero_exit_raises_skill_error(
     hass, skill_manager, make_frame_entry, monkeypatch,
     mock_script_download,

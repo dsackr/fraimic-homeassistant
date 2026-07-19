@@ -19,8 +19,9 @@ split the retired XotdManager used (see git history: xotd.py):
     as a subprocess with --render-only in a fresh per-render temp
     directory, so concurrent renders (e.g. one skill mapped to five frames
     in a single scene send) never collide on the same config.json/xotd.bin.
-    The resulting .bin is read back off disk instead of the script
-    uploading it itself.
+    The resulting Spectra .bin is read back and re-encoded for the target
+    panel codec (pass-through for Fraimic; unpack→JPEG for Meural) via
+    panel_codec.text_skill_payload_for_codec.
   - image_feed/image_album: no script, no subprocess -- a web feed (NASA
     APOD / Wikimedia Picture of the Day / Bing wallpaper) is fetched
     directly and imported into the photo library, or an existing photo is
@@ -561,25 +562,44 @@ class SkillManager:
 
         bin_bytes = await self._async_render_text(skill, entry)
 
-        # Decode a small preview PNG out of the packed bin so the send path
-        # can record it as the frame's "last image" (coordinator
-        # last_thumbnail) -- a text render has no library image_id, and
-        # without a preview the frame's thumbnail state would go blank after
-        # every xOTD send. Best-effort: a preview failure must never fail
-        # the send itself.
-        preview: bytes | None = None
-        try:
-            from .helpers import render_spec_for_entry  # noqa: PLC0415
-            from .image_converter import preview_png_from_bin  # noqa: PLC0415
+        # Text renderer always emits Spectra .bin. Re-encode for the target
+        # panel codec (JPEG for Meural; Spectra pass-through for Fraimic) and
+        # build a preview PNG so last_thumbnail survives the send.
+        from .helpers import render_spec_for_entry  # noqa: PLC0415
+        from .panel_codec import (  # noqa: PLC0415
+            panel_codec_for_entry,
+            text_skill_payload_for_codec,
+        )
 
-            spec = render_spec_for_entry(entry)
-            preview = await self.hass.async_add_executor_job(
-                preview_png_from_bin, bin_bytes, spec.width, spec.height
+        spec = render_spec_for_entry(entry)
+        try:
+            codec_id = panel_codec_for_entry(entry).id
+        except ValueError:
+            codec_id = None
+
+        try:
+            wire_bytes, preview = await self.hass.async_add_executor_job(
+                text_skill_payload_for_codec,
+                bin_bytes,
+                spec.width,
+                spec.height,
+                spec.rotation,
+                codec_id,
             )
         except Exception as err:  # noqa: BLE001
+            # Spectra: unpack/preview failures are soft (return raw bin).
+            # JPEG: unpack is required — surface as SkillError.
+            from .panel_codec import CODEC_JPEG_Q90  # noqa: PLC0415
+
+            if codec_id == CODEC_JPEG_Q90:
+                raise SkillError(
+                    f"Could not encode skill '{skill.name}' for JPEG panel: {err}"
+                ) from err
             _LOGGER.debug(
                 "Could not build preview for skill '%s' render: %s",
                 skill.name,
                 err,
             )
-        return {"kind": "bin", "bytes": bin_bytes, "preview": preview}
+            wire_bytes, preview = bin_bytes, None
+
+        return {"kind": "bin", "bytes": wire_bytes, "preview": preview}

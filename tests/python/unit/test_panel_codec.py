@@ -15,11 +15,13 @@ from custom_components.fraimic.frame_types import (
 )
 from custom_components.fraimic.panel_codec import (
     CODECS,
+    CODEC_JPEG_Q90,
     encode_for_panel,
     panel_codec_for_entry,
     panel_codec_for_frame_type_id,
     panel_codec_for_id,
     panel_codec_for_resolution,
+    text_skill_payload_for_codec,
 )
 
 
@@ -79,3 +81,51 @@ def test_encode_for_panel_uses_registered_resolution(sample_image_bytes):
 def test_encode_for_panel_rejects_unknown_resolution(sample_image_bytes):
     with pytest.raises(ValueError, match="No registered frame type"):
         encode_for_panel(sample_image_bytes(10, 10), 9999, 9999)
+
+
+def test_text_skill_payload_spectra_pass_through_with_preview(sample_image_bytes):
+    w, h = 1200, 1600
+    bin_bytes = encode_for_panel(sample_image_bytes(200, 150), w, h)
+    wire, preview = text_skill_payload_for_codec(
+        bin_bytes, w, h, 0, CODEC_SPECTRA6_SPLIT_HALF
+    )
+    assert wire is bin_bytes or wire == bin_bytes
+    assert preview is not None
+    assert preview[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_text_skill_payload_jpeg_from_spectra_bin(sample_image_bytes):
+    # Registered Spectra geometry packs cleanly; re-encode as JPEG for Meural.
+    w, h = 1200, 1600
+    bin_bytes = encode_for_panel(sample_image_bytes(400, 300), w, h)
+    wire, preview = text_skill_payload_for_codec(
+        bin_bytes, w, h, 0, CODEC_JPEG_Q90
+    )
+    assert wire[:2] == b"\xff\xd8"
+    assert len(wire) > 100
+    assert preview is not None
+    assert preview[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_text_skill_payload_jpeg_unregistered_meural_geometry():
+    """xOTD packs at Meural size with layout fallback; unpack must still work."""
+    w, h = 1920, 1080
+    bin_bytes = bytes((w * h) // 2)  # valid length; all palette index 0
+    wire, preview = text_skill_payload_for_codec(
+        bin_bytes, w, h, 0, CODEC_JPEG_Q90
+    )
+    assert wire[:2] == b"\xff\xd8"
+    assert preview is not None
+
+
+def test_text_skill_payload_jpeg_bad_bin_raises():
+    with pytest.raises(ValueError, match="bin is"):
+        text_skill_payload_for_codec(b"too-short", 1920, 1080, 0, CODEC_JPEG_Q90)
+
+
+def test_text_skill_payload_spectra_bad_bin_soft_preview():
+    wire, preview = text_skill_payload_for_codec(
+        b"not-a-bin", 1200, 1600, 0, CODEC_SPECTRA6_SPLIT_HALF
+    )
+    assert wire == b"not-a-bin"
+    assert preview is None

@@ -461,26 +461,33 @@ random-from-album) and sends one to any frame — ad hoc ("Send Now" in the
 Daily Content tab, the Lovelace card's Daily picker), staged into a scene
 via the wall picker, or on a schedule. Text modes render through the
 pinned remote `xotd_renderer.py` subprocess at the target frame's
-resolution; image modes resolve to a library image_id (feeds upload the
-fetched photo into the library first). Text renders also produce a
-preview PNG (via KPF 7's unpacker) so the frame's last-image thumbnail
-survives the send.
+composition size (always Spectra `.bin` from the script); the integration
+then re-encodes via `text_skill_payload_for_codec` for the panel's codec —
+Spectra frames get the `.bin` as-is, Meural/`jpeg_q90` gets unpacked RGB
+→ JPEG postcard. Image modes resolve to a library image_id (feeds upload
+the fetched photo into the library first) and use the normal library
+codec path. Text renders also produce a preview PNG so the frame's
+last-image thumbnail survives the send.
 - **Entry points**: `skills.py` (`SkillManager.async_save_skill` /
   `async_render_for_entry` / `_async_render_text` /
   `_async_fetch_image_feed` / `_async_pick_image_album`),
+  `panel_codec.py` (`text_skill_payload_for_codec`),
   `skills_http.py` (CRUD + `FraimicSkillSendView`), fan-out via
   `scenes.py` (`async_send_mappings`).
 - **If it silently breaks**: daily content stops arriving (schedules
   no-op), a skill renders blank/stale content, fan-out to several frames
-  shows different content per frame, or — the regression fixed in July
-  2026 — a text-skill send wipes the frame's last-image state so the
+  shows different content per frame, Meural receives Spectra `.bin` on
+  postcard (garbled/fail) instead of JPEG, or — the regression fixed in
+  July 2026 — a text-skill send wipes the frame's last-image state so the
   card/panel thumbnail goes blank while the frame shows content.
 - **Test status**: **Backend-tested** —
   `tests/python/managers/test_skills.py` (CRUD, per-mode render dispatch,
   feed fetch/upload, subprocess lifecycle + cleanup, preview-PNG
-  generation with graceful degradation) and
+  generation with graceful degradation, Meural JPEG re-encode from
+  text-skill bin) and
   `tests/python/managers/test_scenes.py` (bin renders thread their
-  preview through to the coordinator as the send thumbnail).
+  preview through to the coordinator as the send thumbnail);
+  `tests/python/unit/test_panel_codec.py` (`text_skill_payload_for_codec`).
   Panel-tested — `skills.spec.js` (Daily Content tab),
   `walls-skill-picker.spec.js` (staging into scenes),
   `fraimic-card.spec.js` (card Daily picker send).
@@ -548,6 +555,10 @@ frame by its `_ip` sensor (same fallback as `battery_entity_id` on
 - **Ambient light (lux)** from ALS; diagnostic free space + WiFi RSSI.
 - **Services:** `fraimic.sleep` → suspend, `fraimic.wake` → resume
   (Meural only). Restart is unsupported on Meural.
+
+Text skills (xOTD) are re-encoded to JPEG for Meural via
+`text_skill_payload_for_codec` (KPF 28). Image skills already used the
+library JPEG path.
 
 **Explicitly not implemented:** Meural cloud account, playlists, next/prev
 artwork, shuffle, media browser, membership gallery sync.

@@ -275,3 +275,49 @@ def encode_path_for_panel_with_preview(
     return encode_for_panel_with_preview(
         raw, width, height, rotation, locked, codec_id
     )
+
+
+def text_skill_payload_for_codec(
+    spectra_bin: bytes,
+    width: int,
+    height: int,
+    rotation: int = 0,
+    codec_id: str | None = None,
+) -> tuple[bytes, bytes | None]:
+    """Turn a text-skill Spectra ``.bin`` into wire bytes + preview for *codec_id*.
+
+    The pinned xOTD renderer always emits Spectra 6 packed bytes at the
+    composition size. Fraimic frames send that ``.bin`` as-is. Meural (and
+    any ``jpeg_q90`` panel) cannot display Spectra packing, so we unpack to
+    RGB and re-encode JPEG — same composition the e‑ink frame would show,
+    full RGB channels limited to the 6 Spectra palette colors the renderer
+    used (good enough for text cards until the renderer gains a native RGB
+    output mode).
+
+    Positional-friendly for ``async_add_executor_job``.
+
+    Returns ``(wire_bytes, preview_png_or_None)``. Preview is best-effort
+    for Spectra (invalid bin length → None); for JPEG a failed unpack
+    raises so callers do not postcard garbage.
+    """
+    from .image_converter import (  # noqa: PLC0415
+        _encode_preview_png,
+        preview_png_from_bin,
+        unpack_spectra6_bin,
+    )
+
+    if codec_id is None or codec_id != CODEC_JPEG_Q90:
+        preview: bytes | None = None
+        try:
+            preview = preview_png_from_bin(spectra_bin, width, height)
+        except Exception:  # noqa: BLE001
+            preview = None
+        return spectra_bin, preview
+
+    # JPEG path: unpack is required.
+    image = unpack_spectra6_bin(spectra_bin, width, height)
+    if rotation:
+        image = image.rotate(rotation, expand=True)
+    buf = io.BytesIO()
+    image.save(buf, format="JPEG", quality=90, optimize=True)
+    return buf.getvalue(), _encode_preview_png(image)
