@@ -158,10 +158,34 @@ class MeuralCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def _async_update_data(self) -> dict[str, Any]:
+        """Poll Meural over LAN.
+
+        Unreachable frames return offline data instead of raising UpdateFailed.
+        Raising on first_refresh used to leave the config entry NotReady with
+        no coordinator in hass.data while entity-registry rows remained —
+        library send then failed with "No frame coordinator" for that entry_id.
+        Postcard send still works whenever the host answers.
+        """
         session = async_get_clientsession(self.hass)
         info = await probe_meural(session, self.host)
         if info is None:
-            raise UpdateFailed(f"Meural at {self.host} unreachable")
+            _LOGGER.debug("Meural at %s unreachable (keeping entry loaded)", self.host)
+            return {
+                "driver": "meural",
+                "host": self.host,
+                "identify": None,
+                "firmware_version": None,
+                "device_orientation": None,
+                "ip_address": self.host,
+                "backlight": None,
+                "lux": None,
+                "free_space_mb": None,
+                "wifi_rssi": None,
+                "wifi_ssid": None,
+                "sleeping": None,
+                "online": False,
+            }
+
         system = await meural_system_info(session, self.host)
         device_orientation = meural_orientation_from_payload(
             system
@@ -195,6 +219,7 @@ class MeuralCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "wifi_rssi": stats["wifi_rssi"],
             "wifi_ssid": stats["wifi_ssid"],
             "sleeping": sleeping,
+            "online": True,
         }
 
         if system:

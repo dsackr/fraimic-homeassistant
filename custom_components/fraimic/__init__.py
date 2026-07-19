@@ -416,14 +416,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: "ConfigEntry") -> bool:
     domain_data[entry.entry_id] = coordinator
     domain_data[f"_options_snapshot_{entry.entry_id}"] = dict(entry.options)
 
-    # Perform the first data fetch; raises ConfigEntryNotReady on failure so
-    # HA will retry automatically. Clear the slot if setup aborts.
+    # First data fetch. Fraimic raises ConfigEntryNotReady when offline
+    # (HA retries). Meural/Samsung soft-fail so the coordinator stays loaded
+    # for send resolution even if the panel is asleep during startup.
     try:
         await coordinator.async_config_entry_first_refresh()
     except Exception:
-        domain_data.pop(entry.entry_id, None)
-        domain_data.pop(f"_options_snapshot_{entry.entry_id}", None)
-        raise
+        driver = entry.data.get("driver") or "fraimic"
+        if driver in ("meural", "samsung"):
+            _LOGGER.warning(
+                "Initial poll for %s frame %s failed; keeping entry loaded for send",
+                driver,
+                entry.title,
+            )
+        else:
+            domain_data.pop(entry.entry_id, None)
+            domain_data.pop(f"_options_snapshot_{entry.entry_id}", None)
+            raise
 
     # Every configured frame is guaranteed a spot on the default wall --
     # this hook covers embedded adds, discovery adds, and plain restarts.

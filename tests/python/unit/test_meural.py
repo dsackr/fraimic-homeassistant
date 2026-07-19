@@ -306,6 +306,32 @@ async def test_set_backlight():
 
 
 @pytest.mark.asyncio
+async def test_meural_unreachable_returns_offline_data_not_raise():
+    """Probe miss must not raise — entry stays loaded for postcard sends."""
+    hass = MagicMock()
+    entry = MagicMock()
+    entry.entry_id = "meural_entry"
+    entry.data = {CONF_HOST: "192.168.1.32", CONF_DRIVER: DRIVER_MEURAL}
+    entry.options = {}
+    coord = MeuralCoordinator(hass, entry)
+
+    with (
+        patch(
+            "custom_components.fraimic.meural_coordinator.probe_meural",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "custom_components.fraimic.meural_coordinator.async_get_clientsession",
+            return_value=MagicMock(),
+        ),
+    ):
+        data = await coord._async_update_data()
+
+    assert data["online"] is False
+    assert data["ip_address"] == "192.168.1.32"
+
+
+@pytest.mark.asyncio
 async def test_orientation_change_redisplays_last_wire():
     """Physical rotate must re-postcard HA content, not leave app Recents."""
     hass = MagicMock()
