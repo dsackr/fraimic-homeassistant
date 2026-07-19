@@ -532,27 +532,40 @@ User adds a NETGEAR Meural by LAN IP (no Meural cloud account). The frame
 gets a `driver=meural` config entry, JPEG codec (`jpeg_q90`), and
 participates in walls, scenes, library send, and raw upload like Fraimic
 frames. Images are delivered via the local `/remote/postcard` multipart
-API. Sleep-queue and Spectra orientation lock do not apply. Meural has no
-battery sensor — the dashboard and send APIs identify the frame by its
-`_ip` sensor (same fallback as `battery_entity_id` on
-`GET /api/fraimic/frames`).
+API. Sleep-queue does not apply. Meural has no battery sensor — the
+dashboard and send APIs identify the frame by its `_ip` sensor (same
+fallback as `battery_entity_id` on `GET /api/fraimic/frames`).
+
+**Orientation (gsensor):** identify / `control_check/system` report
+`orientation` / `gsensor` as `portrait` or `landscape`. The coordinator
+exposes `device_orientation`, a read-only **Device orientation** sensor,
+and (default) **follow device**: copies gsensor into
+`entry.options.orientation` so crop/send/wall aspect match the hang. The
+Orientation select offers Follow device / Portrait / Landscape (manual
+pin stops following).
 - **Entry points**: `config_flow.py` (`async_step_add_meural`),
-  `meural.py` (`probe_meural`, `send_meural_postcard`),
-  `meural_coordinator.py` (`MeuralCoordinator.async_send_image_or_queue`),
+  `meural.py` (`probe_meural`, `send_meural_postcard`,
+  `meural_orientation_from_payload`),
+  `meural_coordinator.py` (`_async_maybe_follow_device_orientation`),
+  `sensor.py` (`MeuralDeviceOrientationSensor`),
+  `select.py` (`MeuralOrientationSelect`),
   `panel_codec.py` (`CODEC_JPEG_Q90`, `panel_codec_for_entry`),
   `__init__.py` (`async_setup_entry` driver branch),
-  `library_http.py` frames list (`driver` / `origin=meural`),
+  `library_http.py` frames list (`driver` / `origin=meural` /
+  `device_orientation`),
   `fraimic-panel.js` (`_discoverFrames` battery-or-`_ip` send entity).
 - **If it silently breaks**: Meural cannot be added, sends fail or send
-  Spectra `.bin` bytes the Meural cannot display, or the frame never
-  appears on the Frames dashboard / walls / scenes (panel discovery
-  filtered it out when it required `_battery` only).
+  Spectra `.bin` bytes the Meural cannot display, the frame never
+  appears on the Frames dashboard / walls / scenes, or crop aspect stays
+  wrong after rotating the Canvas (follow-device not updating
+  `options.orientation`).
 - **Test status**: **Backend-tested** —
-  `tests/python/unit/test_meural.py` (JPEG encode, probe/postcard mocks),
+  `tests/python/unit/test_meural.py` (JPEG encode, probe/postcard mocks,
+  orientation parse + follow-device option write),
   `tests/python/config_flow/test_config_flow_user_scan.py` (Meural add
-  flow). **Frontend-tested** — `tests/panel/meural-dashboard.spec.js`
-  (ip-only send entity appears on dashboard). Live Canvas hardware send
-  is manual (**Gap** for CI).
+  flow seeds follow + orientation). **Frontend-tested** —
+  `tests/panel/meural-dashboard.spec.js` (ip-only send entity appears on
+  dashboard). Live Canvas hardware send is manual (**Gap** for CI).
 
 ## 33. Check for updates from the dashboard Settings modal
 Admin opens ⚙ Settings on the Fraimic panel and sees installed vs latest

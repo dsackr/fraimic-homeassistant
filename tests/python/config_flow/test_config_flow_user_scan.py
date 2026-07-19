@@ -201,7 +201,13 @@ async def test_size_auto_detected_skips_resolution_field(hass, monkeypatch):
 
 async def test_meural_local_add_creates_entry(hass, monkeypatch):
     async def _probe_meural(session, host):
-        return {"serial": "MEURAL123", "alias": "Living Room"} if host == "192.168.1.80" else None
+        if host != "192.168.1.80":
+            return None
+        return {
+            "serial": "MEURAL123",
+            "alias": "Living Room",
+            "orientation": "portrait",
+        }
 
     monkeypatch.setattr(
         "custom_components.fraimic.config_flow.probe_meural", _probe_meural
@@ -232,6 +238,14 @@ async def test_meural_local_add_creates_entry(hass, monkeypatch):
     assert result["data"][CONF_WIDTH] == 1920
     assert result["data"][CONF_HEIGHT] == 1080
     assert result["data"][CONF_DEVICE_KEY] == "meural:MEURAL123"
+    from custom_components.fraimic.const import (  # noqa: PLC0415
+        CONF_ORIENTATION,
+        CONF_ORIENTATION_FOLLOW_DEVICE,
+        ORIENTATION_PORTRAIT,
+    )
+
+    assert result["options"][CONF_ORIENTATION_FOLLOW_DEVICE] is True
+    assert result["options"][CONF_ORIENTATION] == ORIENTATION_PORTRAIT
 
 
 async def test_meural_cannot_connect(hass, monkeypatch):

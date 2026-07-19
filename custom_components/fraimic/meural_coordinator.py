@@ -14,10 +14,19 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import (
     CONF_HOST,
+    CONF_ORIENTATION,
+    CONF_ORIENTATION_FOLLOW_DEVICE,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    ORIENTATION_LANDSCAPE,
+    ORIENTATION_PORTRAIT,
 )
-from .meural import meural_system_info, probe_meural, send_meural_postcard
+from .meural import (
+    meural_orientation_from_payload,
+    meural_system_info,
+    probe_meural,
+    send_meural_postcard,
+)
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -36,7 +45,6 @@ class MeuralCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """
 
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
-        self.config_entry = config_entry
         self.host: str = config_entry.data[CONF_HOST]
         self.device_key: str = config_entry.data.get("device_key", "") or f"meural:{self.host}"
 
@@ -48,7 +56,12 @@ class MeuralCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER,
             name=f"{DOMAIN} meural {self.host}",
             update_interval=timedelta(seconds=scan_seconds),
+            config_entry=config_entry,
         )
+        # Keep an explicit ref for duck-typing with FraimicCoordinator and for
+        # tests that pass a simple MagicMock entry (some HA versions only
+        # attach config_entry via the super() kwarg above).
+        self.config_entry = config_entry
 
         self.last_image_id: str | None = None
         self.last_thumbnail: bytes | None = None
@@ -104,12 +117,27 @@ class MeuralCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if info is None:
             raise UpdateFailed(f"Meural at {self.host} unreachable")
         system = await meural_system_info(session, self.host)
+        device_orientation = meural_orientation_from_payload(
+            system
+        ) or meural_orientation_from_payload(info)
+
+        wifi_ip: str | None = None
+        if isinstance(info, dict) and info.get("wifi_ip"):
+            wifi_ip = str(info["wifi_ip"])
+        if wifi_ip is None and isinstance(system, dict):
+            wifi_status = system.get("wifi_status")
+            if isinstance(wifi_status, dict) and wifi_status.get("ip"):
+                wifi_ip = str(wifi_status["ip"])
+
         data: dict[str, Any] = {
             "driver": "meural",
             "host": self.host,
             "identify": info,
             "firmware_version": None,
+            "device_orientation": device_orientation,
+            "ip_address": wifi_ip or self.host,
         }
+
         if system:
             data["system"] = system
             # Best-effort common keys — field names vary by firmware.
@@ -117,7 +145,35 @@ class MeuralCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if key in system and system[key]:
                     data["firmware_version"] = str(system[key])
                     break
+            if not data.get("firmware_version") and system.get("version"):
+                data["firmware_version"] = str(system["version"])
+
+        if device_orientation in (ORIENTATION_PORTRAIT, ORIENTATION_LANDSCAPE):
+            self.hass.async_create_task(
+                self._async_maybe_follow_device_orientation(device_orientation)
+            )
         return data
+
+    async def _async_maybe_follow_device_orientation(self, device_orientation: str) -> None:
+        """When follow-device is on, mirror gsensor into entry.options.orientation.
+
+        That drives render_spec / crop aspect / wall tile size. Only writes when
+        the value changes (async_update_entry reloads the entry).
+        """
+        entry = self.config_entry
+        follow = entry.options.get(CONF_ORIENTATION_FOLLOW_DEVICE, True)
+        if not follow:
+            return
+        if entry.options.get(CONF_ORIENTATION) == device_orientation:
+            return
+        self.hass.config_entries.async_update_entry(
+            entry,
+            options={
+                **entry.options,
+                CONF_ORIENTATION: device_orientation,
+                CONF_ORIENTATION_FOLLOW_DEVICE: True,
+            },
+        )
 
     async def async_config_entry_updated(
         self,

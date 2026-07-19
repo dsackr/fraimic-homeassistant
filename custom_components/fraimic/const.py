@@ -113,6 +113,10 @@ CONF_ORIENTATION = "orientation"
 ORIENTATION_AUTO = "auto"
 ORIENTATION_PORTRAIT = "portrait"
 ORIENTATION_LANDSCAPE = "landscape"
+# Meural: when True (default), coordinator copies gsensor portrait/landscape
+# into CONF_ORIENTATION so crop/send match the physical hang. Manual lock
+# via the Orientation select clears this flag.
+CONF_ORIENTATION_FOLLOW_DEVICE = "orientation_follow_device"
 CONF_ROTATE_PORTRAIT_180 = "rotate_portrait_180"
 CONF_ROTATE_LANDSCAPE_180 = "rotate_landscape_180"
 

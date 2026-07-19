@@ -671,6 +671,15 @@ class FraimicFramesView(HomeAssistantView):
                         "orientation": entry.options.get(
                             CONF_ORIENTATION, ORIENTATION_AUTO
                         ),
+                        # Live gsensor hang (Meural); None for Fraimic.
+                        "device_orientation": (
+                            (coordinator.data or {}).get("device_orientation")
+                            if coordinator is not None
+                            and isinstance(
+                                getattr(coordinator, "data", None), dict
+                            )
+                            else None
+                        ),
                         "size": entry.data.get(CONF_SIZE),
                         "host": entry.data.get(CONF_HOST),
                         "driver": entry.data.get(CONF_DRIVER) or "fraimic",

@@ -37,12 +37,14 @@ async def async_setup_entry(
 
     coordinator = hass.data[DOMAIN][entry.entry_id]
 
-    # Meural has no battery/charge/queue sensors; expose IP + firmware only.
+    # Meural has no battery/charge/queue sensors; expose IP, firmware, and
+    # device orientation (gsensor from identify/system).
     if entry.data.get(CONF_DRIVER) == DRIVER_MEURAL:
         async_add_entities(
             [
                 FraimicFirmwareSensor(coordinator, entry),
                 FraimicIpAddressSensor(coordinator, entry),
+                MeuralDeviceOrientationSensor(coordinator, entry),
             ]
         )
         return
@@ -278,6 +280,31 @@ class FraimicIpAddressSensor(FraimicBaseSensor):
         except (KeyError, TypeError):
             pass
         return data.get("ip_address")
+
+
+class MeuralDeviceOrientationSensor(FraimicBaseSensor):
+    """Physical hang orientation from the Meural gsensor (portrait/landscape).
+
+    Read-only mirror of what the frame reports. The Orientation *select*
+    (follow-device vs manual lock) is separate — see select.py.
+    """
+
+    def __init__(
+        self,
+        coordinator: FraimicCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_device_orientation"
+        self._attr_name = "Device orientation"
+        self._attr_icon = "mdi:phone-rotate-portrait"
+
+    @property
+    def native_value(self) -> str | None:
+        if not self.coordinator.data:
+            return None
+        value = self.coordinator.data.get("device_orientation")
+        return value if isinstance(value, str) else None
 
 
 class FraimicQueuedSendSensor(FraimicBaseSensor):

@@ -24,6 +24,27 @@ _LOGGER = logging.getLogger(__name__)
 _PROBE_TIMEOUT = aiohttp.ClientTimeout(total=8)
 _SEND_TIMEOUT = aiohttp.ClientTimeout(total=60)
 
+# Values reported by identify / control_check/system (gsensor).
+_MEURAL_ORIENTATIONS = frozenset({"portrait", "landscape"})
+
+
+def meural_orientation_from_payload(payload: dict[str, Any] | None) -> str | None:
+    """Extract portrait/landscape from a Meural identify or system dict.
+
+    Observed keys (firmware 2.3.x): ``orientation`` and ``gsensor`` both set
+    to ``\"portrait\"`` or ``\"landscape\"``. Returns None when unknown.
+    """
+    if not isinstance(payload, dict):
+        return None
+    for key in ("orientation", "gsensor"):
+        raw = payload.get(key)
+        if not isinstance(raw, str):
+            continue
+        value = raw.strip().lower()
+        if value in _MEURAL_ORIENTATIONS:
+            return value
+    return None
+
 
 def _remote_url(host: str, path: str) -> str:
     path = path.lstrip("/")

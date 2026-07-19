@@ -30,6 +30,7 @@ from .const import (
     MEURAL_DEFAULT_WIDTH,
     MEURAL_SIZE_LABEL,
     CONF_ORIENTATION,
+    CONF_ORIENTATION_FOLLOW_DEVICE,
     ORIENTATION_AUTO,
     CONF_ROTATION_EDGE,
     EDGE_LEFT,
@@ -273,6 +274,15 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(str(unique))
                 self._abort_if_unique_id_configured(updates={CONF_HOST: host})
 
+                # Seed follow-device orientation from gsensor so crop/send
+                # match hang immediately (see MeuralCoordinator follow).
+                from .meural import meural_orientation_from_payload  # noqa: PLC0415
+
+                options: dict[str, Any] = {CONF_ORIENTATION_FOLLOW_DEVICE: True}
+                device_orient = meural_orientation_from_payload(info)
+                if device_orient:
+                    options[CONF_ORIENTATION] = device_orient
+
                 return self.async_create_entry(
                     title=name,
                     data={
@@ -285,6 +295,7 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_DEVICE_KEY: str(unique),
                         CONF_MAC: "",
                     },
+                    options=options,
                 )
 
         schema = vol.Schema(
