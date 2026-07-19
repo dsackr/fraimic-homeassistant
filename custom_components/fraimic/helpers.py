@@ -27,6 +27,7 @@ from .const import (
     CONF_WIDTH,
     DOMAIN,
     DRIVER_MEURAL,
+    DRIVER_SAMSUNG,
     EDGE_LEFT,
     ORIENTATION_AUTO,
     ORIENTATION_LANDSCAPE,
@@ -90,7 +91,7 @@ def orientation_for_entry(
     (*device_orientation*) so library portrait/landscape crops match the hang
     even if entry.options is briefly stale between polls.
     """
-    if entry.data.get(CONF_DRIVER) == DRIVER_MEURAL:
+    if entry.data.get(CONF_DRIVER) in (DRIVER_MEURAL, DRIVER_SAMSUNG):
         follow = entry.options.get(CONF_ORIENTATION_FOLLOW_DEVICE, True)
         if follow and device_orientation in (
             ORIENTATION_PORTRAIT,
@@ -132,7 +133,8 @@ def render_spec_for_entry(
     if orientation is None:
         orientation = entry.options.get(CONF_ORIENTATION, ORIENTATION_AUTO)
     edge: str = entry.options.get(CONF_ROTATION_EDGE, EDGE_LEFT)
-    is_meural = entry.data.get(CONF_DRIVER) == DRIVER_MEURAL
+    # RGB postcard / MDC panels: hang-sized compose, no Spectra buffer remap.
+    hang_sized = entry.data.get(CONF_DRIVER) in (DRIVER_MEURAL, DRIVER_SAMSUNG)
 
     eff_w, eff_h = native_w, native_h
     rotation = 0
@@ -144,11 +146,10 @@ def render_spec_for_entry(
         if want_portrait != native_portrait:
             # Compose in the locked orientation. Official Fraimic Spectra
             # then rotates the finished canvas back onto the native buffer
-            # (left/right edge up). Meural JPEG postcards are displayed at
-            # hang size as-is — no native-buffer remapping — so rotation
-            # stays 0 and crop keys use swapped width×height only.
+            # (left/right edge up). Meural/Samsung RGB payloads are hang-
+            # sized as-is — no native-buffer remapping.
             eff_w, eff_h = native_h, native_w
-            if not is_meural:
+            if not hang_sized:
                 rotation = 90 if edge == EDGE_LEFT else 270
 
     # 180-degree flip is keyed off the *effective* orientation the viewer

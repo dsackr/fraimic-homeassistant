@@ -56,6 +56,18 @@ async def async_setup_entry(
         )
         return
 
+    # Samsung EM32DX (experimental): IP + MDC reachability for now.
+    from .const import DRIVER_SAMSUNG  # noqa: PLC0415
+
+    if entry.data.get(CONF_DRIVER) == DRIVER_SAMSUNG:
+        async_add_entities(
+            [
+                FraimicIpAddressSensor(coordinator, entry),
+                SamsungMdcReachableSensor(coordinator, entry),
+            ]
+        )
+        return
+
     async_add_entities(
         [
             FraimicBatterySensor(coordinator, entry),
@@ -78,7 +90,7 @@ def frame_device_info(
 ) -> DeviceInfo:
     """Device registry info for one frame -- shared by every entity platform
     (sensors, the orientation select) so they all land on the same device."""
-    from .const import CONF_DRIVER, DRIVER_MEURAL  # noqa: PLC0415
+    from .const import CONF_DRIVER, DRIVER_MEURAL, DRIVER_SAMSUNG  # noqa: PLC0415
 
     fw: str | None = None
     if coordinator.data:
@@ -87,6 +99,9 @@ def frame_device_info(
     if entry.data.get(CONF_DRIVER) == DRIVER_MEURAL:
         manufacturer = "NETGEAR Meural"
         model = "Canvas (local)"
+    elif entry.data.get(CONF_DRIVER) == DRIVER_SAMSUNG:
+        manufacturer = "Samsung"
+        model = "EM32DX (experimental)"
     else:
         frame_type = FRAME_TYPES.get(entry.data.get(CONF_SIZE))
         if frame_type is not None:
@@ -287,6 +302,32 @@ class FraimicIpAddressSensor(FraimicBaseSensor):
         except (KeyError, TypeError):
             pass
         return data.get("ip_address")
+
+
+class SamsungMdcReachableSensor(FraimicBaseSensor):
+    """Whether the Samsung MDC port answered on the last poll (often false while asleep)."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: FraimicCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_mdc_reachable"
+        self._attr_name = "MDC reachable"
+
+    @property
+    def native_value(self) -> str | None:
+        if not self.coordinator.data:
+            return None
+        reachable = self.coordinator.data.get("reachable")
+        if reachable is True:
+            return "yes"
+        if reachable is False:
+            return "no"
+        return None
 
 
 class MeuralDeviceOrientationSensor(FraimicBaseSensor):

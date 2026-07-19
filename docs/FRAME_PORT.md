@@ -372,13 +372,15 @@ it belongs in core and must use the port.
 | **1 – Seam inside local Spectra stack** | Explicit PanelCodec (`panel_codec.py`); `codec_id` on `FrameType`; encode call sites via `encode_for_panel*`; send timeout from panel profile. 7.3" = `spectra6_sequential`, official = `spectra6_split_half`. | **Done** (behavior-preserving) |
 | **2 – Format-agnostic render cache** | Library `.bin` cache keyed by `codec_id` (`bin/<WxH[variant]>/<codec_id>/…`); legacy resolution-only paths still read as fallback; send/backfill pass codec from entry/resolution. | **Done** |
 | **3 – Second driver** | Local Meural (`driver=meural`): config-flow menu, `MeuralCoordinator`, JPEG `jpeg_q90` codec, postcard send; participates in walls/scenes/library. **No** Meural cloud/Cognito. | **Done** (experimental) |
+| **3b – Samsung MDC** | Local Samsung EM32DX (`driver=samsung`): MDC TLS content-download + HA token PNG URL; protocol from [fayep/Joyous](https://github.com/fayep/Joyous). **No live hardware in this repo.** | **Done** (experimental / untested) |
+| **3c – InkJoy** | Deferred: firmware control plane is **MQTT** (not optional). | Paused |
 | **4 – Branding** | Product/panel naming (“Smart Art” or similar); optional domain migration only if still worth it | Yes — next |
 
-**Immediate next product step:** Phase 4 branding, and/or Meural cloud
-auth if local postcard is insufficient for some firmware.
+**Immediate next product step:** Phase 4 branding; ask Joyous maintainers
+to validate Samsung MDC path if willing.
 
-**Hardware note:** Meural support is local-LAN only; validate on a real
-Canvas before treating cloud features as in-scope.
+**Hardware note:** Meural is local-LAN only. Samsung MDC is experimental
+and needs a real EM32DX (or equivalent) for end-to-end validation.
 
 ---
 

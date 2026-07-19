@@ -131,11 +131,13 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     from .http_api import (  # noqa: PLC0415
         FraimicFrameStatusView,
         FraimicOnboardingView,
+        FraimicSamsungContentView,
         FraimicSendImageView,
     )
     hass.http.register_view(FraimicSendImageView())
     hass.http.register_view(FraimicOnboardingView())
     hass.http.register_view(FraimicFrameStatusView())
+    hass.http.register_view(FraimicSamsungContentView())
 
     from .update_http import async_register_update_views  # noqa: PLC0415
 
@@ -384,12 +386,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: "ConfigEntry") -> bool:
             _register_services(hass)
         return True
 
-    from .const import CONF_DRIVER, DRIVER_MEURAL  # noqa: PLC0415
+    from .const import CONF_DRIVER, DRIVER_MEURAL, DRIVER_SAMSUNG  # noqa: PLC0415
 
     if entry.data.get(CONF_DRIVER) == DRIVER_MEURAL:
         from .meural_coordinator import MeuralCoordinator  # noqa: PLC0415
 
         coordinator = MeuralCoordinator(hass, entry)
+    elif entry.data.get(CONF_DRIVER) == DRIVER_SAMSUNG:
+        from .samsung_coordinator import SamsungCoordinator  # noqa: PLC0415
+
+        coordinator = SamsungCoordinator(hass, entry)
     else:
         coordinator = FraimicCoordinator(hass, entry)
 

@@ -32,6 +32,13 @@ driver inspired by that documentation; we do not use Meural cloud/Cognito and
 do not vendor HA-meural code. If you want full Meural cloud playlists and
 media-player UX in Home Assistant, use HA-meural.
 
+**Samsung EM32DX (experimental)** — MDC content-download packet layout, TLS
+PIN auth, and WoL/SSDP workflow are documented in
+[fayep/Joyous](https://github.com/fayep/Joyous) (`Samsung/samsung_serve.py`
+and hub MDC code). Our driver is an independent HA reimplementation; it has
+**not been validated on real Samsung hardware** in this project. InkJoy is
+**not** integrated here (vendor control plane is MQTT — deferred).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

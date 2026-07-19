@@ -19,7 +19,13 @@ import io
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from .const import CONF_DRIVER, DRIVER_MEURAL, MEURAL_SIZE_LABEL
+from .const import (
+    CONF_DRIVER,
+    DRIVER_MEURAL,
+    DRIVER_SAMSUNG,
+    MEURAL_SIZE_LABEL,
+    SAMSUNG_SIZE_LABEL,
+)
 from .frame_types import (
     CODEC_SPECTRA6_SEQUENTIAL,
     CODEC_SPECTRA6_SPLIT_HALF,
@@ -35,6 +41,8 @@ if TYPE_CHECKING:
 
 # Full-color JPEG payload for Meural local postcard (and future RGB frames).
 CODEC_JPEG_Q90 = "jpeg_q90"
+# Full-color PNG for Samsung EM32DX MDC content-download (Joyous protocol).
+CODEC_PNG = "png"
 LAYOUT_NONE = "none"
 
 
@@ -63,6 +71,12 @@ CODECS: dict[str, PanelCodec] = {
         byte_layout=LAYOUT_NONE,
         color_mode="rgb",
         preferred_payload="jpeg",
+    ),
+    CODEC_PNG: PanelCodec(
+        id=CODEC_PNG,
+        byte_layout=LAYOUT_NONE,
+        color_mode="rgb",
+        preferred_payload="png",
     ),
 }
 
@@ -93,10 +107,14 @@ def panel_codec_for_entry(entry: "ConfigEntry") -> PanelCodec:
     """Resolve codec for a config entry (driver, then size, then geometry)."""
     if entry.data.get(CONF_DRIVER) == DRIVER_MEURAL:
         return panel_codec_for_id(CODEC_JPEG_Q90)
+    if entry.data.get(CONF_DRIVER) == DRIVER_SAMSUNG:
+        return panel_codec_for_id(CODEC_PNG)
 
     size = entry.data.get("size")
     if isinstance(size, str) and size == MEURAL_SIZE_LABEL:
         return panel_codec_for_id(CODEC_JPEG_Q90)
+    if isinstance(size, str) and size == SAMSUNG_SIZE_LABEL:
+        return panel_codec_for_id(CODEC_PNG)
     if isinstance(size, str) and size in FRAME_TYPES:
         return panel_codec_for_frame_type_id(size)
 
@@ -117,16 +135,14 @@ def byte_layout_for_codec(codec: PanelCodec | str) -> str:
     return panel_codec_for_id(codec).byte_layout
 
 
-def _encode_jpeg_bytes(
+def _compose_rgb(
     source_bytes: bytes,
     width: int,
     height: int,
     rotation: int = 0,
     locked: bool = False,
     crop_box: tuple[float, float, float, float] | list[float] | None = None,
-    quality: int = 90,
-) -> bytes:
-    """Compose *source_bytes* to *width*×*height* and encode JPEG."""
+):
     from .image_converter import (  # noqa: PLC0415
         _auto_rotate,
         _open_as_rgb,
@@ -154,8 +170,37 @@ def _encode_jpeg_bytes(
         image = image.rotate(rotation, expand=True)
         if image.size != (width, height):
             image = image.resize((width, height), PILImage.LANCZOS)
+    return image
+
+
+def _encode_jpeg_bytes(
+    source_bytes: bytes,
+    width: int,
+    height: int,
+    rotation: int = 0,
+    locked: bool = False,
+    crop_box: tuple[float, float, float, float] | list[float] | None = None,
+    quality: int = 90,
+) -> bytes:
+    """Compose *source_bytes* to *width*×*height* and encode JPEG."""
+    image = _compose_rgb(source_bytes, width, height, rotation, locked, crop_box)
     buf = io.BytesIO()
     image.save(buf, format="JPEG", quality=quality, optimize=True)
+    return buf.getvalue()
+
+
+def _encode_png_bytes(
+    source_bytes: bytes,
+    width: int,
+    height: int,
+    rotation: int = 0,
+    locked: bool = False,
+    crop_box: tuple[float, float, float, float] | list[float] | None = None,
+) -> bytes:
+    """Compose *source_bytes* to *width*×*height* and encode PNG."""
+    image = _compose_rgb(source_bytes, width, height, rotation, locked, crop_box)
+    buf = io.BytesIO()
+    image.save(buf, format="PNG", optimize=True)
     return buf.getvalue()
 
 
@@ -193,6 +238,15 @@ def encode_for_panel(
             locked,
             crop_box,
             quality=90,
+        )
+    if codec_id == CODEC_PNG:
+        return _encode_png_bytes(
+            source_bytes,
+            width,
+            height,
+            rotation,
+            locked,
+            crop_box,
         )
 
     # Spectra 6 packing — layout from registered frame type.
@@ -235,24 +289,19 @@ def encode_for_panel_with_preview(
         _ = frame_type_for_resolution(width, height)
         codec_id = codec_id_for_resolution(width, height)
 
-    if codec_id == CODEC_JPEG_Q90:
-        from .image_converter import (  # noqa: PLC0415
-            _auto_rotate,
-            _encode_preview_png,
-            _open_as_rgb,
-            _resize_cover_centered,
-        )
+    if codec_id in (CODEC_JPEG_Q90, CODEC_PNG):
+        from .image_converter import _encode_preview_png  # noqa: PLC0415
 
-        image = _open_as_rgb(source_bytes)
-        if not locked:
-            image = _auto_rotate(image, width, height)
-        image = _resize_cover_centered(image, width, height)
-        if rotation:
-            image = image.rotate(rotation, expand=True)
-        jpeg = _encode_jpeg_bytes(
-            source_bytes, width, height, rotation, locked, None, 90
-        )
-        return jpeg, _encode_preview_png(image)
+        image = _compose_rgb(source_bytes, width, height, rotation, locked, None)
+        if codec_id == CODEC_JPEG_Q90:
+            wire = _encode_jpeg_bytes(
+                source_bytes, width, height, rotation, locked, None, 90
+            )
+        else:
+            wire = _encode_png_bytes(
+                source_bytes, width, height, rotation, locked, None
+            )
+        return wire, _encode_preview_png(image)
 
     from .image_converter import convert_image_bytes_with_preview  # noqa: PLC0415
 

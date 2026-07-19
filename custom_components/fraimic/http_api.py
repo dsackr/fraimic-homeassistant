@@ -16,6 +16,36 @@ from .helpers import render_spec_for_hass_entry
 
 _LOGGER = logging.getLogger(__name__)
 
+
+class FraimicSamsungContentView(HomeAssistantView):
+    """Unauthenticated token URL for Samsung MDC content-download pulls.
+
+    The panel fetches PNG without HA cookies; security is the unguessable
+    token (staged per send, short TTL). Protocol pattern from fayep/Joyous.
+    """
+
+    url = "/api/fraimic/samsung/{token}/content.png"
+    name = "api:fraimic:samsung:content"
+    requires_auth = False
+
+    async def get(self, request: web.Request, token: str) -> web.Response:
+        hass = request.app["hass"]
+        domain_data = hass.data.get(DOMAIN, {})
+        for key, coord in domain_data.items():
+            if str(key).startswith("_"):
+                continue
+            getter = getattr(coord, "get_staged_content", None)
+            if not callable(getter):
+                continue
+            body = getter(token)
+            if body is not None:
+                return web.Response(
+                    body=body,
+                    content_type="image/png",
+                    headers={"Cache-Control": "no-store"},
+                )
+        return web.Response(status=404, text="Not found")
+
 _ONBOARDING_STORE_KEY = f"{DOMAIN}_onboarding"
 _ONBOARDING_STORE_VERSION = 1
 

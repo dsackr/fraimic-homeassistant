@@ -4,10 +4,11 @@
     "step": {
       "user": {
         "title": "Add a frame",
-        "description": "Choose the kind of display to add. Meural uses the local LAN postcard API (no Meural cloud account).",
+        "description": "Choose the kind of display to add. Meural uses the local LAN postcard API. Samsung EM32DX uses local MDC (experimental).",
         "menu_options": {
           "add_fraimic": "Fraimic / e-ink clone",
-          "add_meural": "Meural Canvas (local)"
+          "add_meural": "Meural Canvas (local)",
+          "add_samsung": "Samsung EM32DX (experimental)"
         }
       },
       "add_fraimic": {
@@ -34,6 +35,26 @@
           "name": "Friendly name for walls and scenes",
           "width": "Panel width in pixels (default 1920)",
           "height": "Panel height in pixels (default 1080)"
+        }
+      },
+      "add_samsung": {
+        "title": "Add Samsung EM32DX (experimental)",
+        "description": "Local MDC push (protocol from Joyous / fayep). Pair once with the Samsung E-Paper app for Wi‑Fi, then enter IP and MDC PIN. Untested without hardware — enable Network Standby and set Wi‑Fi MAC for wake-on-send.",
+        "data": {
+          "host": "IP Address",
+          "name": "Frame Name",
+          "mdc_pin": "MDC PIN",
+          "mac_address": "Wi‑Fi MAC (optional WoL)",
+          "width": "Width (pixels)",
+          "height": "Height (pixels)"
+        },
+        "data_description": {
+          "host": "Panel LAN IP",
+          "name": "Friendly name for walls and scenes",
+          "mdc_pin": "PIN from Samsung E-Paper pairing (often 6 digits)",
+          "mac_address": "Wi‑Fi MAC for Wake-on-LAN (from the E-Paper app)",
+          "width": "Panel width (default 2560)",
+          "height": "Panel height (default 1440)"
         }
       },
       "pick_device": {
@@ -65,7 +86,7 @@
         },
         "data_description": {
           "name": "A friendly name for this frame",
-          "resolution": "The physical print size of this frame"
+          "resolution": "The physical print size of your frame"
         }
       }
     },
@@ -92,6 +113,52 @@
         "data_description": {
           "resolution": "The physical print size of your frame. Leave unset if you don't need to change it.",
           "rotation_edge": "Only matters when the frame's Orientation is locked to its non-native orientation (e.g. a portrait frame hung landscape). Official Fraimic frames hang left-edge-up; if images on a rotated clone come out upside down, switch this."
+        }
+      }
+    }
+  },
+  "services": {
+    "restart": {
+      "name": "Restart",
+      "description": "Restart a Fraimic frame.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry ID",
+          "description": "The config entry ID of the target frame."
+        }
+      }
+    },
+    "sleep": {
+      "name": "Sleep",
+      "description": "Put a Fraimic frame into deep sleep.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry ID",
+          "description": "The config entry ID of the target frame."
+        }
+      }
+    },
+    "refresh": {
+      "name": "Refresh Display",
+      "description": "Trigger a full display refresh on a Fraimic frame.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry ID",
+          "description": "The config entry ID of the target frame."
+        }
+      }
+    },
+    "send_image": {
+      "name": "Send Image",
+      "description": "Convert and upload an image to a Fraimic frame.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry ID",
+          "description": "The config entry ID of the target frame."
+        },
+        "media_path": {
+          "name": "Media Path",
+          "description": "Path to the image file in HA media storage (e.g. /media/local/art/painting.png)."
         }
       }
     }

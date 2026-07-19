@@ -4,10 +4,11 @@
     "step": {
       "user": {
         "title": "Add a frame",
-        "description": "Choose the kind of display to add. Meural uses the local LAN postcard API (no Meural cloud account).",
+        "description": "Choose the kind of display to add. Meural uses the local LAN postcard API. Samsung EM32DX uses local MDC (experimental).",
         "menu_options": {
           "add_fraimic": "Fraimic / e-ink clone",
-          "add_meural": "Meural Canvas (local)"
+          "add_meural": "Meural Canvas (local)",
+          "add_samsung": "Samsung EM32DX (experimental)"
         }
       },
       "add_fraimic": {
@@ -34,6 +35,26 @@
           "name": "Friendly name for walls and scenes",
           "width": "Panel width in pixels (default 1920)",
           "height": "Panel height in pixels (default 1080)"
+        }
+      },
+      "add_samsung": {
+        "title": "Add Samsung EM32DX (experimental)",
+        "description": "Local MDC push (protocol from Joyous / fayep). Pair once with the Samsung E-Paper app for Wi‑Fi, then enter IP and MDC PIN. Untested without hardware — enable Network Standby and set Wi‑Fi MAC for wake-on-send.",
+        "data": {
+          "host": "IP Address",
+          "name": "Frame Name",
+          "mdc_pin": "MDC PIN",
+          "mac_address": "Wi‑Fi MAC (optional WoL)",
+          "width": "Width (pixels)",
+          "height": "Height (pixels)"
+        },
+        "data_description": {
+          "host": "Panel LAN IP",
+          "name": "Friendly name for walls and scenes",
+          "mdc_pin": "PIN from Samsung E-Paper pairing (often 6 digits)",
+          "mac_address": "Wi‑Fi MAC for Wake-on-LAN (from the E-Paper app)",
+          "width": "Panel width (default 2560)",
+          "height": "Panel height (default 1440)"
         }
       },
       "pick_device": {

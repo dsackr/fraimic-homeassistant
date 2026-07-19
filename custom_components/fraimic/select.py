@@ -82,8 +82,14 @@ async def async_setup_entry(
 ) -> None:
     """Set up the orientation select from a config entry."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
+    from .const import DRIVER_SAMSUNG  # noqa: PLC0415
+
     if entry.data.get(CONF_DRIVER) == DRIVER_MEURAL:
         async_add_entities([MeuralOrientationSelect(coordinator, entry)])
+        return
+    if entry.data.get(CONF_DRIVER) == DRIVER_SAMSUNG:
+        # Manual orientation lock for crop/send only (no gsensor follow yet).
+        async_add_entities([FraimicOrientationSelect(coordinator, entry)])
         return
     async_add_entities([FraimicOrientationSelect(coordinator, entry)])
 

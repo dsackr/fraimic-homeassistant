@@ -32,6 +32,7 @@ async def async_setup_entry(
     entry: "ConfigEntry",
     async_add_entities: "AddEntitiesCallback",
 ) -> None:
+    # Only Meural exposes a continuous backlight light entity.
     if entry.data.get(CONF_DRIVER) != DRIVER_MEURAL:
         return
     coordinator = hass.data[DOMAIN][entry.entry_id]

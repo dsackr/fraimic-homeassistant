@@ -591,6 +591,24 @@ artwork, shuffle, media browser, membership gallery sync.
   **Frontend-tested** — `tests/panel/meural-dashboard.spec.js`. Live
   Canvas hardware is manual (**Gap** for CI).
 
+## 34. Samsung EM32DX local MDC driver (experimental)
+User adds a Samsung E-Paper (EM32DX-class) panel by LAN IP, MDC PIN, and
+optional Wi‑Fi MAC. Images are composed as PNG and delivered by staging a
+short-lived token URL under HA’s HTTP, then sending MDC content-download
+(0xC7) over TLS :1515 so the panel pulls the PNG — protocol from
+[fayep/Joyous](https://github.com/fayep/Joyous). No Samsung cloud. **Not
+validated on real hardware in this repo** (Gap: live panel).
+- **Entry points**: `config_flow.py` (`async_step_add_samsung`),
+  `samsung.py` (`mdc_content_download_packet`, `send_mdc_content_download`,
+  `send_wol`), `samsung_coordinator.py` (`SamsungCoordinator`),
+  `panel_codec.py` (`CODEC_PNG`), `http_api.py`
+  (`FraimicSamsungContentView`), `sensor.py` (IP + MDC reachable).
+- **If it silently breaks**: send fails (auth/PIN, URL >255 bytes, panel
+  asleep without Network Standby/WoL), or panel never fetches the token
+  URL (HA not reachable from the panel LAN).
+- **Test status**: **Backend-tested** — `tests/python/unit/test_samsung.py`
+  (packet build, WoL, mock MDC). Live hardware is manual (**Gap**).
+
 ## 33. Check for updates from the dashboard Settings modal
 Admin opens ⚙ Settings on the Fraimic panel and sees **on-disk** package
 version vs latest GitHub release (and, when different, the version HA is

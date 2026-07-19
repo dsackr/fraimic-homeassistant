@@ -25,10 +25,16 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     DRIVER_MEURAL,
+    DRIVER_SAMSUNG,
     KIND_SCENES_HUB,
     MEURAL_DEFAULT_HEIGHT,
     MEURAL_DEFAULT_WIDTH,
     MEURAL_SIZE_LABEL,
+    SAMSUNG_DEFAULT_HEIGHT,
+    SAMSUNG_DEFAULT_WIDTH,
+    SAMSUNG_SIZE_LABEL,
+    CONF_MDC_PIN,
+    DEFAULT_MDC_PIN,
     CONF_ORIENTATION,
     CONF_ORIENTATION_FOLLOW_DEVICE,
     ORIENTATION_AUTO,
@@ -179,7 +185,7 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
         """Primary entry: pick Fraimic/clone or Meural Canvas (local)."""
         return self.async_show_menu(
             step_id="user",
-            menu_options=["add_fraimic", "add_meural"],
+            menu_options=["add_fraimic", "add_meural", "add_samsung"],
         )
 
     # ------------------------------------------------------------------
@@ -312,6 +318,66 @@ class FraimicConfigFlow(ConfigFlow, domain=DOMAIN):
         )
         return self.async_show_form(
             step_id="add_meural", data_schema=schema, errors=errors
+        )
+
+    # ------------------------------------------------------------------
+    # Samsung EM32DX (local MDC — experimental, protocol from fayep/Joyous)
+    # ------------------------------------------------------------------
+
+    async def async_step_add_samsung(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Add a Samsung E-Paper frame by LAN IP + MDC PIN (no cloud)."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            host = user_input[CONF_HOST].strip()
+            name = (user_input.get(CONF_NAME) or "").strip() or f"Samsung {host}"
+            width = int(user_input.get(CONF_WIDTH) or SAMSUNG_DEFAULT_WIDTH)
+            height = int(user_input.get(CONF_HEIGHT) or SAMSUNG_DEFAULT_HEIGHT)
+            pin = str(user_input.get(CONF_MDC_PIN) or DEFAULT_MDC_PIN).strip()
+            mac = str(user_input.get(CONF_MAC) or "").strip()
+
+            if not host:
+                errors[CONF_HOST] = "cannot_connect"
+            else:
+                unique = f"samsung:{host}"
+                if mac:
+                    unique = f"samsung:{mac.replace(':', '').lower()}"
+                await self.async_set_unique_id(str(unique))
+                self._abort_if_unique_id_configured(updates={CONF_HOST: host})
+
+                return self.async_create_entry(
+                    title=name,
+                    data={
+                        CONF_DRIVER: DRIVER_SAMSUNG,
+                        CONF_HOST: host,
+                        CONF_NAME: name,
+                        CONF_WIDTH: width,
+                        CONF_HEIGHT: height,
+                        CONF_SIZE: SAMSUNG_SIZE_LABEL,
+                        CONF_DEVICE_KEY: str(unique),
+                        CONF_MAC: mac,
+                        CONF_MDC_PIN: pin or DEFAULT_MDC_PIN,
+                    },
+                )
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_HOST): str,
+                vol.Optional(CONF_NAME, default=""): str,
+                vol.Optional(CONF_MDC_PIN, default=DEFAULT_MDC_PIN): str,
+                vol.Optional(CONF_MAC, default=""): str,
+                vol.Optional(CONF_WIDTH, default=SAMSUNG_DEFAULT_WIDTH): vol.All(
+                    vol.Coerce(int), vol.Range(min=100, max=8000)
+                ),
+                vol.Optional(CONF_HEIGHT, default=SAMSUNG_DEFAULT_HEIGHT): vol.All(
+                    vol.Coerce(int), vol.Range(min=100, max=8000)
+                ),
+            }
+        )
+        return self.async_show_form(
+            step_id="add_samsung", data_schema=schema, errors=errors
         )
 
     # ------------------------------------------------------------------

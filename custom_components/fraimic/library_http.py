@@ -626,7 +626,9 @@ class FraimicFramesView(HomeAssistantView):
         from .const import (  # noqa: PLC0415
             CONF_DRIVER,
             DRIVER_MEURAL,
+            DRIVER_SAMSUNG,
             MEURAL_SIZE_LABEL,
+            SAMSUNG_SIZE_LABEL,
         )
 
         for entry in hass.config_entries.async_entries(DOMAIN):
@@ -638,6 +640,9 @@ class FraimicFramesView(HomeAssistantView):
                 frame_type = FRAME_TYPES.get(entry.data.get(CONF_SIZE))
                 is_meural = entry.data.get(CONF_DRIVER) == DRIVER_MEURAL or (
                     entry.data.get(CONF_SIZE) == MEURAL_SIZE_LABEL
+                )
+                is_samsung = entry.data.get(CONF_DRIVER) == DRIVER_SAMSUNG or (
+                    entry.data.get(CONF_SIZE) == SAMSUNG_SIZE_LABEL
                 )
                 spec = render_spec_for_hass_entry(hass, entry)
                 coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
@@ -688,12 +693,20 @@ class FraimicFramesView(HomeAssistantView):
                         "origin": (
                             "meural"
                             if is_meural
-                            else (frame_type.origin if frame_type else None)
+                            else (
+                                "samsung"
+                                if is_samsung
+                                else (frame_type.origin if frame_type else None)
+                            )
                         ),
                         "platform": (
                             "Meural Canvas"
                             if is_meural
-                            else (frame_type.platform if frame_type else None)
+                            else (
+                                "Samsung EM32DX"
+                                if is_samsung
+                                else (frame_type.platform if frame_type else None)
+                            )
                         ),
                         "battery_entity_id": send_entity_id,
                         "orientation_entity_id": orientation_entity_id,

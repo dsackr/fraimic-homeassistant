@@ -31,12 +31,21 @@ CONF_DRIVER = "driver"            # FramePort driver id (see DRIVER_*)
 # local Spectra HTTP family (official + API-compatible clones).
 DRIVER_FRAIMIC = "fraimic"
 DRIVER_MEURAL = "meural"
+DRIVER_SAMSUNG = "samsung"  # Samsung EM32DX e-paper (experimental; MDC)
 
 # Meural Canvas common native resolution (landscape). User can override
 # in the Meural config flow when a panel reports differently.
 MEURAL_DEFAULT_WIDTH = 1920
 MEURAL_DEFAULT_HEIGHT = 1080
 MEURAL_SIZE_LABEL = "meural"
+
+# Samsung EM32DX (Joyous / fayep protocol notes). Landscape native.
+SAMSUNG_DEFAULT_WIDTH = 2560
+SAMSUNG_DEFAULT_HEIGHT = 1440
+SAMSUNG_SIZE_LABEL = "samsung"
+SAMSUNG_MDC_PORT = 1515
+CONF_MDC_PIN = "mdc_pin"
+DEFAULT_MDC_PIN = "000000"
 
 # Frame display modes
 MODE_MANUAL = "manual"
