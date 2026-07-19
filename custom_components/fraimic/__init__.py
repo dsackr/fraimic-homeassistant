@@ -137,6 +137,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.http.register_view(FraimicOnboardingView())
     hass.http.register_view(FraimicFrameStatusView())
 
+    from .update_http import async_register_update_views  # noqa: PLC0415
+
+    async_register_update_views(hass)
+
     # Set up the shared image library (storage-backend agnostic) and its
     # HTTP endpoints. This is domain-level state, not per-frame, since the
     # library is shared across every configured frame.

@@ -2304,7 +2304,7 @@
             <button class="btn-ghost" id="wall-new-btn" style="flex:0 0 auto">＋ New Wall</button>
             <button class="btn-ghost" id="wall-delete-btn" style="flex:0 0 auto;display:none">🗑 Delete Wall</button>
             <button class="btn-primary" id="frame-add-btn" style="flex:0 0 auto">＋ Add Frame</button>
-            <button class="btn-ghost" id="settings-open-btn" style="flex:0 0 auto" title="Photo storage settings">⚙</button>
+            <button class="btn-ghost" id="settings-open-btn" style="flex:0 0 auto" title="Settings (storage, updates)">⚙</button>
           </div>
         </div>
         <div class="feedback" id="wall-fb"></div>
@@ -2605,6 +2605,15 @@
             <div class="modal-row" style="display:flex; align-items:center; gap:8px; margin-top:16px">
               <input type="checkbox" id="ai-tagging-checkbox" />
               <label for="ai-tagging-checkbox" style="display:inline; margin:0; cursor:pointer">Auto-tag uploaded photos using AI</label>
+            </div>
+            <div class="settings-update-block" id="settings-update-block" style="margin-top:20px;padding-top:16px;border-top:1px solid var(--divider-color, #e0e0e0)">
+              <div style="font-weight:600;margin-bottom:8px">Integration updates</div>
+              <div id="settings-update-status" style="font-size:0.9em;opacity:0.85;margin-bottom:10px">Checking…</div>
+              <div class="modal-actions" style="justify-content:flex-start;gap:8px;flex-wrap:wrap;margin:0">
+                <button class="btn-ghost" id="settings-update-check" type="button">Check for updates</button>
+                <button class="btn-primary" id="settings-update-install" type="button" style="display:none">Install update</button>
+                <button class="btn-ghost" id="settings-update-restart" type="button" style="display:none">Restart Home Assistant</button>
+              </div>
             </div>
             <div class="feedback" id="settings-fb"></div>
             <div class="modal-actions">
@@ -3637,6 +3646,18 @@
         .addEventListener('change', (e) => this._toggleAiTagging(e.target.checked));
       const openBtn = this.shadowRoot.getElementById('settings-open-btn');
       if (openBtn) openBtn.addEventListener('click', () => this._openSettingsModal());
+      const checkBtn = this.shadowRoot.getElementById('settings-update-check');
+      if (checkBtn) {
+        checkBtn.addEventListener('click', () => this._refreshUpdateStatus({ force: true }));
+      }
+      const installBtn = this.shadowRoot.getElementById('settings-update-install');
+      if (installBtn) {
+        installBtn.addEventListener('click', () => this._installIntegrationUpdate());
+      }
+      const restartBtn = this.shadowRoot.getElementById('settings-update-restart');
+      if (restartBtn) {
+        restartBtn.addEventListener('click', () => this._restartHomeAssistant());
+      }
     }
 
     _openSettingsModal() {
@@ -3645,6 +3666,132 @@
       this._renderBackendConfig(this._backend);
       this.shadowRoot.getElementById('settings-fb').style.display = 'none';
       this.shadowRoot.getElementById('settings-modal-overlay').style.display = 'flex';
+      this._refreshUpdateStatus();
+    }
+
+    async _apiUpdate(path, { method = 'GET', body = null } = {}) {
+      const opts = {
+        method,
+        headers: {
+          Authorization: `Bearer ${this._hass.auth.data.access_token}`,
+        },
+      };
+      if (body != null) {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(body);
+      }
+      const resp = await fetch(path, opts);
+      const text = await resp.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (_) { data = { message: text }; }
+      if (!resp.ok) {
+        const msg = (data && (data.message || data.error)) || `HTTP ${resp.status}`;
+        throw new Error(msg);
+      }
+      return data;
+    }
+
+    async _refreshUpdateStatus({ force = false } = {}) {
+      const statusEl = this.shadowRoot.getElementById('settings-update-status');
+      const installBtn = this.shadowRoot.getElementById('settings-update-install');
+      const restartBtn = this.shadowRoot.getElementById('settings-update-restart');
+      const checkBtn = this.shadowRoot.getElementById('settings-update-check');
+      if (!statusEl) return;
+
+      if (!this._isAdmin()) {
+        statusEl.textContent = 'Admin access required to check for updates.';
+        if (installBtn) installBtn.style.display = 'none';
+        if (restartBtn) restartBtn.style.display = 'none';
+        if (checkBtn) checkBtn.style.display = 'none';
+        return;
+      }
+
+      statusEl.textContent = force ? 'Checking GitHub for updates…' : 'Loading…';
+      if (installBtn) installBtn.style.display = 'none';
+      try {
+        const path = force ? '/api/fraimic/update/check' : '/api/fraimic/update';
+        const data = force
+          ? await this._apiUpdate(path, { method: 'POST' })
+          : await this._apiUpdate(path);
+        this._lastUpdateStatus = data;
+        const installed = data.installed || '?';
+        const latest = data.latest || '?';
+        if (data.update_available) {
+          statusEl.innerHTML =
+            `Installed <strong>v${this._esc(installed)}</strong> · ` +
+            `Latest <strong>v${this._esc(latest)}</strong> available` +
+            (data.release_url
+              ? ` · <a href="${this._esc(data.release_url)}" target="_blank" rel="noopener">notes</a>`
+              : '');
+          if (installBtn) {
+            installBtn.style.display = '';
+            installBtn.disabled = false;
+            installBtn.textContent = `Install v${latest}`;
+          }
+        } else {
+          statusEl.innerHTML =
+            `Installed <strong>v${this._esc(installed)}</strong> · up to date` +
+            (latest && latest !== installed ? ` (latest v${this._esc(latest)})` : '');
+        }
+        if (restartBtn && data.needs_restart) restartBtn.style.display = '';
+      } catch (err) {
+        statusEl.textContent = `Could not check updates: ${err.message}`;
+      }
+    }
+
+    async _installIntegrationUpdate() {
+      const statusEl = this.shadowRoot.getElementById('settings-update-status');
+      const installBtn = this.shadowRoot.getElementById('settings-update-install');
+      const restartBtn = this.shadowRoot.getElementById('settings-update-restart');
+      const fb = this.shadowRoot.getElementById('settings-fb');
+      if (installBtn) {
+        installBtn.disabled = true;
+        installBtn.textContent = 'Installing…';
+      }
+      if (statusEl) statusEl.textContent = 'Downloading and installing…';
+      try {
+        const version = this._lastUpdateStatus && this._lastUpdateStatus.latest;
+        const result = await this._apiUpdate('/api/fraimic/update/install', {
+          method: 'POST',
+          body: version ? { version } : {},
+        });
+        if (statusEl) {
+          statusEl.textContent = result.message || 'Installed. Restart Home Assistant to load it.';
+        }
+        if (fb) {
+          fb.className = 'feedback ok';
+          fb.textContent = result.message || 'Update installed.';
+          fb.style.display = 'block';
+        }
+        if (restartBtn) restartBtn.style.display = '';
+        if (installBtn) installBtn.style.display = 'none';
+      } catch (err) {
+        if (statusEl) statusEl.textContent = `Install failed: ${err.message}`;
+        if (fb) {
+          fb.className = 'feedback err';
+          fb.textContent = err.message;
+          fb.style.display = 'block';
+        }
+        if (installBtn) {
+          installBtn.disabled = false;
+          installBtn.textContent = 'Install update';
+        }
+      }
+    }
+
+    async _restartHomeAssistant() {
+      if (!window.confirm(
+        'Restart Home Assistant now? The UI will disconnect for a minute or two.'
+      )) {
+        return;
+      }
+      const statusEl = this.shadowRoot.getElementById('settings-update-status');
+      try {
+        await this._apiUpdate('/api/fraimic/update/restart', { method: 'POST' });
+        if (statusEl) statusEl.textContent = 'Home Assistant is restarting…';
+      } catch (err) {
+        if (statusEl) statusEl.textContent = `Restart failed: ${err.message}`;
+      }
     }
 
     _openFrameSettingsMenu(frame) {

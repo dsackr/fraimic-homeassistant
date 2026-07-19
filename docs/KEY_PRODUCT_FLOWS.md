@@ -547,6 +547,22 @@ API. Sleep-queue and Spectra orientation lock do not apply.
   `tests/python/config_flow/test_config_flow_user_scan.py` (Meural add
   flow). Live Canvas hardware send is manual (**Gap** for CI).
 
+## 33. Check for updates from the dashboard Settings modal
+Admin opens ⚙ Settings on the Fraimic panel and sees installed vs latest
+GitHub release, can **Check for updates**, **Install** (HACS if tracking
+the repo, else GitHub zipball into `custom_components/fraimic`), then
+**Restart Home Assistant** without bouncing through the HACS UI and
+Settings → System.
+- **Entry points**: `update.py` (`check_for_update`, `install_update`,
+  `restart_home_assistant`), `update_http.py` (`/api/fraimic/update*`),
+  `fraimic-panel.js` (`_refreshUpdateStatus`, `_installIntegrationUpdate`,
+  `_restartHomeAssistant`).
+- **If it silently breaks**: users still have to use HACS + HA restart to
+  upgrade, or a botched install leaves a half-written `custom_components/fraimic`.
+- **Test status**: **Backend-tested** — `tests/python/unit/test_update.py`
+  (version compare). Live GitHub check/install is admin-manual (**Gap** for
+  CI; network + filesystem).
+
 ---
 
 ## Coverage summary
