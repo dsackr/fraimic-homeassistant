@@ -75,10 +75,13 @@ function parseMultipartFields(buf) {
 // onboardingComplete: the server-side first-run-wizard flag. Defaults to
 // true so every non-onboarding suite loads straight to the dashboard;
 // onboarding tests opt in with false.
+// updateStatus: optional override for GET/POST /api/fraimic/update*. When
+// omitted, the server reports "up to date" with no banner.
 function createMockServer({
   frames = [], scenes = [], images = [], albums = [], walls = [], scenePacks = [], schedules = [],
   skills = [], discoveredFlows = [],
   onboardingComplete = true, failing = false, onboardingBroken = false,
+  updateStatus = null,
 } = {}) {
   let sceneList = scenes.map((s) => ({ created_at: 0, album: null, source: 'user', ...s }));
   let scheduleList = schedules.map((s) => ({
@@ -112,6 +115,25 @@ function createMockServer({
   const installCalls = []; // { pack_id, config } per /scene_packs/:id/install POST
   const cropSaves = []; // { image_id, width, height, crop_box } per /library/crop POST
   const cropDeletes = []; // { image_id, width, height } per /library/crop DELETE
+  let updateState = {
+    installed: '0.12.100',
+    running: '0.12.100',
+    disk: '0.12.100',
+    latest: '0.12.100',
+    latest_tag: 'v0.12.100',
+    latest_name: 'v0.12.100',
+    release_notes: '',
+    release_url: 'https://example.invalid/releases',
+    update_available: false,
+    banner_visible: false,
+    banner_dismissed_version: '',
+    needs_restart: false,
+    hacs: null,
+    zipball_url: 'https://example.invalid/zip',
+    ...(updateStatus || {}),
+  };
+  const updateInstalls = [];
+  const updateDismisses = [];
 
   // --- Embedded config/options flow state machine -----------------------
   // Mirrors FraimicConfigFlow: menu user → add_fraimic/add_meural →
@@ -269,6 +291,45 @@ function createMockServer({
         return json(res, 200, { success: true, complete: true });
       }
       return json(res, 200, { complete: onboardingComplete });
+    }
+    if (p === '/api/fraimic/update' || p === '/api/fraimic/update/check') {
+      return json(res, 200, { ...updateState });
+    }
+    if (p === '/api/fraimic/update/dismiss' && req.method === 'POST') {
+      const body = await readJsonBody(req);
+      const version = (body && body.version) || updateState.latest;
+      updateDismisses.push({ version });
+      updateState = {
+        ...updateState,
+        banner_visible: false,
+        banner_dismissed_version: version,
+      };
+      return json(res, 200, { success: true, dismissed_version: version });
+    }
+    if (p === '/api/fraimic/update/install' && req.method === 'POST') {
+      const body = await readJsonBody(req);
+      updateInstalls.push(body || {});
+      const ver = (body && body.version) || updateState.latest;
+      updateState = {
+        ...updateState,
+        installed: ver,
+        disk: ver,
+        update_available: false,
+        banner_visible: false,
+        needs_restart: true,
+      };
+      return json(res, 200, {
+        success: true,
+        method: 'github',
+        installed: ver,
+        disk: ver,
+        running: updateState.running,
+        needs_restart: true,
+        message: `Fraimic ${ver} is on disk. Restart Home Assistant to load it.`,
+      });
+    }
+    if (p === '/api/fraimic/update/restart' && req.method === 'POST') {
+      return json(res, 200, { success: true, message: 'Home Assistant is restarting…' });
     }
 
     // --- HA config/options flow API (see state machine above) -----------
@@ -631,6 +692,9 @@ function createMockServer({
     setFailing(value) { failing = value; },
     get onboardingComplete() { return onboardingComplete; },
     get libraryBackend() { return libraryBackend; },
+    updateDismisses,
+    updateInstalls,
+    get updateState() { return updateState; },
   };
 }
 

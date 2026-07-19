@@ -5,11 +5,16 @@ want is "is there a new Fraimic, and can I install it from here?".
 
 Install strategy (in order):
 
-1. If HACS has ``dsackr/fraimic-homeassistant`` downloaded, use HACS's
-   repository download so HACS stays in sync with on-disk files.
+1. If HACS has ``dsackr/fraimic-homeassistant`` installed, call HACS's
+   ``async_download_repository`` / ``async_install`` so files **and** HACS
+   bookkeeping (``installed_version``, HA update entity) stay in sync.
 2. Otherwise download the GitHub tag zipball and replace
    ``custom_components/fraimic`` in place (backup goes under
    ``.storage/fraimic_update_backup/``, never under custom_components/).
+   When HACS still tracks the repo, we then **sync** its
+   ``installed_version`` + store so Settings → Devices & services / the
+   HACS update entity register the new release after restart — without
+   this step zipball installs leave HACS stuck on the old version forever.
 
 A full Home Assistant restart is still required after install for the new
 code (and panel cache-bust URL) to load cleanly.
@@ -23,18 +28,29 @@ import json
 import logging
 import os
 import shutil
+import time
 import zipfile
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
 
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.storage import Store
 from homeassistant.loader import async_get_integration
 
 from .const import DOMAIN
 
 # Set after a successful disk install until HA restarts and running==disk.
 _NEEDS_RESTART_KEY = "_update_needs_restart"
+# In-memory cache of the last GitHub release probe (avoids hitting the
+# network on every dashboard open when the update banner checks status).
+_RELEASE_CACHE_KEY = "_update_release_cache"
+_RELEASE_CACHE_TTL_S = 6 * 3600
+# Server-side dismiss for the "new version available" banner — keyed by
+# the dismissed *latest* version so a newer release re-shows the banner.
+_BANNER_STORE_KEY = f"{DOMAIN}_update_banner"
+_BANNER_STORE_VERSION = 1
+_BANNER_STORE_CACHE = "_update_banner_store"
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -130,8 +146,62 @@ def _needs_restart(hass: HomeAssistant, *, disk: str, running: str) -> bool:
     return False
 
 
-async def fetch_latest_release(hass: HomeAssistant) -> dict[str, Any]:
-    """Return {tag, version, name, body, html_url, tarball_url, zipball_url}."""
+def _banner_store(hass: HomeAssistant) -> Store:
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    store = domain_data.get(_BANNER_STORE_CACHE)
+    if store is None:
+        store = Store(hass, _BANNER_STORE_VERSION, _BANNER_STORE_KEY)
+        domain_data[_BANNER_STORE_CACHE] = store
+    return store
+
+
+async def get_banner_dismissed_version(hass: HomeAssistant) -> str:
+    """Return the latest version the admin last dismissed (or empty)."""
+    try:
+        data = await _banner_store(hass).async_load() or {}
+    except Exception:  # noqa: BLE001
+        return ""
+    return _norm_version(str(data.get("dismissed_version") or ""))
+
+
+async def dismiss_update_banner(hass: HomeAssistant, version: str) -> dict[str, Any]:
+    """Dismiss the dashboard banner for *version* (normalized).
+
+    A later release with a higher version re-shows the banner automatically.
+    """
+    ver = _norm_version(version)
+    if not ver:
+        raise UpdateError("version is required to dismiss the update banner")
+    await _banner_store(hass).async_save({"dismissed_version": ver})
+    return {"success": True, "dismissed_version": ver}
+
+
+def banner_visible(*, update_available: bool, latest: str, dismissed: str) -> bool:
+    """True when a new version is available and not dismissed for that version."""
+    if not update_available or not latest:
+        return False
+    return _norm_version(latest) != _norm_version(dismissed)
+
+
+async def fetch_latest_release(
+    hass: HomeAssistant, *, force: bool = False
+) -> dict[str, Any]:
+    """Return {tag, version, name, body, html_url, tarball_url, zipball_url}.
+
+    Results are cached in ``hass.data`` for a few hours so the dashboard
+    banner can poll status without hammering GitHub. Pass *force* to bypass.
+    """
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    cached = domain_data.get(_RELEASE_CACHE_KEY)
+    now = time.time()
+    if (
+        not force
+        and isinstance(cached, dict)
+        and cached.get("data")
+        and now - float(cached.get("ts") or 0) < _RELEASE_CACHE_TTL_S
+    ):
+        return dict(cached["data"])
+
     session = async_get_clientsession(hass)
     headers = {
         "Accept": "application/vnd.github+json",
@@ -162,7 +232,7 @@ async def fetch_latest_release(hass: HomeAssistant) -> dict[str, Any]:
         raise UpdateError(f"Could not reach GitHub: {err}") from err
 
     tag = data.get("tag_name") or ""
-    return {
+    result = {
         "tag": tag,
         "version": _norm_version(tag),
         "name": data.get("name") or tag,
@@ -173,21 +243,51 @@ async def fetch_latest_release(hass: HomeAssistant) -> dict[str, Any]:
         or f"https://github.com/{GITHUB_FULL}/archive/refs/tags/{tag}.zip",
         "published_at": data.get("published_at") or "",
     }
+    domain_data[_RELEASE_CACHE_KEY] = {"ts": now, "data": result}
+    return dict(result)
 
 
-async def check_for_update(hass: HomeAssistant) -> dict[str, Any]:
+async def check_for_update(
+    hass: HomeAssistant, *, force: bool = False
+) -> dict[str, Any]:
     """Compare on-disk package version to latest GitHub release.
 
     Also reports the version HA currently has loaded (*running*). After an
     install without restart, *installed* (disk) can be newer than *running*
     — that is expected; *needs_restart* is True until they match.
+
+    If HACS tracks Fraimic but its ``installed_version`` lags the on-disk
+    package (legacy zipball-only installs), heal that bookkeeping here so
+    the user never has to "re-sync" manually.
+
+    Includes ``banner_visible`` for the dashboard "new version" banner
+    (false when the admin dismissed this *latest* version).
     """
     disk = await get_disk_version(hass)
     running = await get_running_version(hass)
     installed = disk or running
-    latest = await fetch_latest_release(hass)
+    latest = await fetch_latest_release(hass, force=force)
     available = is_newer(latest["version"], installed)
+    dismissed = await get_banner_dismissed_version(hass)
+    show_banner = banner_visible(
+        update_available=available,
+        latest=latest["version"],
+        dismissed=dismissed,
+    )
     hacs = await _hacs_status(hass)
+    hacs_healed = False
+    if (
+        disk
+        and hacs
+        and hacs.get("tracks_fraimic")
+        and hacs.get("desynced_with_disk")
+    ):
+        # Prefer GitHub's tag spelling when it matches disk; else v{disk}.
+        tag = latest["tag"] if _norm_version(latest["version"]) == _norm_version(disk) else f"v{disk}"
+        sync = await _sync_hacs_after_install(hass, tag=tag, version=disk)
+        if sync.get("synced"):
+            hacs_healed = True
+            hacs = await _hacs_status(hass)
     needs_restart = _needs_restart(hass, disk=disk, running=running)
     # Clear sticky flag once a restart has aligned versions.
     if disk and running and disk == running:
@@ -203,10 +303,135 @@ async def check_for_update(hass: HomeAssistant) -> dict[str, Any]:
         "release_notes": latest["body"],
         "release_url": latest["html_url"],
         "update_available": available,
+        "banner_visible": show_banner,
+        "banner_dismissed_version": dismissed,
         "needs_restart": needs_restart,
         "hacs": hacs,
+        "hacs_healed": hacs_healed,
         "zipball_url": latest["zipball_url"],
     }
+
+
+def _find_hacs_repo(hass: HomeAssistant) -> Any | None:
+    """Return the HACS repository object for our GitHub full name, or None."""
+    hacs = hass.data.get("hacs")
+    if hacs is None:
+        return None
+    repos = getattr(hacs, "repositories", None)
+    if repos is None:
+        return None
+    getter = getattr(repos, "get_by_full_name", None)
+    if callable(getter):
+        repo = getter(GITHUB_FULL)
+        if repo is not None:
+            return repo
+    # Fallback: scan list_all / list_downloaded
+    for attr in ("list_downloaded", "list_all"):
+        listing = getattr(repos, attr, None)
+        items = listing() if callable(listing) else listing
+        for r in items or []:
+            data = getattr(r, "data", None)
+            full = getattr(data, "full_name", None) or getattr(r, "full_name", "")
+            if str(full).lower() == GITHUB_FULL.lower():
+                return r
+    return None
+
+
+def _hacs_ref_for_target(repo: Any, target: str, preferred_tag: str) -> str:
+    """Pick a ref string HACS will accept (usually the GitHub tag name)."""
+    data = getattr(repo, "data", None)
+    candidates = [
+        preferred_tag,
+        getattr(data, "last_version", None) if data is not None else None,
+        f"v{target}" if not str(target).startswith("v") else target,
+        target,
+    ]
+    for c in candidates:
+        if not c:
+            continue
+        if _norm_version(str(c)) == _norm_version(target) or not target:
+            return str(c)
+    return preferred_tag or f"v{target}"
+
+
+async def _persist_hacs_data(hass: HomeAssistant) -> bool:
+    """Force HACS to write repository state (installed_version) to .storage."""
+    hacs = hass.data.get("hacs")
+    if hacs is None:
+        return False
+    data = getattr(hacs, "data", None)
+    writer = getattr(data, "async_write", None) if data is not None else None
+    if not callable(writer):
+        return False
+    try:
+        # force=True so a temporarily-disabled HACS still persists.
+        await writer(force=True)
+        return True
+    except TypeError:
+        await writer()
+        return True
+
+
+async def _sync_hacs_after_install(
+    hass: HomeAssistant, *, tag: str, version: str
+) -> dict[str, Any]:
+    """Align HACS bookkeeping with a successful on-disk install.
+
+    Without this, a zipball install updates files but leaves HACS (and the
+    HA ``update`` entity it owns) stuck on the previous ``installed_version``,
+    so after restart HA still reports an available update / old version.
+    """
+    repo = _find_hacs_repo(hass)
+    if repo is None:
+        return {"synced": False, "reason": "hacs_not_tracking"}
+
+    data = getattr(repo, "data", None)
+    if data is None:
+        return {"synced": False, "reason": "no_repo_data"}
+
+    ref = _hacs_ref_for_target(repo, version, tag)
+    try:
+        data.installed = True
+        data.installed_version = ref
+        # Clear "new" badge so it shows as a normal installed integration.
+        if hasattr(data, "new"):
+            data.new = False
+        # HACS integration repos flag a restart after install.
+        if hasattr(repo, "pending_restart"):
+            repo.pending_restart = True
+
+        wrote = await _persist_hacs_data(hass)
+
+        # Nudge HACS UI / update entities (best-effort; string matches HACS 2.x).
+        dispatch = getattr(hass.data.get("hacs"), "async_dispatch", None)
+        if callable(dispatch):
+            try:
+                dispatch(
+                    "hacs/repository",
+                    {
+                        "id": 1337,
+                        "action": "install",
+                        "repository": GITHUB_FULL,
+                        "repository_id": str(getattr(data, "id", "") or ""),
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        _LOGGER.info(
+            "Synced HACS installed_version=%s for %s (persisted=%s)",
+            ref,
+            GITHUB_FULL,
+            wrote,
+        )
+        return {
+            "synced": True,
+            "installed_version": ref,
+            "persisted": wrote,
+        }
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Failed to sync HACS after install: %s", err)
+        return {"synced": False, "reason": str(err)}
 
 
 async def _hacs_status(hass: HomeAssistant) -> dict[str, Any] | None:
@@ -215,37 +440,38 @@ async def _hacs_status(hass: HomeAssistant) -> dict[str, Any] | None:
     if hacs is None:
         return None
     try:
-        repos = getattr(hacs, "repositories", None)
-        if repos is None:
-            return None
-        # HACS 2.x: repositories.get_by_full_name / list_downloaded
-        repo = None
-        getter = getattr(repos, "get_by_full_name", None)
-        if callable(getter):
-            repo = getter(GITHUB_FULL)
-        if repo is None:
-            for r in getattr(repos, "list_all", []) or []:
-                data = getattr(r, "data", None)
-                full = getattr(data, "full_name", None) or getattr(r, "full_name", "")
-                if str(full).lower() == GITHUB_FULL.lower():
-                    repo = r
-                    break
+        repo = _find_hacs_repo(hass)
         if repo is None:
             return {"present": True, "tracks_fraimic": False}
         data = getattr(repo, "data", repo)
-        installed = _norm_version(
-            str(getattr(data, "installed_version", "") or getattr(data, "version_installed", "") or "")
+        raw_installed = str(
+            getattr(data, "installed_version", "")
+            or getattr(data, "version_installed", "")
+            or ""
         )
+        installed = _norm_version(raw_installed)
         available = _norm_version(
-            str(getattr(data, "last_version", "") or getattr(data, "available_version", "") or "")
+            str(
+                getattr(data, "last_version", "")
+                or getattr(data, "available_version", "")
+                or ""
+            )
         )
         repo_id = getattr(data, "id", None)
+        disk = await get_disk_version(hass)
+        desynced = bool(
+            disk
+            and installed
+            and _norm_version(disk) != installed
+        )
         return {
             "present": True,
             "tracks_fraimic": True,
             "installed_version": installed,
+            "installed_version_raw": raw_installed,
             "available_version": available,
             "repository_id": str(repo_id) if repo_id is not None else "",
+            "desynced_with_disk": desynced,
         }
     except Exception as err:  # noqa: BLE001
         _LOGGER.debug("HACS status probe failed: %s", err)
@@ -259,15 +485,59 @@ async def install_update(hass: HomeAssistant, *, version: str | None = None) -> 
     if not target:
         raise UpdateError("No target version to install")
 
-    # Prefer HACS when it tracks us and exposes a download path.
-    hacs_result = await _try_hacs_install(hass, target)
-    if hacs_result is not None:
-        _mark_needs_restart(hass)
-        return hacs_result
-
     tag = status.get("latest_tag") or f"v{target}"
     if version and _norm_version(version) != status["latest"]:
         tag = version if str(version).startswith("v") else f"v{version}"
+
+    disk_now = status.get("disk") or await get_disk_version(hass)
+    # Recovery: files already match target but HACS still reports an older
+    # installed_version (the pre-fix zipball path). Just re-register HACS.
+    hacs_info = status.get("hacs") or {}
+    if (
+        disk_now
+        and _norm_version(disk_now) == _norm_version(target)
+        and hacs_info.get("tracks_fraimic")
+        and (
+            hacs_info.get("desynced_with_disk")
+            or (
+                hacs_info.get("installed_version")
+                and _norm_version(hacs_info["installed_version"]) != _norm_version(target)
+            )
+        )
+    ):
+        hacs_sync = await _sync_hacs_after_install(hass, tag=tag, version=target)
+        running = await get_running_version(hass)
+        needs = _needs_restart(hass, disk=disk_now, running=running)
+        if needs:
+            _mark_needs_restart(hass)
+        return {
+            "success": True,
+            "method": "hacs_sync_only",
+            "installed": disk_now,
+            "running": running,
+            "disk": disk_now,
+            "needs_restart": needs,
+            "hacs_sync": hacs_sync,
+            "message": (
+                f"Fraimic {disk_now} was already on disk; "
+                + (
+                    "HACS is now registered to that version."
+                    if hacs_sync.get("synced")
+                    else f"HACS sync failed ({hacs_sync.get('reason', 'unknown')})."
+                )
+                + (
+                    " Restart Home Assistant if the running version still differs."
+                    if needs
+                    else ""
+                )
+            ),
+        }
+
+    # Prefer HACS when it tracks us and exposes a modern download path.
+    hacs_result = await _try_hacs_install(hass, target, tag=tag)
+    if hacs_result is not None:
+        _mark_needs_restart(hass)
+        return hacs_result
 
     zip_url = (
         status.get("zipball_url")
@@ -275,9 +545,21 @@ async def install_update(hass: HomeAssistant, *, version: str | None = None) -> 
         else f"https://github.com/{GITHUB_FULL}/archive/refs/tags/{tag}.zip"
     )
     await _install_from_zipball(hass, zip_url, expected_version=target)
+    hacs_sync = await _sync_hacs_after_install(hass, tag=tag, version=target)
     _mark_needs_restart(hass)
     disk = await get_disk_version(hass) or target
     running = await get_running_version(hass)
+    if disk and _norm_version(disk) != _norm_version(target):
+        _LOGGER.warning(
+            "Post-install disk version %s does not match target %s",
+            disk,
+            target,
+        )
+    hacs_note = ""
+    if hacs_sync.get("synced"):
+        hacs_note = " HACS registered the new version."
+    elif hacs_sync.get("reason") and hacs_sync["reason"] != "hacs_not_tracking":
+        hacs_note = f" (HACS sync skipped: {hacs_sync['reason']})"
     return {
         "success": True,
         "method": "github",
@@ -285,43 +567,76 @@ async def install_update(hass: HomeAssistant, *, version: str | None = None) -> 
         "running": running,
         "disk": disk,
         "needs_restart": True,
+        "hacs_sync": hacs_sync,
         "message": (
             f"Fraimic {disk} is on disk"
             + (f" (Home Assistant is still running {running})" if running and running != disk else "")
-            + ". Restart Home Assistant to load it."
+            + f".{hacs_note} Restart Home Assistant to load it."
         ),
     }
 
 
-async def _try_hacs_install(hass: HomeAssistant, target: str) -> dict[str, Any] | None:
-    """Attempt HACS download; return result dict or None to fall back."""
+async def _try_hacs_install(
+    hass: HomeAssistant, target: str, *, tag: str
+) -> dict[str, Any] | None:
+    """Attempt HACS download; return result dict or None to fall back.
+
+    Modern HACS (2.x) exposes ``async_download_repository(ref=…)`` and
+    ``async_install(version=…)``. Older guesses (``download`` /
+    ``async_download``) never matched, so every install fell through to
+    zipball and left HACS's installed_version stale.
+    """
     hacs = hass.data.get("hacs")
     if hacs is None:
         return None
     try:
-        repos = getattr(hacs, "repositories", None)
-        if repos is None:
-            return None
-        repo = None
-        getter = getattr(repos, "get_by_full_name", None)
-        if callable(getter):
-            repo = getter(GITHUB_FULL)
+        repo = _find_hacs_repo(hass)
         if repo is None:
             return None
 
-        # HACS repository object: async_download_repository / download
-        download = getattr(repo, "download", None) or getattr(repo, "async_download", None)
-        if download is None:
-            # HACS 2 coordinator-style
+        data = getattr(repo, "data", None)
+        # Only use HACS download when the repo is already an installed HACS
+        # package (otherwise zipball + optional registration is clearer).
+        if data is not None and not getattr(data, "installed", False):
             return None
 
-        tag = f"v{target}" if not str(target).startswith("v") else target
-        if asyncio.iscoroutinefunction(download):
-            await download(tag)
+        ref = _hacs_ref_for_target(repo, target, tag)
+
+        download_repo = getattr(repo, "async_download_repository", None)
+        install_fn = getattr(repo, "async_install", None)
+        legacy = getattr(repo, "download", None) or getattr(repo, "async_download", None)
+
+        if callable(download_repo):
+            await download_repo(ref=ref)
+        elif callable(install_fn):
+            await install_fn(version=ref)
+        elif callable(legacy):
+            if asyncio.iscoroutinefunction(legacy):
+                await legacy(ref)
+            else:
+                result = legacy(ref)
+                if asyncio.iscoroutine(result):
+                    await result
         else:
-            result = download(tag)
-            if asyncio.iscoroutine(result):
-                await result
+            _LOGGER.debug(
+                "HACS tracks %s but exposes no download API; using zipball",
+                GITHUB_FULL,
+            )
+            return None
+
+        # HACS websocket path always persists after download; mirror that.
+        await _persist_hacs_data(hass)
+        # Belt-and-suspenders: ensure installed_version matches what we asked for.
+        if data is not None:
+            if not getattr(data, "installed_version", None) or _norm_version(
+                str(data.installed_version)
+            ) != _norm_version(target):
+                data.installed = True
+                data.installed_version = ref
+                await _persist_hacs_data(hass)
+        if hasattr(repo, "pending_restart"):
+            repo.pending_restart = True
+
         _mark_needs_restart(hass)
         disk = await get_disk_version(hass) or target
         running = await get_running_version(hass)
@@ -332,6 +647,7 @@ async def _try_hacs_install(hass: HomeAssistant, target: str) -> dict[str, Any] 
             "running": running,
             "disk": disk,
             "needs_restart": True,
+            "hacs_sync": {"synced": True, "installed_version": ref, "persisted": True},
             "message": (
                 f"Fraimic {disk} installed via HACS"
                 + (

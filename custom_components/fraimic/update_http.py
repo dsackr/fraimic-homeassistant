@@ -1,9 +1,10 @@
-"""HTTP views for integration self-update (check / install / restart).
+"""HTTP views for integration self-update (check / install / restart / dismiss).
 
-    GET  /api/fraimic/update          status (installed, latest, available)
+    GET  /api/fraimic/update          status (installed, latest, available, banner)
     POST /api/fraimic/update/check    force re-check against GitHub
     POST /api/fraimic/update/install  download + install ({version?} optional)
     POST /api/fraimic/update/restart  restart Home Assistant
+    POST /api/fraimic/update/dismiss  dismiss banner for a version ({version})
 """
 
 from __future__ import annotations
@@ -14,7 +15,13 @@ from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import callback
 
-from .update import UpdateError, check_for_update, install_update, restart_home_assistant
+from .update import (
+    UpdateError,
+    check_for_update,
+    dismiss_update_banner,
+    install_update,
+    restart_home_assistant,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,7 +46,7 @@ class FraimicUpdateStatusView(HomeAssistantView):
             return denied
         hass = request.app["hass"]
         try:
-            status = await check_for_update(hass)
+            status = await check_for_update(hass, force=False)
         except UpdateError as err:
             return self.json_message(str(err), status_code=502)
         except Exception as err:  # noqa: BLE001
@@ -61,7 +68,7 @@ class FraimicUpdateCheckView(HomeAssistantView):
             return denied
         hass = request.app["hass"]
         try:
-            status = await check_for_update(hass)
+            status = await check_for_update(hass, force=True)
         except UpdateError as err:
             return self.json_message(str(err), status_code=502)
         except Exception as err:  # noqa: BLE001
@@ -124,6 +131,42 @@ class FraimicUpdateRestartView(HomeAssistantView):
         )
 
 
+class FraimicUpdateDismissView(HomeAssistantView):
+    """POST dismiss the dashboard update banner for a version."""
+
+    url = "/api/fraimic/update/dismiss"
+    name = "api:fraimic:update:dismiss"
+    requires_auth = True
+
+    async def post(self, request: web.Request) -> web.Response:
+        denied = _require_admin(request)
+        if denied is not None:
+            return denied
+        hass = request.app["hass"]
+        version = None
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                version = body.get("version")
+        except Exception:  # noqa: BLE001
+            pass
+        if not version:
+            # Fall back to currently advertised latest so a bare POST works.
+            try:
+                status = await check_for_update(hass, force=False)
+                version = status.get("latest")
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            result = await dismiss_update_banner(hass, version or "")
+        except UpdateError as err:
+            return self.json_message(str(err), status_code=400)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.exception("Update banner dismiss failed")
+            return self.json_message(f"Dismiss failed: {err}", status_code=500)
+        return self.json(result)
+
+
 @callback
 def async_register_update_views(hass) -> None:
     """Register update HTTP views (called from domain setup)."""
@@ -131,3 +174,4 @@ def async_register_update_views(hass) -> None:
     hass.http.register_view(FraimicUpdateCheckView())
     hass.http.register_view(FraimicUpdateInstallView())
     hass.http.register_view(FraimicUpdateRestartView())
+    hass.http.register_view(FraimicUpdateDismissView())

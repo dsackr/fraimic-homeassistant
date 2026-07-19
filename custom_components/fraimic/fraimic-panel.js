@@ -1351,6 +1351,41 @@
       border: 1px solid color-mix(in srgb, var(--primary-color, #03a9f4) 35%, transparent);
       font-size: 14px;
     }
+    .update-banner {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 0 0 14px;
+      padding: 12px 16px;
+      border-radius: var(--ha-card-border-radius, 12px);
+      background: color-mix(in srgb, var(--accent-color, #ff9800) 14%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent-color, #ff9800) 40%, transparent);
+      font-size: 14px;
+    }
+    .update-banner .update-banner-text {
+      flex: 1 1 auto;
+      min-width: 12em;
+      line-height: 1.4;
+    }
+    .update-banner .banner-add-btn,
+    .update-banner .banner-dismiss-btn {
+      padding: 6px 14px;
+      border-radius: 8px;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      flex: 0 0 auto;
+    }
+    .update-banner .banner-add-btn {
+      background: var(--primary-color, #03a9f4);
+      color: var(--text-primary-color, #fff);
+    }
+    .update-banner .banner-dismiss-btn {
+      background: transparent;
+      color: var(--primary-text-color);
+      border: 1px solid color-mix(in srgb, var(--primary-text-color, #111) 22%, transparent);
+    }
     .wall-drag-ghost.colliding {
       outline: 2px solid #ef4444;
       background: rgba(239, 68, 68, .25) !important;
@@ -2177,6 +2212,8 @@
       const scenesP  = this._withInitRetry('scenes',  () => this._loadScenes());
       const wallsP   = this._withInitRetry('walls',   () => this._loadWalls());
       const xotdP    = this._withInitRetry('xotd',    () => this._loadXotdInstances());
+      // Update banner: non-blocking — never holds first paint for GitHub.
+      this._refreshUpdateBanner();
 
       await framesP;
       await Promise.all([backendP, albumsP]);
@@ -2294,6 +2331,7 @@
         </div>
 
         <div class="tab-content active" id="tab-dashboard">
+        <div class="update-banner" id="update-banner" style="display:none" role="status"></div>
         <div class="discovery-banner" id="discovery-banner" style="display:none"></div>
         <div class="lib-toolbar">
           <div class="lib-backend">
@@ -3749,6 +3787,7 @@
           ? await this._apiUpdate(path, { method: 'POST' })
           : await this._apiUpdate(path);
         this._lastUpdateStatus = data;
+        this._renderUpdateBanner(data);
         const installed = data.installed || data.disk || '?';
         const running = data.running || '';
         const latest = data.latest || '?';
@@ -3784,6 +3823,83 @@
       }
     }
 
+    // Dashboard banner when a newer release is available (admins only).
+    // Dismissal is per-version server-side — a later release re-shows it.
+    async _refreshUpdateBanner() {
+      if (!this._isAdmin()) {
+        this._renderUpdateBanner(null);
+        return;
+      }
+      try {
+        const data = await this._apiUpdate('/api/fraimic/update');
+        this._lastUpdateStatus = data;
+        this._renderUpdateBanner(data);
+      } catch (err) {
+        // Silent: banner is optional; Settings still exposes the full check.
+        console.warn('[fraimic-panel] update banner check failed:', err);
+        this._renderUpdateBanner(null);
+      }
+    }
+
+    _renderUpdateBanner(data) {
+      const banner = this.shadowRoot.getElementById('update-banner');
+      if (!banner) return;
+      const show = !!(data && data.banner_visible && data.update_available && data.latest);
+      if (!show) {
+        banner.style.display = 'none';
+        banner.innerHTML = '';
+        return;
+      }
+      const latest = data.latest;
+      const installed = data.installed || data.disk || '?';
+      banner.innerHTML = '';
+      const text = document.createElement('span');
+      text.className = 'update-banner-text';
+      text.innerHTML = `⬆ Fraimic <strong>v${this._esc(latest)}</strong> is available`
+        + ` (you have v${this._esc(installed)})`;
+      banner.appendChild(text);
+      const installBtn = document.createElement('button');
+      installBtn.type = 'button';
+      installBtn.className = 'banner-add-btn';
+      installBtn.id = 'update-banner-install';
+      installBtn.textContent = `Install v${latest}`;
+      installBtn.addEventListener('click', () => {
+        this._openSettingsModal();
+        this._installIntegrationUpdate();
+      });
+      banner.appendChild(installBtn);
+      const dismissBtn = document.createElement('button');
+      dismissBtn.type = 'button';
+      dismissBtn.className = 'banner-dismiss-btn';
+      dismissBtn.id = 'update-banner-dismiss';
+      dismissBtn.textContent = 'Dismiss';
+      dismissBtn.addEventListener('click', () => this._dismissUpdateBanner(latest));
+      banner.appendChild(dismissBtn);
+      banner.style.display = 'flex';
+    }
+
+    async _dismissUpdateBanner(version) {
+      const banner = this.shadowRoot.getElementById('update-banner');
+      if (banner) {
+        banner.style.display = 'none';
+        banner.innerHTML = '';
+      }
+      try {
+        await this._apiUpdate('/api/fraimic/update/dismiss', {
+          method: 'POST',
+          body: { version },
+        });
+        if (this._lastUpdateStatus) {
+          this._lastUpdateStatus.banner_visible = false;
+          this._lastUpdateStatus.banner_dismissed_version = version;
+        }
+      } catch (err) {
+        console.warn('[fraimic-panel] dismiss update banner failed:', err);
+        // Optimistic hide already applied; re-check so a failed dismiss returns.
+        this._refreshUpdateBanner();
+      }
+    }
+
     async _installIntegrationUpdate() {
       const statusEl = this.shadowRoot.getElementById('settings-update-status');
       const installBtn = this.shadowRoot.getElementById('settings-update-install');
@@ -3810,6 +3926,15 @@
         }
         if (restartBtn) restartBtn.style.display = '';
         if (installBtn) installBtn.style.display = 'none';
+        // Installed version is now on disk — hide the "available" banner.
+        if (this._lastUpdateStatus) {
+          this._lastUpdateStatus.update_available = false;
+          this._lastUpdateStatus.banner_visible = false;
+          this._lastUpdateStatus.installed = result.installed || this._lastUpdateStatus.latest;
+          this._lastUpdateStatus.disk = result.disk || this._lastUpdateStatus.installed;
+          this._lastUpdateStatus.needs_restart = true;
+        }
+        this._renderUpdateBanner(this._lastUpdateStatus);
       } catch (err) {
         if (statusEl) statusEl.textContent = `Install failed: ${err.message}`;
         if (fb) {
