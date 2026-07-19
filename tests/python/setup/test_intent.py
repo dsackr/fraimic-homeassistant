@@ -237,7 +237,7 @@ class _FakeLibrary:
     async def async_list_images(self):
         return self.images
 
-    async def async_get_bin_for_send(self, image_id, spec):
+    async def async_get_bin_for_send(self, image_id, spec, pack_method=None, codec_id=None):
         return f"bin-for-{image_id}".encode()
 
 

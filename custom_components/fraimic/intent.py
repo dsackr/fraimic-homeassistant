@@ -302,8 +302,14 @@ class FraimicShowImageIntent(intent.IntentHandler):
                 raise HomeAssistantError(f"Config entry '{entry_id}' not found")
 
             spec = render_spec_for_entry(entry)
+            from .panel_codec import panel_codec_for_entry  # noqa: PLC0415
+
+            try:
+                codec_id = panel_codec_for_entry(entry).id
+            except ValueError:
+                codec_id = None
             bin_bytes = await library_manager.async_get_bin_for_send(
-                matched_image["image_id"], spec
+                matched_image["image_id"], spec, codec_id=codec_id
             )
             await coordinator.async_send_image_or_queue(
                 bin_bytes, image_id=matched_image["image_id"]

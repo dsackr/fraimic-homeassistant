@@ -128,17 +128,25 @@ renderer — see KPF 28/29).
 ## 8. Shared image library: upload, list, stream original, thumbnail, voice name, tags
 Users upload photos into one shared pool; images are listed/streamed for
 the panel's grids with on-the-fly cached thumbnails, and can carry user-defined
-voice names and tags for Assist commands.
+voice names and tags for Assist commands. Wire-payload (`.bin`) cache keys
+include PanelCodec id (`codec_id`) under
+`bin/<WxH[variant]>/<codec_id>/` so sequential vs split-half packs never
+collide; pre-Phase-2 resolution-only bins still serve as a read fallback.
 - **Entry points**: `library.py` (`LibraryManager.async_upload` /
-  `list_images` / `get_original` / `get_thumbnail` / `async_set_image_voice_name` / `async_set_image_tags`,
-  `LocalLibraryBackend`), `library_http.py` (`FraimicLibraryImageVoiceNameView`, `FraimicLibraryImageTagsView`).
+  `list_images` / `get_original` / `get_thumbnail` / `async_get_bin_for_send` /
+  `async_set_image_voice_name` / `async_set_image_tags`,
+  `LocalLibraryBackend` / Dropbox / Drive `_bin_path` + `bin_file_ids`),
+  `library_http.py` (`FraimicLibraryImageVoiceNameView`, `FraimicLibraryImageTagsView`).
 - **If it silently breaks**: uploads silently fail per-file in a batch,
-  thumbnails go stale/broken, or voice name/tag edits fail to persist.
+  thumbnails go stale/broken, voice name/tag edits fail to persist, or a
+  7.3" send reuses 13.3"-layout bytes (wrong codec cache).
 - **Test status**: Panel-tested (`dashboard.spec.js` covers grid rendering, album navigation, voice name, and tags configuration/clearing; `lazy-thumbs.spec.js`).
   **Backend-tested** (local backend) —
   `tests/python/library/test_library_local_backend.py` (single/multi
   upload, undecodable-bytes tolerance, thumbnail cache generation/reuse,
-  delete purges original + thumbnails, voice name and tags updates).
+  delete purges original + thumbnails, voice name and tags updates);
+  `tests/python/library/test_library_crop_albums_backfill.py` (codec-keyed
+  bin cache + legacy path fallback).
 
 ## 9. Library storage backend switching (Local / Dropbox / Google Drive)
 User can point the whole library at Dropbox or Google Drive instead of

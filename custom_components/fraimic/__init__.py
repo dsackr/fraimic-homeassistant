@@ -805,7 +805,15 @@ def _register_services(hass: HomeAssistant) -> None:
         record = await manager.async_upload(filename, raw_bytes, [AI_GENERATED_ALBUM])
         image_id = record["image_id"]
 
-        bin_bytes = await manager.async_get_bin_for_send(image_id, spec)
+        from .panel_codec import panel_codec_for_entry  # noqa: PLC0415
+
+        try:
+            codec_id = panel_codec_for_entry(entry).id
+        except ValueError:
+            codec_id = None
+        bin_bytes = await manager.async_get_bin_for_send(
+            image_id, spec, codec_id=codec_id
+        )
         result = await coordinator.async_send_image_or_queue(
             bin_bytes, image_id=image_id
         )

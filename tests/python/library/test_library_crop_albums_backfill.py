@@ -169,7 +169,11 @@ async def test_backfill_generates_bin_for_configured_frame_resolution(
     record = await library_manager.async_upload("photo.jpg", sample_image_bytes(2000, 2000))
     await hass.async_block_till_done()
 
-    cached = await library_manager._backend.async_get_bin(record["image_id"], 1200, 1600)
+    from custom_components.fraimic.frame_types import CODEC_SPECTRA6_SPLIT_HALF
+
+    cached = await library_manager._backend.async_get_bin(
+        record["image_id"], 1200, 1600, "", CODEC_SPECTRA6_SPLIT_HALF
+    )
     assert cached is not None
 
 
@@ -182,8 +186,12 @@ async def test_get_bin_for_send_generates_on_the_fly_when_uncached(
     bin_bytes = await library_manager.async_get_bin_for_send(record["image_id"], spec)
     assert len(bin_bytes) == (1200 * 1600) // 2
 
-    # And it's now cached for next time.
-    cached = await library_manager._backend.async_get_bin(record["image_id"], 1200, 1600, spec.variant)
+    # Cached under the Phase-2 codec-keyed path (13.3" → spectra6_split_half).
+    from custom_components.fraimic.frame_types import CODEC_SPECTRA6_SPLIT_HALF
+
+    cached = await library_manager._backend.async_get_bin(
+        record["image_id"], 1200, 1600, spec.variant, CODEC_SPECTRA6_SPLIT_HALF
+    )
     assert cached == bin_bytes
 
 
@@ -221,5 +229,89 @@ async def test_get_bin_for_send_pack_method_override_bypasses_cache(
     assert legacy == normal  # byte-identical per image_converter's own guarantee
 
     # The override must not have polluted the cache with anything different.
-    cached = await library_manager._backend.async_get_bin(record["image_id"], 1200, 1600, spec.variant)
+    from custom_components.fraimic.frame_types import CODEC_SPECTRA6_SPLIT_HALF
+
+    cached = await library_manager._backend.async_get_bin(
+        record["image_id"], 1200, 1600, spec.variant, CODEC_SPECTRA6_SPLIT_HALF
+    )
     assert cached == normal
+
+
+# ---------------------------------------------------------------------------
+# FramePort Phase 2: codec_id in .bin cache keys
+# ---------------------------------------------------------------------------
+
+
+async def test_bin_cache_keys_by_codec_id(library_manager, sample_image_bytes):
+    from custom_components.fraimic.frame_types import (
+        CODEC_SPECTRA6_SEQUENTIAL,
+        CODEC_SPECTRA6_SPLIT_HALF,
+    )
+
+    record = await library_manager.async_upload("photo.jpg", sample_image_bytes(400, 300))
+    image_id = record["image_id"]
+    await library_manager._backend.async_save_bin(
+        image_id, 800, 480, b"seq-payload", "", CODEC_SPECTRA6_SEQUENTIAL
+    )
+    await library_manager._backend.async_save_bin(
+        image_id, 1200, 1600, b"split-payload", "", CODEC_SPECTRA6_SPLIT_HALF
+    )
+
+    assert (
+        await library_manager._backend.async_get_bin(
+            image_id, 800, 480, "", CODEC_SPECTRA6_SEQUENTIAL
+        )
+        == b"seq-payload"
+    )
+    assert (
+        await library_manager._backend.async_get_bin(
+            image_id, 1200, 1600, "", CODEC_SPECTRA6_SPLIT_HALF
+        )
+        == b"split-payload"
+    )
+    # Wrong codec at that geometry is a miss (no silent cross-serve).
+    assert (
+        await library_manager._backend.async_get_bin(
+            image_id, 800, 480, "", CODEC_SPECTRA6_SPLIT_HALF
+        )
+        is None
+    )
+
+
+async def test_bin_cache_falls_back_to_legacy_path_for_same_geometry(
+    library_manager, sample_image_bytes
+):
+    """Pre-Phase-2 bins (no codec dir) still serve when codec is requested."""
+    from custom_components.fraimic.frame_types import CODEC_SPECTRA6_SPLIT_HALF
+
+    record = await library_manager.async_upload("photo.jpg", sample_image_bytes(400, 300))
+    image_id = record["image_id"]
+    # Legacy write (codec_id empty).
+    await library_manager._backend.async_save_bin(image_id, 1200, 1600, b"legacy-bin")
+
+    cached = await library_manager._backend.async_get_bin(
+        image_id, 1200, 1600, "", CODEC_SPECTRA6_SPLIT_HALF
+    )
+    assert cached == b"legacy-bin"
+
+
+async def test_get_bin_for_send_writes_codec_keyed_path(
+    library_manager, sample_image_bytes
+):
+    from custom_components.fraimic.frame_types import CODEC_SPECTRA6_SEQUENTIAL
+
+    record = await library_manager.async_upload("photo.jpg", sample_image_bytes(400, 300))
+    # 7.3" geometry → sequential codec.
+    spec = RenderSpec(width=800, height=480, rotation=0, locked=False)
+    bin_bytes = await library_manager.async_get_bin_for_send(
+        record["image_id"], spec, codec_id=CODEC_SPECTRA6_SEQUENTIAL
+    )
+    assert len(bin_bytes) == (800 * 480) // 2
+
+    codec_path = await library_manager._backend.async_get_bin(
+        record["image_id"], 800, 480, "", CODEC_SPECTRA6_SEQUENTIAL
+    )
+    assert codec_path == bin_bytes
+    # Must not only live on the legacy path.
+    # (Legacy empty get without codec still reads only the old layout.)
+    # After Phase-2 writes, the primary location is the codec subdir.

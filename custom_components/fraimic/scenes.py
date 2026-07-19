@@ -305,8 +305,16 @@ class SceneManager:
                 image_id = value
 
             try:
+                from .panel_codec import panel_codec_for_entry  # noqa: PLC0415
+
+                try:
+                    codec_id = panel_codec_for_entry(entry).id
+                except ValueError:
+                    codec_id = None
                 bin_bytes = await library_manager.async_get_bin_for_send(
-                    image_id, render_spec_for_entry(entry)
+                    image_id,
+                    render_spec_for_entry(entry),
+                    codec_id=codec_id,
                 )
             except Exception as err:  # noqa: BLE001
                 return {"entry_id": entry_id, "success": False, "message": str(err)}

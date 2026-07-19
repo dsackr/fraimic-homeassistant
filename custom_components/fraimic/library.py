@@ -127,6 +127,29 @@ _ALL_BIN_VARIANTS: tuple[str, ...] = tuple(
 )
 
 
+def _known_codec_ids() -> tuple[str, ...]:
+    """All PanelCodec ids that may appear under bin/ (FramePort Phase 2)."""
+    from .panel_codec import CODECS  # noqa: PLC0415
+
+    return tuple(CODECS.keys())
+
+
+def _bin_res_key(width: int, height: int, variant: str = "") -> str:
+    """Resolution + render-variant segment of the .bin cache path/key."""
+    return f"{width}x{height}{variant}"
+
+
+def _bin_manifest_key(
+    width: int, height: int, variant: str = "", codec_id: str = ""
+) -> str:
+    """Drive-style bin_file_ids key: res[+variant][/codec_id].
+
+    Empty *codec_id* is the pre-Phase-2 legacy key (resolution only).
+    """
+    base = _bin_res_key(width, height, variant)
+    return f"{base}/{codec_id}" if codec_id else base
+
+
 def _safe_filename(name: str) -> str:
     name = re.sub(r"[^A-Za-z0-9_.-]", "_", name)
     return name[:128] or "image"
@@ -222,15 +245,32 @@ class LibraryBackend:
         raise NotImplementedError
 
     async def async_get_bin(
-        self, image_id: str, width: int, height: int, variant: str = ""
+        self,
+        image_id: str,
+        width: int,
+        height: int,
+        variant: str = "",
+        codec_id: str = "",
     ) -> bytes | None:
         """*variant* is the cache-key suffix from RenderSpec.variant ("" for
-        the default render, e.g. "_r180" / "_r90_c" otherwise)."""
+        the default render, e.g. "_r180" / "_r90_c" otherwise).
+
+        *codec_id* is the PanelCodec id (e.g. spectra6_sequential). When set,
+        backends look under the codec-keyed path first, then fall back to the
+        pre-Phase-2 resolution-only path so existing caches keep working.
+        """
         raise NotImplementedError
 
     async def async_save_bin(
-        self, image_id: str, width: int, height: int, data: bytes, variant: str = ""
+        self,
+        image_id: str,
+        width: int,
+        height: int,
+        data: bytes,
+        variant: str = "",
+        codec_id: str = "",
     ) -> None:
+        """Persist a wire payload. Prefer a non-empty *codec_id* (Phase 2)."""
         raise NotImplementedError
 
     async def async_update_image_fields(self, image_id: str, **fields: Any) -> None:
@@ -334,8 +374,22 @@ class LocalLibraryBackend(LibraryBackend):
             json.dump(manifest, f, indent=2)
         os.replace(tmp, self._manifest_path)
 
-    def _bin_path(self, image_id: str, width: int, height: int, variant: str = "") -> str:
-        return os.path.join(self._root, "bin", f"{width}x{height}{variant}", f"{image_id}.bin")
+    def _bin_path(
+        self,
+        image_id: str,
+        width: int,
+        height: int,
+        variant: str = "",
+        codec_id: str = "",
+    ) -> str:
+        # Phase 2: bin/<WxH[variant]>/<codec_id>/<image_id>.bin
+        # Legacy (no codec_id): bin/<WxH[variant]>/<image_id>.bin
+        res = _bin_res_key(width, height, variant)
+        if codec_id:
+            return os.path.join(
+                self._root, "bin", res, codec_id, f"{image_id}.bin"
+            )
+        return os.path.join(self._root, "bin", res, f"{image_id}.bin")
 
     def _original_path_for(self, image_id: str, filename: str) -> str:
         return os.path.join(
@@ -399,17 +453,41 @@ class LocalLibraryBackend(LibraryBackend):
         with open(path, "rb") as f:
             return f.read(), content_type
 
-    def _get_bin_sync(self, image_id: str, width: int, height: int, variant: str = "") -> bytes | None:
-        path = self._bin_path(image_id, width, height, variant)
+    def _get_bin_sync(
+        self,
+        image_id: str,
+        width: int,
+        height: int,
+        variant: str = "",
+        codec_id: str = "",
+    ) -> bytes | None:
+        if codec_id:
+            path = self._bin_path(image_id, width, height, variant, codec_id)
+            if os.path.isfile(path):
+                with open(path, "rb") as f:
+                    return f.read()
+            # Fall back to pre-Phase-2 layout for the same geometry.
+            legacy = self._bin_path(image_id, width, height, variant, "")
+            if os.path.isfile(legacy):
+                with open(legacy, "rb") as f:
+                    return f.read()
+            return None
+        path = self._bin_path(image_id, width, height, variant, "")
         if not os.path.isfile(path):
             return None
         with open(path, "rb") as f:
             return f.read()
 
     def _save_bin_sync(
-        self, image_id: str, width: int, height: int, data: bytes, variant: str = ""
+        self,
+        image_id: str,
+        width: int,
+        height: int,
+        data: bytes,
+        variant: str = "",
+        codec_id: str = "",
     ) -> None:
-        path = self._bin_path(image_id, width, height, variant)
+        path = self._bin_path(image_id, width, height, variant, codec_id)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as f:
             f.write(data)
@@ -432,9 +510,19 @@ class LocalLibraryBackend(LibraryBackend):
         bin_root = os.path.join(self._root, "bin")
         if os.path.isdir(bin_root):
             for res_dir in os.listdir(bin_root):
-                candidate = os.path.join(bin_root, res_dir, f"{image_id}.bin")
+                res_path = os.path.join(bin_root, res_dir)
+                # Legacy: bin/<res>/<id>.bin
+                candidate = os.path.join(res_path, f"{image_id}.bin")
                 if os.path.isfile(candidate):
                     os.remove(candidate)
+                # Phase 2: bin/<res>/<codec_id>/<id>.bin
+                if os.path.isdir(res_path):
+                    for sub in os.listdir(res_path):
+                        codec_candidate = os.path.join(
+                            res_path, sub, f"{image_id}.bin"
+                        )
+                        if os.path.isfile(codec_candidate):
+                            os.remove(codec_candidate)
         manifest = self._read_manifest()
         manifest["images"] = [
             d for d in manifest.get("images", []) if d["image_id"] != image_id
@@ -460,10 +548,13 @@ class LocalLibraryBackend(LibraryBackend):
         self._write_manifest(manifest)
 
     def _delete_bin_sync(self, image_id: str, width: int, height: int) -> None:
+        # Drop every render variant under every known codec + the legacy
+        # resolution-only path so crop changes never leave a stale codec.
         for variant in _ALL_BIN_VARIANTS:
-            path = self._bin_path(image_id, width, height, variant)
-            if os.path.isfile(path):
-                os.remove(path)
+            for codec_id in (*_known_codec_ids(), ""):
+                path = self._bin_path(image_id, width, height, variant, codec_id)
+                if os.path.isfile(path):
+                    os.remove(path)
 
     # -- async public API --
 
@@ -474,18 +565,29 @@ class LocalLibraryBackend(LibraryBackend):
         return await self.hass.async_add_executor_job(self._get_original_sync, image_id)
 
     async def async_get_bin(
-        self, image_id: str, width: int, height: int, variant: str = ""
+        self,
+        image_id: str,
+        width: int,
+        height: int,
+        variant: str = "",
+        codec_id: str = "",
     ) -> bytes | None:
         return await self.hass.async_add_executor_job(
-            self._get_bin_sync, image_id, width, height, variant
+            self._get_bin_sync, image_id, width, height, variant, codec_id
         )
 
     async def async_save_bin(
-        self, image_id: str, width: int, height: int, data: bytes, variant: str = ""
+        self,
+        image_id: str,
+        width: int,
+        height: int,
+        data: bytes,
+        variant: str = "",
+        codec_id: str = "",
     ) -> None:
         async with self._manifest_lock:
             await self.hass.async_add_executor_job(
-                self._save_bin_sync, image_id, width, height, data, variant
+                self._save_bin_sync, image_id, width, height, data, variant, codec_id
             )
 
     async def async_update_image_fields(self, image_id: str, **fields: Any) -> None:
@@ -696,8 +798,18 @@ class DropboxLibraryBackend(LibraryBackend):
             )
         self._manifest_cache.store(manifest)
 
-    def _bin_path(self, image_id: str, width: int, height: int, variant: str = "") -> str:
-        return f"{_DROPBOX_ROOT}/bin/{width}x{height}{variant}/{image_id}.bin"
+    def _bin_path(
+        self,
+        image_id: str,
+        width: int,
+        height: int,
+        variant: str = "",
+        codec_id: str = "",
+    ) -> str:
+        res = _bin_res_key(width, height, variant)
+        if codec_id:
+            return f"{_DROPBOX_ROOT}/bin/{res}/{codec_id}/{image_id}.bin"
+        return f"{_DROPBOX_ROOT}/bin/{res}/{image_id}.bin"
 
     async def _original_dropbox_path(self, image_id: str) -> tuple[str, str]:
         manifest = await self._read_manifest() or {"images": []}
@@ -760,14 +872,12 @@ class DropboxLibraryBackend(LibraryBackend):
             raise LibraryBackendError(f"Dropbox download failed ({resp.status}): {text[:200]}")
         return await resp.read(), content_type
 
-    async def async_get_bin(
-        self, image_id: str, width: int, height: int, variant: str = ""
-    ) -> bytes | None:
+    async def _dropbox_download_bin(self, path: str) -> bytes | None:
         session = async_get_clientsession(self.hass)
         resp = await session.post(
             f"{_DROPBOX_CONTENT_API}/files/download",
             headers=self._headers(
-                {"Dropbox-API-Arg": json.dumps({"path": self._bin_path(image_id, width, height, variant)})}
+                {"Dropbox-API-Arg": json.dumps({"path": path})}
             ),
         )
         if resp.status in (404, 409):
@@ -779,8 +889,35 @@ class DropboxLibraryBackend(LibraryBackend):
             )
         return await resp.read()
 
+    async def async_get_bin(
+        self,
+        image_id: str,
+        width: int,
+        height: int,
+        variant: str = "",
+        codec_id: str = "",
+    ) -> bytes | None:
+        if codec_id:
+            data = await self._dropbox_download_bin(
+                self._bin_path(image_id, width, height, variant, codec_id)
+            )
+            if data is not None:
+                return data
+            return await self._dropbox_download_bin(
+                self._bin_path(image_id, width, height, variant, "")
+            )
+        return await self._dropbox_download_bin(
+            self._bin_path(image_id, width, height, variant, "")
+        )
+
     async def async_save_bin(
-        self, image_id: str, width: int, height: int, data: bytes, variant: str = ""
+        self,
+        image_id: str,
+        width: int,
+        height: int,
+        data: bytes,
+        variant: str = "",
+        codec_id: str = "",
     ) -> None:
         session = async_get_clientsession(self.hass)
         resp = await session.post(
@@ -788,7 +925,12 @@ class DropboxLibraryBackend(LibraryBackend):
             headers=self._headers(
                 {
                     "Dropbox-API-Arg": json.dumps(
-                        {"path": self._bin_path(image_id, width, height, variant), "mode": "overwrite"}
+                        {
+                            "path": self._bin_path(
+                                image_id, width, height, variant, codec_id
+                            ),
+                            "mode": "overwrite",
+                        }
                     ),
                     "Content-Type": "application/octet-stream",
                 }
@@ -832,16 +974,21 @@ class DropboxLibraryBackend(LibraryBackend):
     async def async_delete_bin(self, image_id: str, width: int, height: int) -> None:
         session = async_get_clientsession(self.hass)
         for variant in _ALL_BIN_VARIANTS:
-            resp = await session.post(
-                f"{_DROPBOX_API}/files/delete_v2",
-                headers=self._headers({"Content-Type": "application/json"}),
-                json={"path": self._bin_path(image_id, width, height, variant)},
-            )
-            if resp.status >= 400 and resp.status not in (404, 409):
-                text = await resp.text()
-                raise LibraryBackendError(
-                    f"Dropbox bin delete failed ({resp.status}): {text[:200]}"
+            for codec_id in (*_known_codec_ids(), ""):
+                resp = await session.post(
+                    f"{_DROPBOX_API}/files/delete_v2",
+                    headers=self._headers({"Content-Type": "application/json"}),
+                    json={
+                        "path": self._bin_path(
+                            image_id, width, height, variant, codec_id
+                        )
+                    },
                 )
+                if resp.status >= 400 and resp.status not in (404, 409):
+                    text = await resp.text()
+                    raise LibraryBackendError(
+                        f"Dropbox bin delete failed ({resp.status}): {text[:200]}"
+                    )
 
     async def async_delete_image(self, image_id: str) -> None:
         session = async_get_clientsession(self.hass)
@@ -1170,7 +1317,12 @@ class GoogleDriveLibraryBackend(LibraryBackend):
         return data, entry.get("content_type", "application/octet-stream")
 
     async def async_get_bin(
-        self, image_id: str, width: int, height: int, variant: str = ""
+        self,
+        image_id: str,
+        width: int,
+        height: int,
+        variant: str = "",
+        codec_id: str = "",
     ) -> bytes | None:
         manifest = await self._read_manifest()
         entry = next(
@@ -1179,23 +1331,36 @@ class GoogleDriveLibraryBackend(LibraryBackend):
         )
         if entry is None:
             return None
-        bin_file_id = entry.get("bin_file_ids", {}).get(f"{width}x{height}{variant}")
+        ids = entry.get("bin_file_ids", {})
+        bin_file_id = ids.get(_bin_manifest_key(width, height, variant, codec_id))
+        if not bin_file_id and codec_id:
+            # Legacy pre-Phase-2 key (resolution only).
+            bin_file_id = ids.get(_bin_manifest_key(width, height, variant, ""))
         if not bin_file_id:
             return None
         return await self._download_content(bin_file_id)
 
     async def async_save_bin(
-        self, image_id: str, width: int, height: int, data: bytes, variant: str = ""
+        self,
+        image_id: str,
+        width: int,
+        height: int,
+        data: bytes,
+        variant: str = "",
+        codec_id: str = "",
     ) -> None:
         async with self._manifest_lock:
             manifest = await self._read_manifest()
             entry = self._find_entry(manifest, image_id)
-            res_key = f"{width}x{height}{variant}"
+            res_key = _bin_manifest_key(width, height, variant, codec_id)
             existing_id = entry.get("bin_file_ids", {}).get(res_key)
             if existing_id:
                 await self._upload_content(existing_id, data, "application/octet-stream")
                 return
-            file_id = await self._create_file(f"{image_id}_{res_key}.bin", data, "application/octet-stream")
+            safe_name = res_key.replace("/", "_")
+            file_id = await self._create_file(
+                f"{image_id}_{safe_name}.bin", data, "application/octet-stream"
+            )
             entry.setdefault("bin_file_ids", {})[res_key] = file_id
             if [width, height] not in entry.setdefault("resolutions", []):
                 entry["resolutions"].append([width, height])
@@ -1225,11 +1390,12 @@ class GoogleDriveLibraryBackend(LibraryBackend):
             entry = self._find_entry(manifest, image_id)
             deleted_any = False
             for variant in _ALL_BIN_VARIANTS:
-                res_key = f"{width}x{height}{variant}"
-                bin_file_id = entry.get("bin_file_ids", {}).pop(res_key, None)
-                if bin_file_id:
-                    await self._delete_file(bin_file_id)
-                    deleted_any = True
+                for codec_id in (*_known_codec_ids(), ""):
+                    res_key = _bin_manifest_key(width, height, variant, codec_id)
+                    bin_file_id = entry.get("bin_file_ids", {}).pop(res_key, None)
+                    if bin_file_id:
+                        await self._delete_file(bin_file_id)
+                        deleted_any = True
             if deleted_any:
                 await self._write_manifest(manifest)
 
@@ -1526,9 +1692,20 @@ class LibraryManager:
             )
             return
 
+        from .frame_types import codec_id_for_resolution  # noqa: PLC0415
         from .panel_codec import encode_for_panel  # noqa: PLC0415
 
         for spec in missing:
+            try:
+                codec_id = codec_id_for_resolution(spec.width, spec.height)
+            except ValueError:
+                _LOGGER.error(
+                    "Backfill: no codec for %dx%d (image %s)",
+                    spec.width,
+                    spec.height,
+                    record.image_id,
+                )
+                continue
             try:
                 bin_bytes = await self.hass.async_add_executor_job(
                     encode_for_panel,
@@ -1545,7 +1722,12 @@ class LibraryManager:
                 )
                 continue
             await self._backend.async_save_bin(
-                record.image_id, spec.width, spec.height, bin_bytes, spec.variant
+                record.image_id,
+                spec.width,
+                spec.height,
+                bin_bytes,
+                spec.variant,
+                codec_id,
             )
 
     async def _find_image(self, image_id: str) -> LibraryImage | None:
@@ -1553,7 +1735,11 @@ class LibraryManager:
         return next((img for img in images if img.image_id == image_id), None)
 
     async def async_get_bin_for_send(
-        self, image_id: str, spec: RenderSpec, pack_method: str | None = None
+        self,
+        image_id: str,
+        spec: RenderSpec,
+        pack_method: str | None = None,
+        codec_id: str | None = None,
     ) -> bytes:
         """Return a cached .bin for this render spec, generating + caching it
         on the fly if this render hasn't been seen for this image before
@@ -1563,15 +1749,28 @@ class LibraryManager:
         falls back to the automatic render (centered cover-crop when locked,
         sideways-rotate-to-fill when not).
 
+        Cache keys include *codec_id* (PanelCodec — FramePort Phase 2). When
+        omitted, the codec is resolved from the target resolution's frame
+        type. Callers that have a config entry should pass
+        ``panel_codec_for_entry(entry).id`` so size-based codec wins over
+        geometry alone.
+
         pack_method ("legacy" | "fast"), when given, is an A/B testing
         override: the .bin cache is bypassed entirely -- no read (so the
         requested method definitely runs) and no write (so a test send never
         pollutes the cache) -- and the conversion packs with that method.
         None (the normal path) converts with the default packer and uses the
         cache as usual."""
+        from .frame_types import codec_id_for_resolution  # noqa: PLC0415
+
         width, height = spec.width, spec.height
+        if not codec_id:
+            codec_id = codec_id_for_resolution(width, height)
+
         if pack_method is None:
-            cached = await self._backend.async_get_bin(image_id, width, height, spec.variant)
+            cached = await self._backend.async_get_bin(
+                image_id, width, height, spec.variant, codec_id
+            )
             if cached is not None:
                 return cached
 
@@ -1599,7 +1798,9 @@ class LibraryManager:
             tuple(crop_box) if crop_box else None,
         )
         if pack_method is None:
-            await self._backend.async_save_bin(image_id, width, height, bin_bytes, spec.variant)
+            await self._backend.async_save_bin(
+                image_id, width, height, bin_bytes, spec.variant, codec_id
+            )
         return bin_bytes
 
     async def async_set_crop(

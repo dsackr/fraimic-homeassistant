@@ -1,8 +1,8 @@
 # FramePort design note
 
-**Status:** Phase 0 design + **Phase 1 codec seam landed** (local Spectra
-stack: `panel_codec.py`, `FrameType.codec_id`, profile send timeouts).
-Full FramePort façade / format-keyed cache / second driver still open.  
+**Status:** Phase 0 design + **Phase 1 codec seam** + **Phase 2
+codec-keyed library cache** landed. Full FramePort ABC / second driver
+still open.  
 **Purpose:** freeze the contract that lets the gallery core (library, walls,
 scenes, schedules, skills, panel) treat every display the same way, while
 each hardware family keeps its own transport, pixel format, and discovery.
@@ -370,15 +370,14 @@ it belongs in core and must use the port.
 |-------|------|----------------|
 | **0** | This document (incl. three-layer model + 7.3" as multi-codec proof) | Done |
 | **1 – Seam inside local Spectra stack** | Explicit PanelCodec (`panel_codec.py`); `codec_id` on `FrameType`; encode call sites via `encode_for_panel*`; send timeout from panel profile. 7.3" = `spectra6_sequential`, official = `spectra6_split_half`. | **Done** (behavior-preserving) |
-| **2 – Format-agnostic render cache** | Library serves originals; cache keyed by `codec_id` (not resolution alone); Spectra codecs owned by local driver. | Subtle (cache layout) — next |
-| **3 – Second driver** | e.g. Meural experimental: add, wall, send, scene. Proves a *new transport*, not just a new codec. | Yes |
+| **2 – Format-agnostic render cache** | Library `.bin` cache keyed by `codec_id` (`bin/<WxH[variant]>/<codec_id>/…`); legacy resolution-only paths still read as fallback; send/backfill pass codec from entry/resolution. | **Done** |
+| **3 – Second driver** | e.g. Meural experimental: add, wall, send, scene. Proves a *new transport*, not just a new codec. | Yes — next |
 | **4 – Branding** | Product/panel naming (“Smart Art” or similar); optional domain migration only if still worth it | Yes |
 
-**Immediate next implementation step:** Phase 2 cache key includes
-`codec_id` (so two panels at the same resolution with different codecs
-cannot corrupt each other — today `_validate_registry` forbids that pair).
+**Immediate next implementation step:** Phase 3 — first foreign driver
+(Meural or similar), using FramePort + codec-keyed cache.
 
-**Do not start Phase 3 until Phase 1 stays green on pytest + Playwright
+**Do not start Phase 3 until Phase 1–2 stay green on pytest + Playwright
 and KPF 4/7/8/22/23 hold for both official and 7.3" panels.**
 
 ---

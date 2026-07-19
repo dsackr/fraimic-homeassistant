@@ -358,7 +358,15 @@ class FraimicLibrarySendView(HomeAssistantView):
             )
 
         try:
-            bin_bytes = await manager.async_get_bin_for_send(image_id, spec, pack_method=packer)
+            from .panel_codec import panel_codec_for_entry  # noqa: PLC0415
+
+            try:
+                codec_id = panel_codec_for_entry(entry).id
+            except ValueError:
+                codec_id = None
+            bin_bytes = await manager.async_get_bin_for_send(
+                image_id, spec, pack_method=packer, codec_id=codec_id
+            )
         except Exception as err:  # noqa: BLE001
             _LOGGER.error("Library send conversion failed: %s", err)
             return self.json_message(f"Conversion failed: {err}", status_code=500)

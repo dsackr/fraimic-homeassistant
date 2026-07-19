@@ -108,7 +108,7 @@ class _FakeLibrary:
     (simulating a deleted/missing image) -- avoids pulling in the real
     LibraryManager just to test the fan-out/aggregation logic here."""
 
-    async def async_get_bin_for_send(self, image_id, spec):
+    async def async_get_bin_for_send(self, image_id, spec, pack_method=None, codec_id=None):
         if image_id == "missing-image":
             raise FileNotFoundError(f"no such image: {image_id}")
         return f"bin-for-{image_id}".encode()
