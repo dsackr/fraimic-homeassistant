@@ -301,7 +301,7 @@ class FraimicShowImageIntent(intent.IntentHandler):
             if entry is None:
                 raise HomeAssistantError(f"Config entry '{entry_id}' not found")
 
-            spec = render_spec_for_hass_entry(self.hass, entry)
+            spec = render_spec_for_hass_entry(hass, entry)
             from .panel_codec import panel_codec_for_entry  # noqa: PLC0415
 
             try:
