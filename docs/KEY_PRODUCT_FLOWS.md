@@ -664,13 +664,19 @@ library backend settings migrate from `.storage/fraimic_library_settings`
 → `digital_frames_library_settings` on first load. Config entries,
 walls, scenes, and schedules under the old domain are **not** migrated —
 re-add frames after upgrade.
+
+**Panel URL:** primary sidebar path is `/digital_frames`. Setup also
+registers a **legacy alias** at `/fraimic` (no second sidebar entry) so
+old bookmarks keep working, and logs a warning if leftover
+`custom_components/fraimic/` is still present (must be removed).
 - **Entry points**: `const.py` (`DOMAIN`, `PRODUCT_NAME`, `LIBRARY_DIRNAME`,
   `LEGACY_DOMAIN`), `manifest.json` / `hacs.json`, `__init__.py` (panel
-  path + static URLs), `library.py` (`async_load` settings migrate), all
-  `*_http.py` view URLs, `digital-frames-panel.js` / `digital-frames-card.js`.
-- **If it silently breaks**: users still only have the old `fraimic`
-  package installed; library path renames orphan albums; settings store
-  migration is skipped so Dropbox/Drive credentials look "missing".
+  path + legacy `/fraimic` alias + leftover-folder warning),
+  `library.py` (`async_load` settings migrate), all `*_http.py` view URLs,
+  `digital-frames-panel.js` / `digital-frames-card.js`.
+- **If it silently breaks**: leftover `custom_components/fraimic/` still
+  owns `/fraimic` with old code; users only installed the package under
+  the old path; library path renames orphan albums.
 - **Test status**: **Backend-tested** — `tests/python/unit/test_branding.py`
   (domain, product name, stable `LIBRARY_DIRNAME`). Full entry migration
   is intentionally out of scope.

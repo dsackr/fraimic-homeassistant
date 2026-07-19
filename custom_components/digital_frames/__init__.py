@@ -354,8 +354,19 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
     add_extra_js_url(hass, f"/digital_frames/digital-frames-card.js?v={_cache_bust}")
 
-    # Register the "Frames" sidebar panel.
+    # Sidebar panel. Primary path is /digital_frames; keep /fraimic as a
+    # silent alias so bookmarks and leftover sidebar entries from the old
+    # domain still open this panel (domain rename in 0.12.119).
+    from homeassistant.components import frontend as ha_frontend  # noqa: PLC0415
     from homeassistant.components.panel_custom import async_register_panel  # noqa: PLC0415
+
+    module_url = f"{_PANEL_URL}?v={_cache_bust}"
+    # Drop any stale registration from a previous domain/package so we can
+    # re-bind both URL paths cleanly.
+    for stale_path in (_PANEL_PATH, "fraimic"):
+        ha_frontend.async_remove_panel(
+            hass, stale_path, warn_if_unknown=False
+        )
 
     await async_register_panel(
         hass,
@@ -363,11 +374,38 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         frontend_url_path=_PANEL_PATH,
         sidebar_title=_PANEL_SIDEBAR_TITLE,
         sidebar_icon=_PANEL_SIDEBAR_ICON,
-        module_url=f"{_PANEL_URL}?v={_cache_bust}",
+        module_url=module_url,
         embed_iframe=False,
         require_admin=False,
         config={},
     )
+    # Legacy URL only (no second sidebar item): same web component module.
+    ha_frontend.async_register_built_in_panel(
+        hass,
+        component_name="custom",
+        sidebar_title=None,
+        sidebar_icon=None,
+        sidebar_default_visible=False,
+        frontend_url_path="fraimic",
+        config={
+            "_panel_custom": {
+                "name": "digital-frames-panel",
+                "embed_iframe": False,
+                "trust_external": False,
+                "module_url": module_url,
+            }
+        },
+        require_admin=False,
+        update=True,
+    )
+
+    leftover = hass.config.path("custom_components", "fraimic")
+    if os.path.isdir(leftover):
+        _LOGGER.warning(
+            "Found leftover custom_components/fraimic/ next to digital_frames/. "
+            "Remove that folder and restart Home Assistant so only Digital Frames "
+            "loads (library under config/fraimic_library/ is safe to keep)."
+        )
 
     return True
 

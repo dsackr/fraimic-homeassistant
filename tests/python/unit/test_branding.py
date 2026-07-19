@@ -44,3 +44,12 @@ def test_library_settings_keys_for_migration():
 
     assert lib._SETTINGS_STORAGE_KEY == "digital_frames_library_settings"
     assert lib._LEGACY_SETTINGS_STORAGE_KEY == "fraimic_library_settings"
+
+
+def test_panel_paths_primary_and_legacy_constant():
+    """Primary path is digital_frames; code also aliases /fraimic for bookmarks."""
+    import importlib
+
+    init_mod = importlib.import_module("custom_components.digital_frames")
+    assert init_mod._PANEL_PATH == "digital_frames"
+    assert init_mod._PANEL_URL.startswith("/digital_frames/")
