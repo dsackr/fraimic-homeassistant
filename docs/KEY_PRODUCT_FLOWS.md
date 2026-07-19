@@ -592,20 +592,25 @@ artwork, shuffle, media browser, membership gallery sync.
   Canvas hardware is manual (**Gap** for CI).
 
 ## 33. Check for updates from the dashboard Settings modal
-Admin opens ⚙ Settings on the Fraimic panel and sees installed vs latest
-GitHub release, can **Check for updates**, **Install** (HACS if tracking
-the repo, else GitHub zipball into `custom_components/fraimic`), then
-**Restart Home Assistant** without bouncing through the HACS UI and
-Settings → System.
-- **Entry points**: `update.py` (`check_for_update`, `install_update`,
-  `restart_home_assistant`), `update_http.py` (`/api/fraimic/update*`),
+Admin opens ⚙ Settings on the Fraimic panel and sees **on-disk** package
+version vs latest GitHub release (and, when different, the version HA is
+still **running** in memory). Can **Check for updates**, **Install**
+(HACS if tracking the repo, else GitHub zipball into
+`custom_components/fraimic`), then **Restart Home Assistant**. After
+install, status shows disk vs running and forces the Restart control until
+they match — HA's loader cache is not the install source of truth.
+- **Entry points**: `update.py` (`get_disk_version`, `get_running_version`,
+  `check_for_update`, `install_update`, `restart_home_assistant`),
+  `update_http.py` (`/api/fraimic/update*`),
   `fraimic-panel.js` (`_refreshUpdateStatus`, `_installIntegrationUpdate`,
   `_restartHomeAssistant`).
-- **If it silently breaks**: users still have to use HACS + HA restart to
-  upgrade, or a botched install leaves a half-written `custom_components/fraimic`.
+- **If it silently breaks**: settings claim "up to date" while disk is
+  newer than HA's loaded module (or the reverse), install succeeds but UI
+  never prompts restart, users still need HACS + System restart, or a
+  botched install leaves a half-written `custom_components/fraimic`.
 - **Test status**: **Backend-tested** — `tests/python/unit/test_update.py`
-  (version compare). Live GitHub check/install is admin-manual (**Gap** for
-  CI; network + filesystem).
+  (version compare, disk vs running / needs_restart). Live GitHub
+  check/install is admin-manual (**Gap** for CI; network + filesystem).
 
 ---
 

@@ -3722,26 +3722,36 @@
           ? await this._apiUpdate(path, { method: 'POST' })
           : await this._apiUpdate(path);
         this._lastUpdateStatus = data;
-        const installed = data.installed || '?';
+        const installed = data.installed || data.disk || '?';
+        const running = data.running || '';
         const latest = data.latest || '?';
+        const needsRestart = !!data.needs_restart
+          || (running && installed && running !== installed);
+        let html = `On disk <strong>v${this._esc(installed)}</strong>`;
+        if (running && running !== installed) {
+          html += ` · HA still running <strong>v${this._esc(running)}</strong>`;
+        } else if (running) {
+          html += ` · running <strong>v${this._esc(running)}</strong>`;
+        }
         if (data.update_available) {
-          statusEl.innerHTML =
-            `Installed <strong>v${this._esc(installed)}</strong> · ` +
-            `Latest <strong>v${this._esc(latest)}</strong> available` +
-            (data.release_url
-              ? ` · <a href="${this._esc(data.release_url)}" target="_blank" rel="noopener">notes</a>`
-              : '');
+          html += ` · Latest <strong>v${this._esc(latest)}</strong> available`;
+          if (data.release_url) {
+            html += ` · <a href="${this._esc(data.release_url)}" target="_blank" rel="noopener">notes</a>`;
+          }
           if (installBtn) {
             installBtn.style.display = '';
             installBtn.disabled = false;
             installBtn.textContent = `Install v${latest}`;
           }
+        } else if (needsRestart) {
+          html += ' · <strong>Restart required</strong> to load the new files';
+          if (installBtn) installBtn.style.display = 'none';
         } else {
-          statusEl.innerHTML =
-            `Installed <strong>v${this._esc(installed)}</strong> · up to date` +
-            (latest && latest !== installed ? ` (latest v${this._esc(latest)})` : '');
+          html += ' · up to date';
+          if (installBtn) installBtn.style.display = 'none';
         }
-        if (restartBtn && data.needs_restart) restartBtn.style.display = '';
+        statusEl.innerHTML = html;
+        if (restartBtn) restartBtn.style.display = needsRestart ? '' : 'none';
       } catch (err) {
         statusEl.textContent = `Could not check updates: ${err.message}`;
       }

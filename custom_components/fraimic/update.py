@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import os
 import shutil
@@ -31,6 +32,9 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.loader import async_get_integration
 
 from .const import DOMAIN
+
+# Set after a successful disk install until HA restarts and running==disk.
+_NEEDS_RESTART_KEY = "_update_needs_restart"
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -82,9 +86,48 @@ def is_newer(candidate: str, current: str) -> bool:
     return _version_tuple(candidate) > _version_tuple(current)
 
 
+async def get_running_version(hass: HomeAssistant) -> str:
+    """Version HA has loaded into memory (stale until restart after update)."""
+    try:
+        integration = await async_get_integration(hass, DOMAIN)
+        return _norm_version(str(integration.version or ""))
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+async def get_disk_version(hass: HomeAssistant) -> str:
+    """Version in ``custom_components/fraimic/manifest.json`` on disk."""
+    path = hass.config.path("custom_components", _COMPONENT, "manifest.json")
+
+    def _read() -> str:
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            return _norm_version(str(data.get("version") or ""))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            return ""
+
+    return await hass.async_add_executor_job(_read)
+
+
 async def get_installed_version(hass: HomeAssistant) -> str:
-    integration = await async_get_integration(hass, DOMAIN)
-    return _norm_version(str(integration.version or ""))
+    """On-disk package version (preferred after a Settings-page install)."""
+    disk = await get_disk_version(hass)
+    if disk:
+        return disk
+    return await get_running_version(hass)
+
+
+def _mark_needs_restart(hass: HomeAssistant) -> None:
+    hass.data.setdefault(DOMAIN, {})[_NEEDS_RESTART_KEY] = True
+
+
+def _needs_restart(hass: HomeAssistant, *, disk: str, running: str) -> bool:
+    if hass.data.get(DOMAIN, {}).get(_NEEDS_RESTART_KEY):
+        return True
+    if disk and running and disk != running:
+        return True
+    return False
 
 
 async def fetch_latest_release(hass: HomeAssistant) -> dict[str, Any]:
@@ -133,19 +176,34 @@ async def fetch_latest_release(hass: HomeAssistant) -> dict[str, Any]:
 
 
 async def check_for_update(hass: HomeAssistant) -> dict[str, Any]:
-    """Compare installed version to latest GitHub release."""
-    installed = await get_installed_version(hass)
+    """Compare on-disk package version to latest GitHub release.
+
+    Also reports the version HA currently has loaded (*running*). After an
+    install without restart, *installed* (disk) can be newer than *running*
+    — that is expected; *needs_restart* is True until they match.
+    """
+    disk = await get_disk_version(hass)
+    running = await get_running_version(hass)
+    installed = disk or running
     latest = await fetch_latest_release(hass)
     available = is_newer(latest["version"], installed)
     hacs = await _hacs_status(hass)
+    needs_restart = _needs_restart(hass, disk=disk, running=running)
+    # Clear sticky flag once a restart has aligned versions.
+    if disk and running and disk == running:
+        hass.data.setdefault(DOMAIN, {}).pop(_NEEDS_RESTART_KEY, None)
+        needs_restart = False
     return {
         "installed": installed,
+        "running": running,
+        "disk": disk,
         "latest": latest["version"],
         "latest_tag": latest["tag"],
         "latest_name": latest["name"],
         "release_notes": latest["body"],
         "release_url": latest["html_url"],
         "update_available": available,
+        "needs_restart": needs_restart,
         "hacs": hacs,
         "zipball_url": latest["zipball_url"],
     }
@@ -204,6 +262,7 @@ async def install_update(hass: HomeAssistant, *, version: str | None = None) -> 
     # Prefer HACS when it tracks us and exposes a download path.
     hacs_result = await _try_hacs_install(hass, target)
     if hacs_result is not None:
+        _mark_needs_restart(hass)
         return hacs_result
 
     tag = status.get("latest_tag") or f"v{target}"
@@ -216,13 +275,20 @@ async def install_update(hass: HomeAssistant, *, version: str | None = None) -> 
         else f"https://github.com/{GITHUB_FULL}/archive/refs/tags/{tag}.zip"
     )
     await _install_from_zipball(hass, zip_url, expected_version=target)
+    _mark_needs_restart(hass)
+    disk = await get_disk_version(hass) or target
+    running = await get_running_version(hass)
     return {
         "success": True,
         "method": "github",
-        "installed": target,
+        "installed": disk,
+        "running": running,
+        "disk": disk,
         "needs_restart": True,
         "message": (
-            f"Fraimic {target} installed. Restart Home Assistant to load it."
+            f"Fraimic {disk} is on disk"
+            + (f" (Home Assistant is still running {running})" if running and running != disk else "")
+            + ". Restart Home Assistant to load it."
         ),
     }
 
@@ -256,13 +322,24 @@ async def _try_hacs_install(hass: HomeAssistant, target: str) -> dict[str, Any] 
             result = download(tag)
             if asyncio.iscoroutine(result):
                 await result
+        _mark_needs_restart(hass)
+        disk = await get_disk_version(hass) or target
+        running = await get_running_version(hass)
         return {
             "success": True,
             "method": "hacs",
-            "installed": target,
+            "installed": disk,
+            "running": running,
+            "disk": disk,
             "needs_restart": True,
             "message": (
-                f"Fraimic {target} installed via HACS. Restart Home Assistant to load it."
+                f"Fraimic {disk} installed via HACS"
+                + (
+                    f" (Home Assistant is still running {running})"
+                    if running and running != disk
+                    else ""
+                )
+                + ". Restart Home Assistant to load it."
             ),
         }
     except Exception as err:  # noqa: BLE001

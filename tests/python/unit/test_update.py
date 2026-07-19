@@ -2,7 +2,17 @@
 
 from __future__ import annotations
 
-from custom_components.fraimic.update import is_newer, _norm_version, _version_tuple
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+from custom_components.fraimic.const import DOMAIN
+from custom_components.fraimic.update import (
+    _NEEDS_RESTART_KEY,
+    _needs_restart,
+    _norm_version,
+    _version_tuple,
+    is_newer,
+)
 
 
 def test_norm_version_strips_v_prefix():
@@ -22,3 +32,16 @@ def test_is_newer():
     assert is_newer("0.12.101", "0.12.102") is False
     assert is_newer("v0.13.0", "0.12.99") is True
     assert is_newer("1.0.0", "0.99.99") is True
+
+
+def test_needs_restart_when_disk_ahead_of_running():
+    hass = MagicMock()
+    hass.data = {DOMAIN: {}}
+    assert _needs_restart(hass, disk="0.12.111", running="0.12.108") is True
+    assert _needs_restart(hass, disk="0.12.111", running="0.12.111") is False
+
+
+def test_needs_restart_sticky_flag():
+    hass = MagicMock()
+    hass.data = {DOMAIN: {_NEEDS_RESTART_KEY: True}}
+    assert _needs_restart(hass, disk="0.12.111", running="0.12.111") is True
