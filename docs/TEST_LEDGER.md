@@ -51,3 +51,4 @@ Notes on reading it:
 | 2026-07-19 | 59e5ef0 | backend-pytest | success | 309 passed in 48.15s | 62% | CI |
 | 2026-07-19 | 50db356 | backend-pytest | success | 311 passed in 71.31s (0:01:11) | 62% | CI |
 | 2026-07-19 | 5ffd32d | backend-pytest | failure | 3 failed, 311 passed in 71.86s (0:01:11) | 62% | CI |
+| 2026-07-19 | 595c090 | panel-playwright | success | 137 passed | — | CI |
