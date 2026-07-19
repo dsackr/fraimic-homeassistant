@@ -1,13 +1,22 @@
-"""Constants for the Digital Frames integration (HA domain: fraimic)."""
+"""Constants for the Digital Frames integration."""
 
 from homeassistant.const import Platform
 
-DOMAIN = "fraimic"
+DOMAIN = "digital_frames"
 
 # User-facing product name (HACS, sidebar, media browser, banners).
-# Technical domain, package path, and API prefix stay ``fraimic`` until a
-# future migration; official Spectra hardware is still manufacturer "Fraimic".
 PRODUCT_NAME = "Digital Frames"
+
+# On-disk library root under HA config/. Intentionally NOT renamed with the
+# domain: albums + originals live here, and existing installs already have
+# data under this path. Dropbox uses the same folder name at cloud root.
+LIBRARY_DIRNAME = "fraimic_library"
+# Local thumbnail / bin cache roots (same stability rule as LIBRARY_DIRNAME).
+CACHE_DIRNAME = "fraimic_cache"
+ADDONS_DIRNAME = "fraimic_addons"
+
+# Pre-rename domain — used only to migrate library settings store keys.
+LEGACY_DOMAIN = "fraimic"
 
 # Polling interval in seconds (5 minutes default)
 DEFAULT_SCAN_INTERVAL = 300

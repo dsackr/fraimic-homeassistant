@@ -12,8 +12,8 @@ from types import SimpleNamespace
 import pytest
 from homeassistant.helpers import entity_registry as er
 
-from custom_components.fraimic.const import CONF_ORIENTATION, DOMAIN
-from custom_components.fraimic.sensor import (
+from custom_components.digital_frames.const import CONF_ORIENTATION, DOMAIN
+from custom_components.digital_frames.sensor import (
     FraimicBatterySensor,
     FraimicChargingSensor,
     FraimicFirmwareSensor,
@@ -181,7 +181,7 @@ def _no_real_network(monkeypatch):
             return _FakeResponse()
 
     monkeypatch.setattr(
-        "custom_components.fraimic.coordinator.async_get_clientsession",
+        "custom_components.digital_frames.coordinator.async_get_clientsession",
         lambda hass: _FakeSession(),
     )
 
@@ -239,7 +239,7 @@ async def test_camera_entity_setup(hass, make_frame_entry):
 
 
 async def test_camera_image_returns_coordinator_thumbnail(hass, make_frame_entry):
-    from custom_components.fraimic.camera import FraimicCamera
+    from custom_components.digital_frames.camera import FraimicCamera
     entry = make_frame_entry()
     coordinator = _fake_coordinator(pending_send=None)
     coordinator.hass = hass

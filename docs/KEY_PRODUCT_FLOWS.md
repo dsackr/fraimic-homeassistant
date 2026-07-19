@@ -200,8 +200,8 @@ same editor pre-targeted at that frame), and the Lovelace card's own
 crop editor (KPF 29), whose "Save & Send" persists the crop then
 immediately re-sends so the physical frame updates.
 - **Entry points**: `library.py` (`async_set_crop`, `async_clear_crop`),
-  `library_http.py` (`FraimicLibraryCropView`), `fraimic-panel.js`
-  (`_openEditor`, `_cropFromWallPicker`), `fraimic-card.js` (`_openCrop`,
+  `library_http.py` (`FraimicLibraryCropView`), `digital-frames-panel.js`
+  (`_openEditor`, `_cropFromWallPicker`), `digital-frames-card.js` (`_openCrop`,
   `_cropSaveSend`).
 - **If it silently breaks**: a saved crop doesn't apply on next send, or
   clearing a crop leaves stale cached renders for the same orientation.
@@ -249,8 +249,8 @@ upload buttons). Note: because these bytes never enter the library, the
 sent photo can't be re-cropped afterwards (KPF 12's crop editors are
 deliberately disabled for it).
 - **Entry points**: `http_api.py` (`FraimicSendImageView`,
-  `resolve_frame_by_entity`), `fraimic-card.js` (`_stageFile`/`_send`),
-  `fraimic-panel.js` (`_sendFromWallPicker`).
+  `resolve_frame_by_entity`), `digital-frames-card.js` (`_stageFile`/`_send`),
+  `digital-frames-panel.js` (`_sendFromWallPicker`).
 - **If it silently breaks**: card sends silently fail, or the wrong frame
   receives the image.
 - **Test status**: Panel-tested (`fraimic-card.spec.js` — upload staging
@@ -300,7 +300,7 @@ one-entity-only "Home Assistant Calendar" field), merging events from
 every selected calendar.
 - **Entry points**: `scene_packs.py` (`_async_install_widget`,
   `_schedule_widget`, `async_run_widget`); the panel's generic
-  `config_schema` engine (`fraimic-panel.js`) drives each widget's install
+  `config_schema` engine (`digital-frames-panel.js`) drives each widget's install
   form, including the `multiple` (checkbox-group, comma-joined entity ids)
   and `json` field types.
 - **If it silently breaks**: a widget never runs (scheduler not armed), or
@@ -322,7 +322,7 @@ frames, if they would overlap each other, they are automatically spaced out
 along the other axis rather than producing a collision error.
 - **Entry points**: `walls.py` (`WallManager.async_save_wall`,
   `async_ensure_default_wall`, `async_prune_entry`), `walls_http.py`,
-  `fraimic-panel.js` (`_renderWallStrip`, `_openWall`, `_alignWallSelection`, `_alignWallToGrid`).
+  `digital-frames-panel.js` (`_renderWallStrip`, `_openWall`, `_alignWallSelection`, `_alignWallToGrid`).
 - **If it silently breaks**: removed/re-added frames haunt old layouts,
   the default wall stops tracking newly-added frames, or alignment features
   produce layout overlaps or throw unexpected error banners.
@@ -422,7 +422,7 @@ On open (or after an HA restart/reconnect window), the panel retries each
 of its initial data loads (frames, scenes, walls, etc.) with backoff
 instead of taking a single failed fetch at face value, and never infers
 "nothing configured yet" from a load that errored.
-- **Entry points**: `fraimic-panel.js` (`_withInitRetry`, `_initLoadErrors`,
+- **Entry points**: `digital-frames-panel.js` (`_withInitRetry`, `_initLoadErrors`,
   `_initRetryDelays`/`_initRetriesActive`).
 - **If it silently breaks**: a transient outage (HA restarting, a
   reconnect window) paints a believably-empty dashboard or wrongly opens
@@ -442,7 +442,7 @@ The panel is a custom element HA recreates per navigation, not reused —
 every `window`/`document` listener and every blob URL it creates (crop
 editor previews, thumbnails) must be torn down on disconnect, or they leak
 across every visit to the Frames panel for the life of the browser tab.
-- **Entry points**: `fraimic-panel.js` (`disconnectedCallback`, the
+- **Entry points**: `digital-frames-panel.js` (`disconnectedCallback`, the
   `this._abort` AbortController every listener registration is tied to,
   blob URL tracking in `this._thumbUrls`).
 - **If it silently breaks**: a slow memory/listener leak that only shows
@@ -502,10 +502,10 @@ and manages the frame from the dashboard: upload, library picker with
 album filter, daily-skill send, orientation toggle, and crop adjustment
 (KPF 12). The last-image preview state itself (mutually-exclusive
 `last_image_id`/`last_thumbnail`, persisted per frame, exposed through
-`/api/fraimic/frames` and `/api/fraimic/frame/{entry_id}/thumbnail`) is
+`/api/digital_frames/frames` and `/api/digital_frames/frame/{entry_id}/thumbnail`) is
 part of this flow: every send path must leave it describing what the
 frame actually shows.
-- **Entry points**: `fraimic-card.js` (card + `fraimic-card-editor`),
+- **Entry points**: `digital-frames-card.js` (card + `fraimic-card-editor`),
   `coordinator.py` (`async_set_last_image`, `last_image_id` /
   `last_thumbnail` persistence), `library_http.py` (`FraimicFramesView`
   incl. `battery_entity_id`/`orientation_entity_id`/`online`,
@@ -524,7 +524,7 @@ frame actually shows.
   rest of the `*_http.py` layer.
 
 ## 30. Media Source integration
-Exposes the Fraimic photo library to Home Assistant's native media source system (browsable under the Media browser and playable/resolvable via `media-source://fraimic/...` URIs) without copying files.
+Exposes the Fraimic photo library to Home Assistant's native media source system (browsable under the Media browser and playable/resolvable via `media-source://digital_frames/...` URIs) without copying files.
 - **Entry points**: `media_source.py` (`async_get_media_source`, `FraimicMediaSource`).
 - **If it silently breaks**: Fraimic albums and photos do not appear in the Home Assistant Media tab, or resolving a `media-source://` URI fails.
 - **Test status**: **Backend-tested** — `tests/python/library/test_media_source_and_tagging.py`.
@@ -543,7 +543,7 @@ frames. Images are delivered via the local `/remote/postcard` multipart
 API. Sleep-queue does not apply (send resumes the display if suspended).
 Meural has no battery sensor — the dashboard and send APIs identify the
 frame by its `_ip` sensor (same fallback as `battery_entity_id` on
-`GET /api/fraimic/frames`).
+`GET /api/digital_frames/frames`).
 
 **Local device features (no Meural cloud):**
 
@@ -580,7 +580,7 @@ artwork, shuffle, media browser, membership gallery sync.
   `panel_codec.py` (`CODEC_JPEG_Q90`),
   `__init__.py` (driver branch, wake service),
   `library_http.py` frames list,
-  `fraimic-panel.js` (`_discoverFrames` battery-or-`_ip`).
+  `digital-frames-panel.js` (`_discoverFrames` battery-or-`_ip`).
 - **If it silently breaks**: Meural cannot be added, sends fail or send
   Spectra `.bin`, frame missing on dashboard, crop aspect wrong after
   rotate, backlight/sleep services no-op or hit Fraimic `/api/*` paths
@@ -615,7 +615,7 @@ Admin opens ⚙ Settings on the Fraimic panel and sees **on-disk** package
 version vs latest GitHub release (and, when different, the version HA is
 still **running** in memory). Can **Check for updates**, **Install**
 (HACS `async_download_repository` when the repo is already installed via
-HACS; else GitHub zipball into `custom_components/fraimic` **plus** a
+HACS; else GitHub zipball into `custom_components/digital_frames` **plus** a
 HACS bookkeeping sync so `installed_version` / the HA update entity match
 disk), then **Restart Home Assistant**. After install, status shows disk
 vs running and forces the Restart control until they match — HA's loader
@@ -625,15 +625,15 @@ disk (legacy zipball-only installs) — no user re-sync step.
 
 When a newer release is available and not dismissed for that version,
 admins also see a **dashboard banner** (Install + Dismiss). Dismiss is
-server-side and per-version (`POST /api/fraimic/update/dismiss`) so a
+server-side and per-version (`POST /api/digital_frames/update/dismiss`) so a
 later release re-shows the banner; GitHub checks are TTL-cached so the
 banner does not hammer the API on every panel open.
 - **Entry points**: `update.py` (`get_disk_version`, `get_running_version`,
   `check_for_update`, `install_update`, `dismiss_update_banner`,
   `banner_visible`, `_try_hacs_install`, `_sync_hacs_after_install`,
   `restart_home_assistant`),
-  `update_http.py` (`/api/fraimic/update*`),
-  `fraimic-panel.js` (`_refreshUpdateBanner`, `_renderUpdateBanner`,
+  `update_http.py` (`/api/digital_frames/update*`),
+  `digital-frames-panel.js` (`_refreshUpdateBanner`, `_renderUpdateBanner`,
   `_dismissUpdateBanner`, `_refreshUpdateStatus`,
   `_installIntegrationUpdate`, `_restartHomeAssistant`).
 - **If it silently breaks**: settings claim "up to date" while disk is
@@ -642,7 +642,7 @@ banner does not hammer the API on every panel open.
   old version after restart, the banner never appears (or won't dismiss /
   reappears for the same version after dismiss), users still need HACS +
   System restart, or a botched install leaves a half-written
-  `custom_components/fraimic`.
+  `custom_components/digital_frames`.
 - **Test status**: **Backend-tested** — `tests/python/unit/test_update.py`
   (version compare, disk vs running / needs_restart, HACS sync after
   zipball, auto-heal on check, modern HACS download path, banner_visible
@@ -650,25 +650,30 @@ banner does not hammer the API on every panel open.
   (show / hide / dismiss / non-admin). Live GitHub check/install is
   admin-manual (**Gap** for CI; network + filesystem).
 
-## 34. Product branding as Digital Frames (display name)
-HACS, the integration list, the sidebar panel title, onboarding welcome,
-media browser root, Lovelace card name, and update banners identify the
-product as **Digital Frames**. Technical identifiers stay stable: HA
-domain `fraimic`, package `custom_components/fraimic/`, panel URL
-`/fraimic`, service domain `fraimic.*`. Official Spectra hardware still
-uses manufacturer **Fraimic** in the device registry; driver id `fraimic`
-is unchanged.
-- **Entry points**: `const.py` (`PRODUCT_NAME`), `manifest.json` /
-  `hacs.json` (`name`), `__init__.py` (`_PANEL_SIDEBAR_TITLE`),
-  `media_source.py`, `fraimic-panel.js` (onboarding + update banner),
-  `fraimic-card.js` (card name), `config_flow.py` (scenes hub title).
-- **If it silently breaks**: users still search HACS for "Fraimic" only
-  and miss the integration, or the sidebar still says something else and
-  feels like a different product from the integration list.
+## 34. Product branding + domain as Digital Frames
+Product and technical identity are **Digital Frames** /
+`digital_frames`: HACS name, manifest domain, package
+`custom_components/digital_frames/`, sidebar panel URL `/digital_frames`,
+services `digital_frames.*`, HTTP `/api/digital_frames/*`, media source
+`media-source://digital_frames/…`. Official Spectra hardware still uses
+manufacturer **Fraimic** and driver id `fraimic`.
+
+**Albums / library survive the domain rename:** local originals + album
+tags stay under config/`fraimic_library/` (and Dropbox `/fraimic_library`);
+library backend settings migrate from `.storage/fraimic_library_settings`
+→ `digital_frames_library_settings` on first load. Config entries,
+walls, scenes, and schedules under the old domain are **not** migrated —
+re-add frames after upgrade.
+- **Entry points**: `const.py` (`DOMAIN`, `PRODUCT_NAME`, `LIBRARY_DIRNAME`,
+  `LEGACY_DOMAIN`), `manifest.json` / `hacs.json`, `__init__.py` (panel
+  path + static URLs), `library.py` (`async_load` settings migrate), all
+  `*_http.py` view URLs, `digital-frames-panel.js` / `digital-frames-card.js`.
+- **If it silently breaks**: users still only have the old `fraimic`
+  package installed; library path renames orphan albums; settings store
+  migration is skipped so Dropbox/Drive credentials look "missing".
 - **Test status**: **Backend-tested** — `tests/python/unit/test_branding.py`
-  (`PRODUCT_NAME`, manifest/hacs name). **Panel-tested** — onboarding /
-  update-banner copy assertions for "Digital Frames". Domain/path rename
-  is **not** in scope (Gap by design until migration).
+  (domain, product name, stable `LIBRARY_DIRNAME`). Full entry migration
+  is intentionally out of scope.
 
 ---
 

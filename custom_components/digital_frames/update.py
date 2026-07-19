@@ -9,7 +9,7 @@ Install strategy (in order):
    ``async_download_repository`` / ``async_install`` so files **and** HACS
    bookkeeping (``installed_version``, HA update entity) stay in sync.
 2. Otherwise download the GitHub tag zipball and replace
-   ``custom_components/fraimic`` in place (backup goes under
+   ``custom_components/digital_frames`` in place (backup goes under
    ``.storage/fraimic_update_backup/``, never under custom_components/).
    When HACS still tracks the repo, we then **sync** its
    ``installed_version`` + store so Settings → Devices & services / the
@@ -68,7 +68,7 @@ GITHUB_API_RELEASES = (
 )
 
 # Component directory name inside the repo zip and under config/.
-_COMPONENT = "fraimic"
+_COMPONENT = "digital_frames"
 
 
 class UpdateError(Exception):
@@ -112,7 +112,7 @@ async def get_running_version(hass: HomeAssistant) -> str:
 
 
 async def get_disk_version(hass: HomeAssistant) -> str:
-    """Version in ``custom_components/fraimic/manifest.json`` on disk."""
+    """Version in ``custom_components/digital_frames/manifest.json`` on disk."""
     path = hass.config.path("custom_components", _COMPONENT, "manifest.json")
 
     def _read() -> str:
@@ -686,7 +686,7 @@ async def _install_from_zipball(
 
     def _extract() -> None:
         with zipfile.ZipFile(io.BytesIO(payload)) as zf:
-            # GitHub zipball roots as <repo>-<tag>/custom_components/fraimic/...
+            # GitHub zipball roots as <repo>-<tag>/custom_components/digital_frames/...
             prefix = None
             for name in zf.namelist():
                 marker = f"custom_components/{_COMPONENT}/"
@@ -696,7 +696,7 @@ async def _install_from_zipball(
                     break
             if not prefix:
                 raise UpdateError(
-                    "Release archive does not contain custom_components/fraimic/"
+                    "Release archive does not contain custom_components/digital_frames/"
                 )
 
             backup_root = hass.config.path(".storage", "fraimic_update_backup")

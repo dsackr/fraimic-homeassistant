@@ -7,17 +7,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from custom_components.fraimic.const import (
+from custom_components.digital_frames.const import (
     CONF_DRIVER,
     DRIVER_SAMSUNG,
     SAMSUNG_SIZE_LABEL,
 )
-from custom_components.fraimic.panel_codec import (
+from custom_components.digital_frames.panel_codec import (
     CODEC_PNG,
     encode_for_panel,
     panel_codec_for_entry,
 )
-from custom_components.fraimic.samsung import (
+from custom_components.digital_frames.samsung import (
     mdc_content_download_packet,
     wol_packet,
 )
@@ -53,7 +53,7 @@ def test_encode_png_for_samsung_geometry(sample_image_bytes):
 
 
 def test_mdc_content_download_packet_structure():
-    url = "http://192.168.1.10:8123/api/fraimic/samsung/tok/content.png"
+    url = "http://192.168.1.10:8123/api/digital_frames/samsung/tok/content.png"
     pkt = mdc_content_download_packet(url)
     assert pkt[0] == 0xAA
     assert pkt[1] == 0xC7
@@ -80,7 +80,7 @@ def test_wol_packet_length():
 
 
 def test_samsung_coordinator_stages_content():
-    from custom_components.fraimic.samsung_coordinator import SamsungCoordinator
+    from custom_components.digital_frames.samsung_coordinator import SamsungCoordinator
 
     hass = MagicMock()
     entry = MagicMock()

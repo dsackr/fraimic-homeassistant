@@ -43,7 +43,7 @@ async def test_connection_error_queues_the_send(coordinator, aioclient_mock):
     assert base64.b64decode(coordinator.pending_send["bin_b64"]) == b"binary-image-data"
     # Fast-poll kicks in while something is queued, so a woken frame gets
     # its image promptly instead of waiting the full scan_interval.
-    from custom_components.fraimic.coordinator import _FAST_POLL_INTERVAL
+    from custom_components.digital_frames.coordinator import _FAST_POLL_INTERVAL
 
     assert coordinator.update_interval == _FAST_POLL_INTERVAL
 
@@ -73,7 +73,7 @@ async def test_timeout_but_frame_answers_probe_is_not_queued(coordinator, aiocli
     assert result == {"success": True, "queued": False, "unconfirmed": True}
     assert coordinator.pending_send is None
     assert coordinator.last_image_id == "img1"
-    from custom_components.fraimic.coordinator import _FAST_POLL_INTERVAL
+    from custom_components.digital_frames.coordinator import _FAST_POLL_INTERVAL
 
     assert coordinator.update_interval != _FAST_POLL_INTERVAL
 
@@ -102,7 +102,7 @@ async def test_restart_mid_queue_is_hydrated_from_store(
 ):
     entry = make_frame_entry()
     entry.add_to_hass(hass)
-    key = f"fraimic_pending_send_{entry.entry_id}"
+    key = f"digital_frames_pending_send_{entry.entry_id}"
     hass_storage[key] = {
         "version": 1,
         "minor_version": 1,
@@ -122,7 +122,7 @@ async def test_restart_mid_queue_is_hydrated_from_store(
 
     assert coordinator.pending_send is not None
     assert coordinator.pending_send["image_id"] == "img-restart"
-    from custom_components.fraimic.coordinator import _FAST_POLL_INTERVAL
+    from custom_components.digital_frames.coordinator import _FAST_POLL_INTERVAL
 
     assert coordinator.update_interval == _FAST_POLL_INTERVAL
 
@@ -132,7 +132,7 @@ async def test_stale_schema_payload_is_discarded_on_load(
 ):
     entry = make_frame_entry()
     entry.add_to_hass(hass)
-    key = f"fraimic_pending_send_{entry.entry_id}"
+    key = f"digital_frames_pending_send_{entry.entry_id}"
     hass_storage[key] = {
         "version": 1,
         "minor_version": 1,

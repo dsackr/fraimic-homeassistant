@@ -1,6 +1,6 @@
 name: Backend Python tests
 
-# custom_components/fraimic/*.py has no automated coverage outside this
+# custom_components/digital_frames/*.py has no automated coverage outside this
 # suite -- see tests/python/ (pytest + pytest-homeassistant-custom-component)
 # and TESTING_STRATEGY.md for what's covered and what isn't yet. Scoped to
 # changes under the backend package or the test suite itself, same pattern
@@ -16,14 +16,14 @@ on:
   push:
     branches: [main]
     paths:
-      - 'custom_components/fraimic/**.py'
+      - 'custom_components/digital_frames/**.py'
       - 'tests/python/**'
       - 'requirements-test.txt'
       - 'pyproject.toml'
   pull_request:
     branches: [main]
     paths:
-      - 'custom_components/fraimic/**.py'
+      - 'custom_components/digital_frames/**.py'
       - 'tests/python/**'
       - 'requirements-test.txt'
       - 'pyproject.toml'
@@ -43,7 +43,7 @@ jobs:
         shell: bash
         run: |
           python -m pytest tests/python/ \
-            --cov=custom_components.fraimic \
+            --cov=custom_components.digital_frames \
             --cov-report=term-missing \
             --cov-report=html \
             --cov-report=xml | tee pytest-output.txt

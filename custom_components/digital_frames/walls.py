@@ -45,7 +45,7 @@ DEFAULT_WALL_NAME = "All Frames"
 KIND_DEFAULT = "default"
 KIND_CUSTOM = "custom"
 
-# Mirror of fraimic-panel.js's _wallTileDims normalization and GRID snap --
+# Mirror of digital-frames-panel.js's _wallTileDims normalization and GRID snap --
 # auto-appended placements must use the same tile geometry the canvas
 # renders with, or a new tile could land overlapping an existing one.
 # Keep these in sync with the panel.

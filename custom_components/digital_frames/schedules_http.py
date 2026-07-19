@@ -1,10 +1,10 @@
 """HTTP API views for Fraimic scheduled events.
 
 Endpoints:
-    GET    /api/fraimic/schedules                 list schedules (+ computed next_fire_at)
-    POST   /api/fraimic/schedules                 create ({name, action, trigger[, enabled]})
-    POST   /api/fraimic/schedules/{schedule_id}   update (any of name/action/trigger/enabled)
-    DELETE /api/fraimic/schedules/{schedule_id}   delete + disarm
+    GET    /api/digital_frames/schedules                 list schedules (+ computed next_fire_at)
+    POST   /api/digital_frames/schedules                 create ({name, action, trigger[, enabled]})
+    POST   /api/digital_frames/schedules/{schedule_id}   update (any of name/action/trigger/enabled)
+    DELETE /api/digital_frames/schedules/{schedule_id}   delete + disarm
 """
 
 from __future__ import annotations
@@ -31,8 +31,8 @@ def _get_schedule_manager(hass):
 class FraimicSchedulesView(HomeAssistantView):
     """List (GET) or create (POST) schedules."""
 
-    url = "/api/fraimic/schedules"
-    name = "api:fraimic:schedules"
+    url = "/api/digital_frames/schedules"
+    name = "api:digital_frames:schedules"
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
@@ -84,8 +84,8 @@ class FraimicSchedulesView(HomeAssistantView):
 class FraimicScheduleView(HomeAssistantView):
     """Update (POST) or delete (DELETE) a single schedule."""
 
-    url = "/api/fraimic/schedules/{schedule_id}"
-    name = "api:fraimic:schedules:one"
+    url = "/api/digital_frames/schedules/{schedule_id}"
+    name = "api:digital_frames:schedules:one"
     requires_auth = True
 
     async def post(self, request: web.Request, schedule_id: str) -> web.Response:

@@ -31,7 +31,14 @@ from typing import TYPE_CHECKING, Any, Callable
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 
-from .const import CONF_HEIGHT, CONF_WIDTH, DOMAIN
+from .const import (
+    CACHE_DIRNAME,
+    CONF_HEIGHT,
+    CONF_WIDTH,
+    DOMAIN,
+    LEGACY_DOMAIN,
+    LIBRARY_DIRNAME,
+)
 from .helpers import RenderSpec, render_spec_for_entry, render_spec_for_hass_entry
 
 if TYPE_CHECKING:
@@ -40,6 +47,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 _SETTINGS_STORAGE_KEY = f"{DOMAIN}_library_settings"
+_LEGACY_SETTINGS_STORAGE_KEY = f"{LEGACY_DOMAIN}_library_settings"
 _SETTINGS_STORAGE_VERSION = 1
 
 BACKEND_LOCAL = "local"
@@ -348,14 +356,18 @@ class LibraryBackend:
 
 
 class LocalLibraryBackend(LibraryBackend):
-    """Stores the library under <config>/fraimic_library/ on the HA host."""
+    """Stores the library under ``<config>/<LIBRARY_DIRNAME>/`` on the HA host.
+
+    Directory name is stable across domain renames so albums and originals
+    are not orphaned when the HA domain changes.
+    """
 
     name = BACKEND_LOCAL
 
     def __init__(self, hass: "HomeAssistant") -> None:
         self.hass = hass
         self.settings: dict[str, Any] = {"backend": BACKEND_LOCAL}
-        self._root = hass.config.path("fraimic_library")
+        self._root = hass.config.path(LIBRARY_DIRNAME)
         self._manifest_path = os.path.join(self._root, "manifest.json")
         # Guards every manifest read-modify-write below: each one runs as
         # its own executor job, and the background backfill worker can have
@@ -1127,7 +1139,7 @@ class DropboxLibraryBackend(LibraryBackend):
         return adopted
 
     async def async_get_local_path(self, image_id: str) -> str:
-        cache_dir = self.hass.config.path("fraimic_cache")
+        cache_dir = self.hass.config.path(CACHE_DIRNAME)
         os.makedirs(cache_dir, exist_ok=True)
         
         manifest = await self.async_list_images()
@@ -1450,7 +1462,7 @@ class GoogleDriveLibraryBackend(LibraryBackend):
             await self._write_manifest(manifest)
 
     async def async_get_local_path(self, image_id: str) -> str:
-        cache_dir = self.hass.config.path("fraimic_cache")
+        cache_dir = self.hass.config.path(CACHE_DIRNAME)
         os.makedirs(cache_dir, exist_ok=True)
         
         manifest = await self.async_list_images()
@@ -1483,6 +1495,9 @@ class LibraryManager:
     def __init__(self, hass: "HomeAssistant") -> None:
         self.hass = hass
         self._store: Store = Store(hass, _SETTINGS_STORAGE_VERSION, _SETTINGS_STORAGE_KEY)
+        self._legacy_store: Store = Store(
+            hass, _SETTINGS_STORAGE_VERSION, _LEGACY_SETTINGS_STORAGE_KEY
+        )
         self._settings: dict[str, Any] = {"backend": BACKEND_LOCAL}
         self._backend: LibraryBackend = LocalLibraryBackend(hass)
         self._pending_google_oauth: dict[str, dict[str, Any]] = {}
@@ -1492,7 +1507,7 @@ class LibraryManager:
         # image_ids are immutable (fresh uuid per upload, originals never
         # rewritten) a cached thumbnail can never go stale; entries are only
         # removed when the image itself is deleted.
-        self._thumb_dir = hass.config.path("fraimic_library", "thumbs")
+        self._thumb_dir = hass.config.path(LIBRARY_DIRNAME, "thumbs")
 
         # .bin generation runs in the background instead of blocking whatever
         # triggered the upload (a manual upload, a scene pack install, or
@@ -1505,8 +1520,23 @@ class LibraryManager:
         self._backfill_task: asyncio.Task | None = None
 
     async def async_load(self) -> None:
-        """Load persisted backend settings (if any) and stand up that backend."""
+        """Load persisted backend settings (if any) and stand up that backend.
+
+        If this install was previously domain ``fraimic``, library backend
+        settings live under the legacy store key — copy them forward so
+        albums/backend choice survive the domain rename.
+        """
         stored = await self._store.async_load()
+        if not stored:
+            legacy = await self._legacy_store.async_load()
+            if legacy:
+                stored = legacy
+                await self._store.async_save(legacy)
+                _LOGGER.info(
+                    "Migrated library settings from %s → %s",
+                    _LEGACY_SETTINGS_STORAGE_KEY,
+                    _SETTINGS_STORAGE_KEY,
+                )
         if stored:
             self._settings = stored
         self._backend = self._build_backend(self._settings)
@@ -1569,7 +1599,7 @@ class LibraryManager:
         external_url = self.hass.config.external_url
         if not external_url:
             return None
-        return external_url.rstrip("/") + "/api/fraimic/library/oauth/google/callback"
+        return external_url.rstrip("/") + "/api/digital_frames/library/oauth/google/callback"
 
     def create_pending_google_oauth(self, client_id: str, client_secret: str) -> str:
         """Stash client_id/secret for a few minutes while the user completes

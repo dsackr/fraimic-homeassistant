@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from custom_components.fraimic.const import DOMAIN
-from custom_components.fraimic.update import (
+from custom_components.digital_frames.const import DOMAIN
+from custom_components.digital_frames.update import (
     GITHUB_FULL,
     _NEEDS_RESTART_KEY,
     _find_hacs_repo,
@@ -170,10 +170,10 @@ async def test_try_hacs_install_uses_async_download_repository(monkeypatch):
         return "0.12.100"
 
     monkeypatch.setattr(
-        "custom_components.fraimic.update.get_disk_version", _disk
+        "custom_components.digital_frames.update.get_disk_version", _disk
     )
     monkeypatch.setattr(
-        "custom_components.fraimic.update.get_running_version", _running
+        "custom_components.digital_frames.update.get_running_version", _running
     )
 
     result = await _try_hacs_install(hass, "0.12.120", tag="v0.12.120")
@@ -205,7 +205,7 @@ async def test_try_hacs_install_skips_when_not_installed_via_hacs():
 @pytest.mark.asyncio
 async def test_install_update_hacs_sync_only_when_disk_current(monkeypatch):
     """When disk already has target but HACS is stale, only re-register HACS."""
-    from custom_components.fraimic import update as update_mod
+    from custom_components.digital_frames import update as update_mod
 
     hass = MagicMock()
     data = SimpleNamespace(
@@ -263,7 +263,7 @@ async def test_install_update_hacs_sync_only_when_disk_current(monkeypatch):
 @pytest.mark.asyncio
 async def test_check_for_update_auto_heals_hacs_desync(monkeypatch):
     """Opening Settings / checking updates fixes stale HACS without user action."""
-    from custom_components.fraimic import update as update_mod
+    from custom_components.digital_frames import update as update_mod
 
     hass = MagicMock()
     data = SimpleNamespace(

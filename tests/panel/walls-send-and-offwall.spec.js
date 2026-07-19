@@ -1,6 +1,6 @@
 // Coverage for "Send to Frames": pushes whatever's currently previewed for
 // every known frame straight to the physical frames via
-// /api/fraimic/library/send. A frame works the same whether it's placed on
+// /api/digital_frames/library/send. A frame works the same whether it's placed on
 // the wall's canvas or still sitting in the palette -- clicking either one
 // opens the same image picker, and Send to Frames posts to both alike, not
 // just placed tiles.

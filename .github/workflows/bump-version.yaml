@@ -20,7 +20,7 @@ name: Bump version and release
 #    unlikely to appear by accident in ordinary prose.
 #
 # 2. Raising manifest.json's version directly: if the pushed commit's
-#    custom_components/fraimic/manifest.json carries a version HIGHER than
+#    custom_components/digital_frames/manifest.json carries a version HIGHER than
 #    the tag-derived bump, that version wins. This exists because the
 #    tag-based action knows nothing about the manifest -- it used to
 #    silently stomp a hand-raised version back down to the next patch
@@ -62,7 +62,7 @@ jobs:
           TAG_NEXT: ${{ steps.next_version.outputs.new_tag }}
         run: |
           set -euo pipefail
-          manifest_version=$(python3 -c "import json; print(json.load(open('custom_components/fraimic/manifest.json'))['version'])")
+          manifest_version=$(python3 -c "import json; print(json.load(open('custom_components/digital_frames/manifest.json'))['version'])")
           tag_version="${TAG_NEXT#v}"
 
           # Highest of the two wins (sort -V is semver-aware enough for
@@ -86,7 +86,7 @@ jobs:
         run: |
           set -euo pipefail
           version="${NEW_TAG#v}"
-          sed -i "s/\"version\": \".*\"/\"version\": \"${version}\"/" custom_components/fraimic/manifest.json
+          sed -i "s/\"version\": \".*\"/\"version\": \"${version}\"/" custom_components/digital_frames/manifest.json
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -94,8 +94,8 @@ jobs:
           # No stamp commit needed when the pushed commit already carries
           # the chosen version (the manifest-override path) -- an empty
           # commit here would fail the job.
-          if ! git diff --quiet custom_components/fraimic/manifest.json; then
-            git add custom_components/fraimic/manifest.json
+          if ! git diff --quiet custom_components/digital_frames/manifest.json; then
+            git add custom_components/digital_frames/manifest.json
             git commit -m "Bump version to ${NEW_TAG} [skip ci]"
             git push origin HEAD:main
           fi

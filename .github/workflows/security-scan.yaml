@@ -36,7 +36,7 @@ jobs:
           pip install bandit pip-audit
           python -c "
 import json
-reqs = json.load(open('custom_components/fraimic/manifest.json'))['requirements']
+reqs = json.load(open('custom_components/digital_frames/manifest.json'))['requirements']
 open('manifest-requirements.txt', 'w').write('\n'.join(reqs))
 "
           pip install -r manifest-requirements.txt
@@ -45,7 +45,7 @@ open('manifest-requirements.txt', 'w').write('\n'.join(reqs))
         id: bandit
         continue-on-error: true
         run: |
-          python -m bandit -r custom_components/fraimic \
+          python -m bandit -r custom_components/digital_frames \
             -f txt -o bandit-report.txt
           cat bandit-report.txt
 

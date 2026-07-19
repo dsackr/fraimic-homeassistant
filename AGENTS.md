@@ -24,11 +24,11 @@ and neither may be deferred to "a follow-up":
 
 2. **Tests that exercise the feature.** Define what "this works" means for
    the flow and encode it:
-   - **Backend** (Python under `custom_components/fraimic/`): pytest in
+   - **Backend** (Python under `custom_components/digital_frames/`): pytest in
      `tests/python/` (PHACC provides `hass`, `MockConfigEntry`; shared
      fixtures in `tests/python/conftest.py`). Run from the repo root:
      `.venv/bin/python -m pytest -q`.
-   - **Frontend** (`fraimic-panel.js`, `fraimic-card.js`): Playwright in
+   - **Frontend** (`digital-frames-panel.js`, `digital-frames-card.js`): Playwright in
      `tests/panel/` against the mock server
      (`tests/panel/fixtures/mock-server.js`). The sidebar panel mounts via
      `fixtures/harness.html`; the Lovelace card via

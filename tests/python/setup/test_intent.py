@@ -11,8 +11,8 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import intent as ha_intent
 
-from custom_components.fraimic.const import DOMAIN
-from custom_components.fraimic.intent import (
+from custom_components.digital_frames.const import DOMAIN
+from custom_components.digital_frames.intent import (
     INTENT_GENERATE_AI_IMAGE,
     INTENT_SEND_SKILL,
     INTENT_SHOW_IMAGE,
@@ -275,7 +275,7 @@ async def test_show_image_intent_success_sends_image(
         calls.append((image_bytes, image_id))
         return {"success": True, "queued": False}
 
-    from custom_components.fraimic.coordinator import FraimicCoordinator
+    from custom_components.digital_frames.coordinator import FraimicCoordinator
     monkeypatch.setattr(FraimicCoordinator, "async_send_image_or_queue", _fake_send)
 
     response = await ha_intent.async_handle(
@@ -318,7 +318,7 @@ async def test_show_image_intent_service_failure_surfaces_as_speech_error(
     async def _failing_send(self, image_bytes, *, image_id=None, thumbnail=None):
         raise HomeAssistantError("frame connection timed out")
 
-    from custom_components.fraimic.coordinator import FraimicCoordinator
+    from custom_components.digital_frames.coordinator import FraimicCoordinator
     monkeypatch.setattr(FraimicCoordinator, "async_send_image_or_queue", _failing_send)
 
     response = await ha_intent.async_handle(
@@ -351,7 +351,7 @@ async def test_show_image_intent_matches_voice_name(
         calls.append((image_bytes, image_id))
         return {"success": True, "queued": False}
 
-    from custom_components.fraimic.coordinator import FraimicCoordinator
+    from custom_components.digital_frames.coordinator import FraimicCoordinator
     monkeypatch.setattr(FraimicCoordinator, "async_send_image_or_queue", _fake_send)
 
     response = await ha_intent.async_handle(
@@ -386,7 +386,7 @@ async def test_show_image_intent_tag_match_sends_random_tagged_image(
         calls.append((image_bytes, image_id))
         return {"success": True, "queued": False}
 
-    from custom_components.fraimic.coordinator import FraimicCoordinator
+    from custom_components.digital_frames.coordinator import FraimicCoordinator
     monkeypatch.setattr(FraimicCoordinator, "async_send_image_or_queue", _fake_send)
 
     response = await ha_intent.async_handle(

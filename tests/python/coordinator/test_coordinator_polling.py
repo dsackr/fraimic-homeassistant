@@ -9,8 +9,8 @@ from __future__ import annotations
 import pytest
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from custom_components.fraimic.const import CONF_HOST, CONF_WIDTH, CONF_HEIGHT
-from custom_components.fraimic.coordinator import _FAILURES_BEFORE_RESCAN
+from custom_components.digital_frames.const import CONF_HOST, CONF_WIDTH, CONF_HEIGHT
+from custom_components.digital_frames.coordinator import _FAILURES_BEFORE_RESCAN
 
 
 @pytest.fixture
@@ -96,10 +96,10 @@ async def test_rescan_finds_new_ip_and_updates_host(hass, coordinator, monkeypat
         return "192.168.1.99"
 
     monkeypatch.setattr(
-        "custom_components.fraimic.coordinator.find_frame_by_device_key", _fake_find
+        "custom_components.digital_frames.coordinator.find_frame_by_device_key", _fake_find
     )
     monkeypatch.setattr(
-        "custom_components.fraimic.coordinator.get_local_ip", lambda: "192.168.1.2"
+        "custom_components.digital_frames.coordinator.get_local_ip", lambda: "192.168.1.2"
     )
     monkeypatch.setattr(coordinator, "async_request_refresh", _noop)
 
@@ -117,10 +117,10 @@ async def test_rescan_finds_nothing_leaves_host_unchanged(hass, coordinator, mon
         return None
 
     monkeypatch.setattr(
-        "custom_components.fraimic.coordinator.find_frame_by_device_key", _fake_find
+        "custom_components.digital_frames.coordinator.find_frame_by_device_key", _fake_find
     )
     monkeypatch.setattr(
-        "custom_components.fraimic.coordinator.get_local_ip", lambda: "192.168.1.2"
+        "custom_components.digital_frames.coordinator.get_local_ip", lambda: "192.168.1.2"
     )
 
     await coordinator._async_try_find_new_host()

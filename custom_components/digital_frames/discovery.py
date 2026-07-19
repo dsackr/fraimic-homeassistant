@@ -101,10 +101,10 @@ def async_setup_discovery(hass: "HomeAssistant") -> None:
 
 
 class FraimicDiscoveryScanView(HomeAssistantView):
-    """POST /api/fraimic/discovery/scan — run one discovery sweep now."""
+    """POST /api/digital_frames/discovery/scan — run one discovery sweep now."""
 
-    url = "/api/fraimic/discovery/scan"
-    name = "api:fraimic:discovery:scan"
+    url = "/api/digital_frames/discovery/scan"
+    name = "api:digital_frames:discovery:scan"
     requires_auth = True
 
     async def post(self, request):

@@ -2,7 +2,7 @@
 
 **Reviewed:** v0.12.25
 **Date:** 2026-07-05
-**Files:** `__init__.py`, `coordinator.py`, `config_flow.py`, `const.py`, `frame_types.py`, `helpers.py`, `image_converter.py`, `sensor.py`, `select.py`, `scene.py`, `http_api.py`, `library.py`, `library_http.py`, `scene_packs.py`, `scene_packs_http.py`, `scenes.py`, `scenes_http.py`, `walls.py`, `walls_http.py`, `fraimic-card.js`, `fraimic-panel.js`
+**Files:** `__init__.py`, `coordinator.py`, `config_flow.py`, `const.py`, `frame_types.py`, `helpers.py`, `image_converter.py`, `sensor.py`, `select.py`, `scene.py`, `http_api.py`, `library.py`, `library_http.py`, `scene_packs.py`, `scene_packs_http.py`, `scenes.py`, `scenes_http.py`, `walls.py`, `walls_http.py`, `digital-frames-card.js`, `digital-frames-panel.js`
 
 ---
 
@@ -42,7 +42,7 @@ def _bin_path(self, image_id: str, width: int, height: int, variant: str = "") -
 Unlike `_original_path_for` (`library.py:299-302`), which correctly runs the filename through `_safe_filename()`, `_bin_path` interpolates `image_id` into the path with no sanitization at all — the exact class of bug `_safe_media_join` was written to fix elsewhere in this codebase.
 
 - **Read side**: `async_get_bin_for_send` (`library.py:1435+`) is called from the send endpoint (`library_http.py:263-294`), which pulls `image_id` straight out of the JSON request body (`body.get("image_id")`) with only an empty-string check — no format validation, no manifest membership check before the path is built. A crafted `image_id` like `../../../../some/other/dir/x` reads whatever `<that path>.bin` exists outside the library root and sends its raw bytes to the frame.
-- **Delete side**: `_delete_image_sync` (`library.py:387-396`) builds `candidate = os.path.join(bin_root, res_dir, f"{image_id}.bin")` and calls `os.remove(candidate)` — reachable from `DELETE /api/fraimic/library/image/{image_id}` (`library_http.py:198-204`) with no format check either.
+- **Delete side**: `_delete_image_sync` (`library.py:387-396`) builds `candidate = os.path.join(bin_root, res_dir, f"{image_id}.bin")` and calls `os.remove(candidate)` — reachable from `DELETE /api/digital_frames/library/image/{image_id}` (`library_http.py:198-204`) with no format check either.
 
 Both are bounded to filenames ending in `.bin`, which limits — but does not eliminate — the blast radius (arbitrary `.bin` file read/delete anywhere the HA process can reach, not full arbitrary-file read).
 
@@ -87,13 +87,13 @@ Two listeners are registered on the same entry: `coordinator.async_config_entry_
 
 **Fix**: wrap and re-raise as `HomeAssistantError` inside the two coordinator methods, as recommended in the original review.
 
-### 7. Thumbnail and crop-editor blob URLs leak when the panel is disposed mid-fetch (`fraimic-panel.js:2641-2669`, `:3219-3235`, `_dispose` at `:1169-1189`)
+### 7. Thumbnail and crop-editor blob URLs leak when the panel is disposed mid-fetch (`digital-frames-panel.js:2641-2669`, `:3219-3235`, `_dispose` at `:1169-1189`)
 
 `_dispose()` (run on every panel navigation) revokes everything in `this._thumbUrls` and resets the fetch-tracking containers, but neither `_fetchThumb`'s nor `_openEditor`'s full-size-image `fetch()` is tied to `this._abort.signal`, and neither checks a disposed flag before calling `URL.createObjectURL`. A thumbnail or full-size image still loading when the user navigates away creates a fresh blob URL on an object `_dispose()` has already replaced — never revoked, since HA recreates the panel element per visit rather than reusing it. This is the same leak class `71c1b17` ("Sever the panel's global listeners and blob URLs on disconnect") was written to close, reintroduced in the async-continuation path it didn't cover. Not exercised by `tests/panel/lifecycle.spec.js`, which waits for the thumbnail to finish loading before detaching.
 
 **Fix**: pass `{ signal: this._abort.signal }` to both `fetch()` calls, or check a disposed flag immediately before `URL.createObjectURL` and revoke-on-arrival if set.
 
-### 8. Switching albums quickly renders the wrong photos under the wrong title (`fraimic-panel.js:2353-2357` `_openAlbum`)
+### 8. Switching albums quickly renders the wrong photos under the wrong title (`digital-frames-panel.js:2353-2357` `_openAlbum`)
 
 ```js
 async _openAlbum(name) {
@@ -106,7 +106,7 @@ No staleness guard: clicking two album tiles in quick succession starts two conc
 
 **Fix**: apply the same token pattern used in the wall image picker.
 
-### 9. Crop editor can silently save a corrupted, wrong-image crop (`fraimic-panel.js:3161-3238` `_openEditor`/`_closeEditor`)
+### 9. Crop editor can silently save a corrupted, wrong-image crop (`digital-frames-panel.js:3161-3238` `_openEditor`/`_closeEditor`)
 
 `_closeEditor` nulls `_editorState` and revokes the blob URL but doesn't cancel or invalidate an in-flight `_openEditor` fetch, and `_openEditor` has no per-call staleness token. If image A's fetch is still pending when the editor is closed and reopened for image B (plausible on a slow connection with a large photo), A's fetch resolves after B is already showing, and its continuation writes A's blob URL, `naturalW`/`naturalH` onto the *current* (`stateB`) editor state via `this._editorState` — visibly swapping the picture back to A while `stateB.image.image_id` (the actual save target) is untouched. The result: a crop computed from image A's dimensions gets persisted against image B. No test exercises the crop editor at all.
 
@@ -180,11 +180,11 @@ Not wrapped in an executor job. Normally fast, but worth folding into the same e
 
 Two config entries setting up concurrently at HA startup could both see `False` and both register. Harmless in practice (the second registration overwrites the first with an equivalent handler) but worth a comment if anyone's ever debugging duplicate-registration log noise.
 
-### 26. Wall drag can leave an orphaned ghost element in the DOM (`fraimic-panel.js:4463-4498` `_wallBeginDrag`)
+### 26. Wall drag can leave an orphaned ghost element in the DOM (`digital-frames-panel.js:4463-4498` `_wallBeginDrag`)
 
 A second `pointerdown` before the first drag's `pointerup` overwrites `this._wallDrag` without cleaning up the first drag's ghost element, which is never `.remove()`d. Needs overlapping pointer inputs (multi-touch/stylus+mouse) to trigger — low frequency, but a real, traceable leak.
 
-### 27. Frontend version constants are stale and inconsistent with the manifest (`fraimic-card.js:14`, `fraimic-panel.js:10`)
+### 27. Frontend version constants are stale and inconsistent with the manifest (`digital-frames-card.js:14`, `digital-frames-panel.js:10`)
 
 `CARD_VERSION = '0.1.4'` and `PANEL_VERSION = '0.10.2'` vs. `manifest.json`'s `0.12.25`. `PANEL_VERSION` is shown to users in a modal footer, so it actively misleads anyone trying to match panel version to integration version for support purposes.
 
@@ -211,4 +211,4 @@ A second `pointerdown` before the first drag's `pointerup` overwrites `this._wal
 - The `CSS.escape` shadowing bug from `129835b` is fixed and not reintroduced anywhere else; the wall tile lookup explicitly documents why it avoids `CSS.escape` in that closure.
 - Global listener lifecycle cleanup (`71c1b17`) is solid for everything except the two async-fetch gaps above (#7) — every `window`/`document` listener, including the newer wall-drag and crop-editor registrations, is tied to `this._abort.signal` and covered by `tests/panel/lifecycle.spec.js`.
 - The wall image picker's staleness-token pattern (`_wallImagePickerToken`) is exactly the right fix for the album-switch and crop-editor races above — it just needs to be applied to those two other call sites.
-- `fraimic-card.js` remains small and clean, correctly revoking previous object URLs before reassignment.
+- `digital-frames-card.js` remains small and clean, correctly revoking previous object URLs before reassignment.

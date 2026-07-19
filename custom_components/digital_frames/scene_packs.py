@@ -29,6 +29,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 
 from .const import (
+    ADDONS_DIRNAME,
     CONF_HEIGHT,
     CONF_WIDTH,
     DOMAIN,
@@ -400,7 +401,7 @@ class ScenePackManager:
             self._cancel_scheduler(pack_id)
             import shutil
             import os
-            addon_dir = self.hass.config.path("fraimic_addons", pack_id)
+            addon_dir = self.hass.config.path(ADDONS_DIRNAME, pack_id)
             if os.path.exists(addon_dir):
                 await self.hass.async_add_executor_job(shutil.rmtree, addon_dir)
             del self._installed[pack_id]
@@ -476,7 +477,7 @@ class ScenePackManager:
         except Exception as err:
             raise ScenePackError(f"Failed to fetch script from github raw source: {err}")
             
-        addon_dir = self.hass.config.path("fraimic_addons", pack_id)
+        addon_dir = self.hass.config.path(ADDONS_DIRNAME, pack_id)
         await self.hass.async_add_executor_job(os.makedirs, addon_dir, True)
         
         script_path = os.path.join(addon_dir, "renderer.py")
@@ -672,7 +673,7 @@ class ScenePackManager:
         import asyncio
         import os
         
-        addon_dir = self.hass.config.path("fraimic_addons", pack_id)
+        addon_dir = self.hass.config.path(ADDONS_DIRNAME, pack_id)
         
         # Pre-fetch Home Assistant calendar events if configured
         config_path = os.path.join(addon_dir, "config.json")

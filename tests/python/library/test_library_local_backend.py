@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.fraimic.library import LibraryManager
+from custom_components.digital_frames.library import LibraryManager
 
 
 @pytest.fixture
@@ -73,7 +73,7 @@ async def test_thumbnail_generated_on_first_request_then_cached(
     record = await library_manager.async_upload("photo.jpg", sample_image_bytes(400, 400))
 
     calls = []
-    from custom_components.fraimic import image_converter
+    from custom_components.digital_frames import image_converter
 
     orig = image_converter.make_thumbnail
 

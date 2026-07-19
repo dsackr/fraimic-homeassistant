@@ -12,8 +12,8 @@ from __future__ import annotations
 import pytest
 from homeassistant.helpers.storage import Store
 
-from custom_components.fraimic import _async_migrate_xotd_instances
-from custom_components.fraimic.const import DOMAIN
+from custom_components.digital_frames import _async_migrate_xotd_instances
+from custom_components.digital_frames.const import DOMAIN
 
 
 @pytest.fixture(autouse=True)
@@ -41,7 +41,7 @@ def _no_real_network(monkeypatch):
             return _FakeResponse()
 
     monkeypatch.setattr(
-        "custom_components.fraimic.coordinator.async_get_clientsession",
+        "custom_components.digital_frames.coordinator.async_get_clientsession",
         lambda hass: _FakeSession(),
     )
 

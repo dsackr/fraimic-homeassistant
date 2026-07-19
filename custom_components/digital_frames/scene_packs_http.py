@@ -1,10 +1,10 @@
 """HTTP API views for Fraimic scene packs.
 
 Endpoints:
-    GET    /api/fraimic/scene_packs                  list available packs + install state
-    POST   /api/fraimic/scene_packs/{pack_id}/install install a pack
-    POST   /api/fraimic/scene_packs/{pack_id}/sync    re-fetch missing/new images for an installed pack
-    DELETE /api/fraimic/scene_packs/{pack_id}         uninstall a pack
+    GET    /api/digital_frames/scene_packs                  list available packs + install state
+    POST   /api/digital_frames/scene_packs/{pack_id}/install install a pack
+    POST   /api/digital_frames/scene_packs/{pack_id}/sync    re-fetch missing/new images for an installed pack
+    DELETE /api/digital_frames/scene_packs/{pack_id}         uninstall a pack
 """
 
 from __future__ import annotations
@@ -31,8 +31,8 @@ def _get_manager(hass):
 class FraimicScenePacksView(HomeAssistantView):
     """List every scene pack in the catalog, with install state."""
 
-    url = "/api/fraimic/scene_packs"
-    name = "api:fraimic:scene_packs"
+    url = "/api/digital_frames/scene_packs"
+    name = "api:digital_frames:scene_packs"
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
@@ -55,8 +55,8 @@ class FraimicScenePacksView(HomeAssistantView):
 class FraimicScenePackInstallView(HomeAssistantView):
     """Install a scene pack: import its images and build a scene."""
 
-    url = "/api/fraimic/scene_packs/{pack_id}/install"
-    name = "api:fraimic:scene_packs:install"
+    url = "/api/digital_frames/scene_packs/{pack_id}/install"
+    name = "api:digital_frames:scene_packs:install"
     requires_auth = True
 
     async def post(self, request: web.Request, pack_id: str) -> web.Response:
@@ -87,8 +87,8 @@ class FraimicScenePackSyncView(HomeAssistantView):
     this install is missing -- repairs a broken/partial install and picks
     up new images a pack has grown since it was installed."""
 
-    url = "/api/fraimic/scene_packs/{pack_id}/sync"
-    name = "api:fraimic:scene_packs:sync"
+    url = "/api/digital_frames/scene_packs/{pack_id}/sync"
+    name = "api:digital_frames:scene_packs:sync"
     requires_auth = True
 
     async def post(self, request: web.Request, pack_id: str) -> web.Response:
@@ -111,8 +111,8 @@ class FraimicScenePackSyncView(HomeAssistantView):
 class FraimicScenePackUninstallView(HomeAssistantView):
     """Uninstall a scene pack: remove its scene and every image it added."""
 
-    url = "/api/fraimic/scene_packs/{pack_id}"
-    name = "api:fraimic:scene_packs:one"
+    url = "/api/digital_frames/scene_packs/{pack_id}"
+    name = "api:digital_frames:scene_packs:one"
     requires_auth = True
 
     async def delete(self, request: web.Request, pack_id: str) -> web.Response:

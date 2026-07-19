@@ -11,7 +11,7 @@ Thanks for your interest in contributing. This is a custom HACS integration for 
 - **`library.py`** — Phase 2 cache keys include `codec_id` (`bin/<WxH[variant]>/<codec_id>/<image_id>.bin`); legacy resolution-only paths remain readable as fallback.
 - **`meural.py` / `meural_coordinator.py`** — Phase 3 local Meural driver (LAN identify + postcard JPEG; no cloud). Config entries use `driver=meural`.
 - **`image_converter.py`** — converts any Pillow-readable image to Spectra 6 raw binary (4bpp, nibble-packed); packing path selected via frame-type codec at the image resolution
-- **`fraimic-panel.js`** — vanilla JS custom panel; no frameworks; shadow DOM; talks to HA's REST/WS APIs with Bearer auth
+- **`digital-frames-panel.js`** — vanilla JS custom panel; no frameworks; shadow DOM; talks to HA's REST/WS APIs with Bearer auth
 - **`library_http.py`** — HTTP views registered with HA for the panel to call (image upload, crop save/clear, frame list, etc.)
 - **`scenes.py`** — named (frame, image) assignment lists sendable all at once; local-only state (HA's `Store` helper), independent of the library's storage backend
 - **`scenes_http.py`** — HTTP views for scene CRUD + send, mirroring `library_http.py`'s shape
@@ -39,19 +39,19 @@ Every art pack has category tags in the `categories` field, for example `["famou
 You need a real Fraimic frame to test against — the frame's HTTP API is not documented publicly and there's no emulator. A Home Assistant instance on the same network as your frame is required.
 
 1. Fork and clone the repo
-2. Copy `custom_components/fraimic/` into your HA config's `custom_components/` directory (or symlink it)
+2. Copy `custom_components/digital_frames/` into your HA config's `custom_components/` directory (or symlink it)
 3. Restart HA and add the integration
 
 For iterating on Python changes, restart the integration from **Settings → Integrations → Fraimic → (three dots) → Reload** without a full HA restart.
 
-For `fraimic-panel.js` changes, hard-refresh the browser (Cmd+Shift+R / Ctrl+Shift+R) — the panel JS is served directly and not cached aggressively.
+For `digital-frames-panel.js` changes, hard-refresh the browser (Cmd+Shift+R / Ctrl+Shift+R) — the panel JS is served directly and not cached aggressively.
 
 ## Testing image conversion
 
 `image_converter.py` has no HA dependencies and can be tested standalone:
 
 ```python
-from custom_components.fraimic.image_converter import convert_image_bytes
+from custom_components.digital_frames.image_converter import convert_image_bytes
 with open("photo.jpg", "rb") as f:
     bin_data = convert_image_bytes(f.read(), target_width=1200, target_height=1600)
 with open("out.bin", "wb") as f:
@@ -62,11 +62,11 @@ Send `out.bin` to a frame via its local API and verify it renders correctly. Col
 
 ## Testing the panel
 
-`fraimic-panel.js` has a Playwright suite under `tests/panel/` that drives the real panel JS in an actual browser against a mocked backend — no HA instance or frame needed. This exists because the panel's real bugs (DOM/pointer-event handling, async fetch timing, `<script>`-scope shadowing) don't show up from reading the code. See `tests/panel/README.md` to run it and for what to add a test for when you fix a panel bug.
+`digital-frames-panel.js` has a Playwright suite under `tests/panel/` that drives the real panel JS in an actual browser against a mocked backend — no HA instance or frame needed. This exists because the panel's real bugs (DOM/pointer-event handling, async fetch timing, `<script>`-scope shadowing) don't show up from reading the code. See `tests/panel/README.md` to run it and for what to add a test for when you fix a panel bug.
 
 ## Testing the backend
 
-`custom_components/fraimic/*.py` has a pytest suite under `tests/python/` (requires Python 3.13+ — see `requirements-test.txt`). See [TESTING_STRATEGY.md](TESTING_STRATEGY.md) for the tooling, coverage target, and what's covered vs. still a gap, and [docs/KEY_PRODUCT_FLOWS.md](docs/KEY_PRODUCT_FLOWS.md) for the flow-by-flow catalog this suite is working through.
+`custom_components/digital_frames/*.py` has a pytest suite under `tests/python/` (requires Python 3.13+ — see `requirements-test.txt`). See [TESTING_STRATEGY.md](TESTING_STRATEGY.md) for the tooling, coverage target, and what's covered vs. still a gap, and [docs/KEY_PRODUCT_FLOWS.md](docs/KEY_PRODUCT_FLOWS.md) for the flow-by-flow catalog this suite is working through.
 
 ## Releasing (maintainers)
 
@@ -79,7 +79,7 @@ The default bump is `patch`. Put the exact-case token BUMPMINOR or BUMPMAJOR in 
 - Keep PRs focused — one feature or fix per PR
 - **Definition of done for feature work** (binding, human or AI — see [AGENTS.md](AGENTS.md)): any change to user-facing behavior must ship in the same PR with (1) a new or amended entry in [docs/KEY_PRODUCT_FLOWS.md](docs/KEY_PRODUCT_FLOWS.md), including an accurate Test status line, and (2) the tests that entry claims — pytest under `tests/python/` and/or Playwright under `tests/panel/`
 - Test on real hardware before submitting; internally-consistent code that doesn't work on the frame is not useful
-- `fraimic-panel.js` is intentionally vanilla JS with no build step — keep it that way
+- `digital-frames-panel.js` is intentionally vanilla JS with no build step — keep it that way
 - If you're changing the bin conversion format, include before/after photos of the frame output
 
 ## Issues

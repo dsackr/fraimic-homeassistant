@@ -142,7 +142,7 @@ class FraimicCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_load_last_image(self) -> None:
         """Hydrate last_image_id/last_thumbnail from disk. Call this once
-        during setup, before the Frames panel can query /api/fraimic/frames,
+        during setup, before the Frames panel can query /api/digital_frames/frames,
         so the thumbnail survives a Home Assistant restart instead of
         dropping back to the generic icon until the next send."""
         try:

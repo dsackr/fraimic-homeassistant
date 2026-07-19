@@ -13,8 +13,8 @@ import pytest
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 
-from custom_components.fraimic.const import API_REFRESH, API_RESTART, API_SLEEP, DOMAIN
-from custom_components.fraimic import _safe_media_join
+from custom_components.digital_frames.const import API_REFRESH, API_RESTART, API_SLEEP, DOMAIN
+from custom_components.digital_frames import _safe_media_join
 
 
 @pytest.fixture(autouse=True)
@@ -42,7 +42,7 @@ def _no_real_network(monkeypatch):
             return _FakeResponse()
 
     monkeypatch.setattr(
-        "custom_components.fraimic.coordinator.async_get_clientsession",
+        "custom_components.digital_frames.coordinator.async_get_clientsession",
         lambda hass: _FakeSession(),
     )
 

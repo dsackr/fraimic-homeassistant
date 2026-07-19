@@ -6,7 +6,7 @@
        config + hass ordering exactly like Lovelace does (setConfig first,
        then the hass setter on every state change). -->
   <div id="mount" style="max-width:360px;margin:20px;"></div>
-  <script src="/fraimic-card.js"></script>
+  <script src="/digital-frames-card.js"></script>
   <script>
     // A faithful-enough stand-in for the `hass` object Lovelace injects
     // into every card: states + entity registry slice (getStubConfig
@@ -38,7 +38,7 @@
     window.__mountCard = function (config, frames) {
       const existing = document.getElementById('card');
       if (existing) existing.remove();
-      const card = document.createElement('fraimic-card');
+      const card = document.createElement('digital-frames-card');
       card.id = 'card';
       card.setConfig(config);
       card.hass = window.__buildMockHass(frames);

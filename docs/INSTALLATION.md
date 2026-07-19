@@ -6,17 +6,21 @@
 2. Click the three-dot menu → **Custom repositories**
 3. Paste `https://github.com/dsackr/fraimic-homeassistant` and set category to **Integration**
 4. Click **Add**, then find **Digital Frames** in HACS and install it
-   (repo is still `fraimic-homeassistant`; package path still `custom_components/fraimic/`)
-5. Restart Home Assistant
+   (GitHub repo may still be `fraimic-homeassistant`; package is
+   `custom_components/digital_frames/`)
+5. If upgrading from the old **Fraimic** domain, remove
+   `custom_components/fraimic/` so only Digital Frames loads. Library and
+   albums under `config/fraimic_library/` are preserved; re-add frames.
+6. Restart Home Assistant
 
 ## Install manually
 
-Copy the `custom_components/fraimic/` directory into your Home Assistant config folder under `custom_components/`.
+Copy the `custom_components/digital_frames/` directory into your Home Assistant config folder under `custom_components/`.
 
 ```
 config/
 └── custom_components/
-    └── fraimic/
+    └── digital_frames/
 ```
 
 Restart Home Assistant.

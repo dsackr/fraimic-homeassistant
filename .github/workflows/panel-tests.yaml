@@ -1,12 +1,12 @@
 name: Panel browser tests
 
-# fraimic-panel.js bugs tend to be invisible to code review -- e.g. a
+# digital-frames-panel.js bugs tend to be invisible to code review -- e.g. a
 # top-level `const CSS` shadowing the global CSS object, or a full
 # thumbnail-cache wipe that only reads as broken under real network
 # latency -- because they only show up once real pointer/DOM events fire in
 # an actual browser. tests/panel/ drives the real panel JS with Playwright
 # against a mocked Fraimic HTTP API; see tests/panel/README.md. The suite
-# also covers the Lovelace card (fraimic-card.js) via its own harness
+# also covers the Lovelace card (digital-frames-card.js) via its own harness
 # (tests/panel/fixtures/card-harness.html + fraimic-card.spec.js).
 #
 # Scoped to changes under the two frontend bundles or tests/panel/ so
@@ -23,14 +23,14 @@ on:
   push:
     branches: [main]
     paths:
-      - 'custom_components/fraimic/fraimic-panel.js'
-      - 'custom_components/fraimic/fraimic-card.js'
+      - 'custom_components/digital_frames/digital-frames-panel.js'
+      - 'custom_components/digital_frames/digital-frames-card.js'
       - 'tests/panel/**'
   pull_request:
     branches: [main]
     paths:
-      - 'custom_components/fraimic/fraimic-panel.js'
-      - 'custom_components/fraimic/fraimic-card.js'
+      - 'custom_components/digital_frames/digital-frames-panel.js'
+      - 'custom_components/digital_frames/digital-frames-card.js'
       - 'tests/panel/**'
 
 jobs:

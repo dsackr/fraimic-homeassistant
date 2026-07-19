@@ -99,7 +99,7 @@ class FraimicSceneEntity(SceneEntity):
         """Initialise."""
         self._manager = manager
         self.scene_id = scene.scene_id
-        self._attr_unique_id = f"fraimic_scene_{scene.scene_id}"
+        self._attr_unique_id = f"digital_frames_scene_{scene.scene_id}"
         self._attr_name = scene.name
 
     def refresh(self, scene: FraimicScene) -> None:

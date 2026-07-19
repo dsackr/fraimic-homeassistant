@@ -20,8 +20,8 @@ import os
 
 import pytest
 
-from custom_components.fraimic.const import DOMAIN
-from custom_components.fraimic.skills import SkillError, SkillManager
+from custom_components.digital_frames.const import DOMAIN
+from custom_components.digital_frames.skills import SkillError, SkillManager
 
 _XOTD_PACK = {
     "id": "xotd",
@@ -101,7 +101,7 @@ def mock_script_download(aioclient_mock):
     """Every text-mode render fetches the renderer script over HTTP first
     (see SkillManager._async_script_bytes) -- register that response so
     tests exercising the render path don't hit a real network call."""
-    from custom_components.fraimic.const import (
+    from custom_components.digital_frames.const import (
         XOTD_RENDERER_PINNED_BASE,
         XOTD_RENDERER_SCRIPT_PATH,
     )
@@ -320,7 +320,7 @@ async def test_text_render_returns_bin_bytes_and_cleans_up_run_dir(
             f.write(b"fake-bin-bytes")
         return _FakeProcess(returncode=0)
 
-    monkeypatch.setattr("custom_components.fraimic.skills.asyncio.create_subprocess_exec", _fake_exec)
+    monkeypatch.setattr("custom_components.digital_frames.skills.asyncio.create_subprocess_exec", _fake_exec)
 
     result = await skill_manager.async_render_for_entry(created["skill_id"], entry)
     # preview is None here because the fake bin isn't a valid packed length --
@@ -347,7 +347,7 @@ async def test_text_render_builds_preview_png_from_valid_bin(
             f.write(bytes((1200 * 1600) // 2))  # valid length, all-black
         return _FakeProcess(returncode=0)
 
-    monkeypatch.setattr("custom_components.fraimic.skills.asyncio.create_subprocess_exec", _fake_exec)
+    monkeypatch.setattr("custom_components.digital_frames.skills.asyncio.create_subprocess_exec", _fake_exec)
 
     result = await skill_manager.async_render_for_entry(created["skill_id"], entry)
     assert result["kind"] == "bin"
@@ -361,7 +361,7 @@ async def test_text_render_meural_returns_jpeg_not_spectra_bin(
     """Meural panels get JPEG postcard bytes from the same xOTD .bin render."""
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-    from custom_components.fraimic.const import (
+    from custom_components.digital_frames.const import (
         CONF_DEVICE_KEY,
         CONF_DRIVER,
         CONF_HEIGHT,
@@ -415,7 +415,7 @@ async def test_text_render_meural_returns_jpeg_not_spectra_bin(
         return _FakeProcess(returncode=0)
 
     monkeypatch.setattr(
-        "custom_components.fraimic.skills.asyncio.create_subprocess_exec", _fake_exec
+        "custom_components.digital_frames.skills.asyncio.create_subprocess_exec", _fake_exec
     )
 
     result = await skill_manager.async_render_for_entry(created["skill_id"], entry)
@@ -437,7 +437,7 @@ async def test_text_render_nonzero_exit_raises_skill_error(
     async def _fake_exec(*args, **kwargs):
         return _FakeProcess(returncode=1, stderr=b"boom")
 
-    monkeypatch.setattr("custom_components.fraimic.skills.asyncio.create_subprocess_exec", _fake_exec)
+    monkeypatch.setattr("custom_components.digital_frames.skills.asyncio.create_subprocess_exec", _fake_exec)
 
     with pytest.raises(SkillError, match="boom"):
         await skill_manager.async_render_for_entry(created["skill_id"], entry)
@@ -457,8 +457,8 @@ async def test_text_render_timeout_raises_and_kills_process(
     async def _fake_exec(*args, **kwargs):
         return fake_process
 
-    monkeypatch.setattr("custom_components.fraimic.skills.asyncio.create_subprocess_exec", _fake_exec)
-    monkeypatch.setattr("custom_components.fraimic.skills._RENDER_TIMEOUT", 0.05)
+    monkeypatch.setattr("custom_components.digital_frames.skills.asyncio.create_subprocess_exec", _fake_exec)
+    monkeypatch.setattr("custom_components.digital_frames.skills._RENDER_TIMEOUT", 0.05)
 
     with pytest.raises(SkillError, match="timed out"):
         await skill_manager.async_render_for_entry(created["skill_id"], entry)
@@ -488,7 +488,7 @@ async def test_concurrent_renders_of_same_skill_use_isolated_run_dirs(
             f.write(f"bin-for-{run_dir}".encode())
         return _FakeProcess(returncode=0)
 
-    monkeypatch.setattr("custom_components.fraimic.skills.asyncio.create_subprocess_exec", _fake_exec)
+    monkeypatch.setattr("custom_components.digital_frames.skills.asyncio.create_subprocess_exec", _fake_exec)
 
     results = await asyncio.gather(
         skill_manager.async_render_for_entry(created["skill_id"], entry),
@@ -514,7 +514,7 @@ async def test_content_fields_cached_across_renders_same_day(
     created = await skill_manager.async_save_skill("Custom Word", "word", {"word_feed": "custom"})
 
     monkeypatch.setattr(
-        "custom_components.fraimic.skills.asyncio.create_subprocess_exec",
+        "custom_components.digital_frames.skills.asyncio.create_subprocess_exec",
         _fake_subprocess_exec_writing_bin(),
     )
 
@@ -533,7 +533,7 @@ async def test_content_fields_cached_across_renders_same_day(
 async def test_script_bytes_cached_across_calls(
     hass, skill_manager, aioclient_mock
 ):
-    from custom_components.fraimic.const import (
+    from custom_components.digital_frames.const import (
         XOTD_RENDERER_PINNED_BASE,
         XOTD_RENDERER_SCRIPT_PATH,
     )

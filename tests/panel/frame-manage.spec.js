@@ -15,7 +15,7 @@ const FRAMES = [
 
 const DISCOVERED_FLOW = {
   flow_id: 'flow_disc1',
-  handler: 'fraimic',
+  handler: 'digital_frames',
   context: { source: 'integration_discovery', title_placeholders: { name: '192.168.1.31' } },
   step_id: 'name_device',
 };

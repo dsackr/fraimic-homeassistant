@@ -261,7 +261,7 @@ test.describe('Daily Agenda add-on: calendar source picker', () => {
 
   test('"Select all" / "Clear" toolbar checks and unchecks every calendar', async ({ page }) => {
     // Generic to any entity+multiple field (see _renderConfigField in
-    // fraimic-panel.js) -- exercised here through the calendar field since
+    // digital-frames-panel.js) -- exercised here through the calendar field since
     // that's the only add-on currently using this schema shape.
     const mock = createMockServer({
       frames: [{ entry_id: 'entry_1', title: 'Living Room Frame' }],

@@ -2,11 +2,11 @@
 <html>
 <head><meta charset="utf-8"><title>fraimic-panel test harness</title></head>
 <body style="margin:0;padding:0;">
-  <fraimic-panel id="panel"></fraimic-panel>
-  <script src="/fraimic-panel.js"></script>
+  <digital-frames-panel id="panel"></digital-frames-panel>
+  <script src="/digital-frames-panel.js"></script>
   <script>
     // A faithful-enough stand-in for the real `hass` object HA injects into
-    // every custom panel/card. `states` MUST be present -- fraimic-panel.js
+    // every custom panel/card. `states` MUST be present -- digital-frames-panel.js
     // reads hass.states[entityId] directly (e.g. for orientation selects),
     // and a real hass object always has it. Omitting it previously masked
     // an unrelated bug from showing up in tests and made init abort silently

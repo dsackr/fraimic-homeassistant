@@ -1,10 +1,10 @@
 """HTTP views for integration self-update (check / install / restart / dismiss).
 
-    GET  /api/fraimic/update          status (installed, latest, available, banner)
-    POST /api/fraimic/update/check    force re-check against GitHub
-    POST /api/fraimic/update/install  download + install ({version?} optional)
-    POST /api/fraimic/update/restart  restart Home Assistant
-    POST /api/fraimic/update/dismiss  dismiss banner for a version ({version})
+    GET  /api/digital_frames/update          status (installed, latest, available, banner)
+    POST /api/digital_frames/update/check    force re-check against GitHub
+    POST /api/digital_frames/update/install  download + install ({version?} optional)
+    POST /api/digital_frames/update/restart  restart Home Assistant
+    POST /api/digital_frames/update/dismiss  dismiss banner for a version ({version})
 """
 
 from __future__ import annotations
@@ -36,8 +36,8 @@ def _require_admin(request: web.Request) -> web.Response | None:
 class FraimicUpdateStatusView(HomeAssistantView):
     """GET current installed version + latest GitHub release comparison."""
 
-    url = "/api/fraimic/update"
-    name = "api:fraimic:update"
+    url = "/api/digital_frames/update"
+    name = "api:digital_frames:update"
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
@@ -58,8 +58,8 @@ class FraimicUpdateStatusView(HomeAssistantView):
 class FraimicUpdateCheckView(HomeAssistantView):
     """POST force a fresh GitHub check (same payload as GET)."""
 
-    url = "/api/fraimic/update/check"
-    name = "api:fraimic:update:check"
+    url = "/api/digital_frames/update/check"
+    name = "api:digital_frames:update:check"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
@@ -80,8 +80,8 @@ class FraimicUpdateCheckView(HomeAssistantView):
 class FraimicUpdateInstallView(HomeAssistantView):
     """POST install a release (latest, or body.version)."""
 
-    url = "/api/fraimic/update/install"
-    name = "api:fraimic:update:install"
+    url = "/api/digital_frames/update/install"
+    name = "api:digital_frames:update:install"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
@@ -109,8 +109,8 @@ class FraimicUpdateInstallView(HomeAssistantView):
 class FraimicUpdateRestartView(HomeAssistantView):
     """POST restart Home Assistant after an install."""
 
-    url = "/api/fraimic/update/restart"
-    name = "api:fraimic:update:restart"
+    url = "/api/digital_frames/update/restart"
+    name = "api:digital_frames:update:restart"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
@@ -134,8 +134,8 @@ class FraimicUpdateRestartView(HomeAssistantView):
 class FraimicUpdateDismissView(HomeAssistantView):
     """POST dismiss the dashboard update banner for a version."""
 
-    url = "/api/fraimic/update/dismiss"
-    name = "api:fraimic:update:dismiss"
+    url = "/api/digital_frames/update/dismiss"
+    name = "api:digital_frames:update:dismiss"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:

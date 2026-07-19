@@ -18,7 +18,7 @@
   'use strict';
 
   const CARD_VERSION = '0.5.0';
-  const FRAMES_URL = '/api/fraimic/frames';
+  const FRAMES_URL = '/api/digital_frames/frames';
   const FRAMES_REFRESH_MS = 30000;
 
   function esc(text) {
@@ -253,7 +253,7 @@
       super();
       this.attachShadow({ mode: 'open' });
 
-      this._frames = null;         // /api/fraimic/frames payload
+      this._frames = null;         // /api/digital_frames/frames payload
       this._frame = null;          // this card's frame record
       this._framesFetchedAt = 0;
       this._framesInFlight = false;
@@ -763,7 +763,7 @@
       this._q('btnCancel').addEventListener('click', () => this._unstage());
       this._q('gearBtn').addEventListener('click', (e) => {
         e.stopPropagation();
-        history.pushState(null, '', '/fraimic');
+        history.pushState(null, '', '/digital_frames');
         window.dispatchEvent(new CustomEvent('location-changed', { bubbles: true, composed: true }));
       });
       this._q('orientPortrait').addEventListener('click', () => this._setOrientation('portrait'));
@@ -917,11 +917,11 @@
       let url = null;
       let isRender = false;
       if (frame && frame.last_image_id) {
-        url = `/api/fraimic/library/image/${frame.last_image_id}?thumb=480`;
+        url = `/api/digital_frames/library/image/${frame.last_image_id}?thumb=480`;
       } else if (frame && frame.has_thumbnail) {
         // The frame's own render preview: photos sent by upload, and
         // xOTD/daily text renders (quantized PNG) -- contain, don't crop.
-        url = `/api/fraimic/frame/${frame.entry_id}/thumbnail`;
+        url = `/api/digital_frames/frame/${frame.entry_id}/thumbnail`;
         isRender = true;
       }
 
@@ -1031,7 +1031,7 @@
       const select = this._q('albumSelect');
       if (this._albums === null) {
         try {
-          const resp = await fetch('/api/fraimic/library/albums', { headers: this._authHeaders() });
+          const resp = await fetch('/api/digital_frames/library/albums', { headers: this._authHeaders() });
           const data = await resp.json();
           this._albums = data.albums || [];
         } catch (_) {
@@ -1055,7 +1055,7 @@
       if (mode === 'daily') {
         let skills = [];
         try {
-          const resp = await fetch('/api/fraimic/skills', { headers: this._authHeaders() });
+          const resp = await fetch('/api/digital_frames/skills', { headers: this._authHeaders() });
           const data = await resp.json();
           skills = data.skills || [];
         } catch (_) { /* fall through to empty-state */ }
@@ -1084,8 +1084,8 @@
       let images = [];
       try {
         const url = album
-          ? `/api/fraimic/library/list?album=${encodeURIComponent(album)}`
-          : '/api/fraimic/library/list';
+          ? `/api/digital_frames/library/list?album=${encodeURIComponent(album)}`
+          : '/api/digital_frames/library/list';
         const resp = await fetch(url, { headers: this._authHeaders() });
         const data = await resp.json();
         images = data.images || [];
@@ -1122,7 +1122,7 @@
       try {
         if (job.token === this._pickerToken) {
           const resp = await fetch(
-            `/api/fraimic/library/image/${job.imageId}?thumb=200`,
+            `/api/digital_frames/library/image/${job.imageId}?thumb=200`,
             { headers: this._authHeaders() }
           );
           if (resp.ok && job.token === this._pickerToken) {
@@ -1154,7 +1154,7 @@
       this._setStaged({ kind: 'image', imageId: image.image_id }, null, false);
       // Preview via authorized blob fetch (img src can't carry the header).
       const staged = this._staged;
-      fetch(`/api/fraimic/library/image/${image.image_id}?thumb=480`, { headers: this._authHeaders() })
+      fetch(`/api/digital_frames/library/image/${image.image_id}?thumb=480`, { headers: this._authHeaders() })
         .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
         .then((blob) => {
           if (this._staged !== staged) return;
@@ -1254,7 +1254,7 @@
           const form = new FormData();
           form.append('entity_id', frame.battery_entity_id);
           form.append('image', staged.file);
-          const resp = await fetch('/api/fraimic/send_image', {
+          const resp = await fetch('/api/digital_frames/send_image', {
             method: 'POST', headers: this._authHeaders(), body: form,
           });
           result = await resp.json().catch(() => ({}));
@@ -1263,13 +1263,13 @@
           const form = new FormData();
           form.append('entity_id', frame.battery_entity_id);
           form.append('image_id', staged.imageId);
-          const resp = await fetch('/api/fraimic/library/send', {
+          const resp = await fetch('/api/digital_frames/library/send', {
             method: 'POST', headers: this._authHeaders(), body: form,
           });
           result = await resp.json().catch(() => ({}));
           result._httpOk = resp.ok;
         } else {
-          const resp = await fetch(`/api/fraimic/skills/${encodeURIComponent(staged.skillId)}/send`, {
+          const resp = await fetch(`/api/digital_frames/skills/${encodeURIComponent(staged.skillId)}/send`, {
             method: 'POST',
             headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
             body: JSON.stringify({ entry_id: frame.entry_id }),
@@ -1357,8 +1357,8 @@
       try {
         // Full library record (for any saved crop) + the original pixels.
         const [listResp, imgResp] = await Promise.all([
-          fetch('/api/fraimic/library/list', { headers: this._authHeaders() }),
-          fetch(`/api/fraimic/library/image/${imageId}`, { headers: this._authHeaders() }),
+          fetch('/api/digital_frames/library/list', { headers: this._authHeaders() }),
+          fetch(`/api/digital_frames/library/image/${imageId}`, { headers: this._authHeaders() }),
         ]);
         if (!imgResp.ok) throw new Error(`HTTP ${imgResp.status}`);
         const listData = await listResp.json().catch(() => ({}));
@@ -1497,7 +1497,7 @@
       btn.disabled = true;
       btn.textContent = '⏳ Saving…';
       try {
-        const saveResp = await fetch('/api/fraimic/library/crop', {
+        const saveResp = await fetch('/api/digital_frames/library/crop', {
           method: 'POST',
           headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1516,7 +1516,7 @@
         const form = new FormData();
         form.append('entity_id', frame.battery_entity_id);
         form.append('image_id', crop.imageId);
-        const sendResp = await fetch('/api/fraimic/library/send', {
+        const sendResp = await fetch('/api/digital_frames/library/send', {
           method: 'POST', headers: this._authHeaders(), body: form,
         });
         const sendResult = await sendResp.json().catch(() => ({}));
@@ -1542,7 +1542,7 @@
       const crop = this._crop;
       if (!crop) return;
       try {
-        const resp = await fetch('/api/fraimic/library/crop', {
+        const resp = await fetch('/api/digital_frames/library/crop', {
           method: 'DELETE',
           headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1593,11 +1593,11 @@
     }
   }
 
-  customElements.define('fraimic-card', FraimicCard);
+  customElements.define('digital-frames-card', FraimicCard);
 
   window.customCards = window.customCards || [];
   window.customCards.push({
-    type: 'fraimic-card',
+    type: 'digital-frames-card',
     name: 'Digital Frames Card',
     description: 'See what\'s on a Fraimic e-ink frame and manage it: send photos or daily content, change orientation, adjust cropping.',
     preview: true,

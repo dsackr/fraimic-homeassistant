@@ -14,7 +14,7 @@ Related:
 
 - [KEY_PRODUCT_FLOWS.md](KEY_PRODUCT_FLOWS.md) — user-facing flows and tests
 - [CONTRIBUTING.md](../CONTRIBUTING.md) — current module layout
-- [`frame_types.py`](../custom_components/fraimic/frame_types.py) — panel
+- [`frame_types.py`](../custom_components/digital_frames/frame_types.py) — panel
   profiles for the Fraimic protocol family only
 
 ---
@@ -374,11 +374,12 @@ it belongs in core and must use the port.
 | **3 – Second driver** | Local Meural (`driver=meural`): config-flow menu, `MeuralCoordinator`, JPEG `jpeg_q90` codec, postcard send; participates in walls/scenes/library. **No** Meural cloud/Cognito. | **Done** (experimental) |
 | **3b – Samsung MDC** | Local Samsung EM32DX (`driver=samsung`): MDC TLS content-download + HA token PNG URL; protocol from [fayep/Joyous](https://github.com/fayep/Joyous). **No live hardware in this repo.** | **Done** (experimental / untested) |
 | **3c – InkJoy** | Deferred: firmware control plane is **MQTT** (not optional). | Paused |
-| **4 – Branding** | Product name **Digital Frames** (HACS/manifest/sidebar/onboarding). Domain/path remain `fraimic` until a later migration. | **Done** (display-name pass) |
+| **4 – Branding** | Product + domain **Digital Frames** / `digital_frames` (package, panel, APIs, services). Library dir `fraimic_library` kept so albums survive. | **Done** |
 
 **Immediate next product step:** Hardware validation (Meural smoke, Samsung
-EM32DX if available); optional domain/repo rename only if still worth it.
-Ask Joyous maintainers to validate Samsung MDC path if willing.
+EM32DX if available). GitHub repo slug may stay `fraimic-homeassistant`
+until a separate rename. Ask Joyous maintainers to validate Samsung MDC
+if willing.
 
 **Hardware note:** Meural is local-LAN only. Samsung MDC is experimental
 and needs a real EM32DX (or equivalent) for end-to-end validation.

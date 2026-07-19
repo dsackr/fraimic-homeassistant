@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.fraimic.const import DOMAIN, KIND_SCENES_HUB
+from custom_components.digital_frames.const import DOMAIN, KIND_SCENES_HUB
 
 
 @pytest.fixture(autouse=True)
 def _no_real_network(monkeypatch):
     monkeypatch.setattr(
-        "custom_components.fraimic.coordinator.async_get_clientsession",
+        "custom_components.digital_frames.coordinator.async_get_clientsession",
         lambda hass: _FakeSession(),
     )
 
@@ -90,7 +90,7 @@ async def test_unload_removes_services_only_when_last_frame_gone(
 
 
 async def test_remove_entry_prunes_wall_placement(hass, make_frame_entry):
-    from custom_components.fraimic.walls import DEFAULT_WALL_ID
+    from custom_components.digital_frames.walls import DEFAULT_WALL_ID
 
     entry = make_frame_entry()
     entry.add_to_hass(hass)

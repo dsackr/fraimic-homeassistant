@@ -3,9 +3,9 @@ testpaths = ["tests/python"]
 asyncio_mode = "auto"
 
 [tool.coverage.run]
-source = ["custom_components.fraimic"]
+source = ["custom_components.digital_frames"]
 omit = [
-    "custom_components/fraimic/fraimic-panel.js",
+    "custom_components/digital_frames/digital-frames-panel.js",
 ]
 
 [tool.coverage.report]

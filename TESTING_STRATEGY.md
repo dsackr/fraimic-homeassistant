@@ -6,7 +6,7 @@ left to cover.
 
 ## 1. Why this exists
 
-Until now, `custom_components/fraimic/` (the Python backend, ~9,100 lines)
+Until now, `custom_components/digital_frames/` (the Python backend, ~9,100 lines)
 had zero automated tests — the only suite was Playwright coverage for the
 frontend panel (`tests/panel/`). This doc records the testing standard the
 project now holds itself to, and gives future work (mine or a
@@ -15,12 +15,12 @@ every time backend coverage comes up.
 
 ## 2. Tooling & strategy
 
-- **Backend** (`custom_components/fraimic/*.py`): `pytest` +
+- **Backend** (`custom_components/digital_frames/*.py`): `pytest` +
   [`pytest-homeassistant-custom-component`](https://github.com/MatthewFlamm/pytest-homeassistant-custom-component)
   (PHACC), which vendors a real Home Assistant core and provides the `hass`
   fixture, `MockConfigEntry`, and `aioclient_mock`. Tests live under
   `tests/python/`; shared fixtures are in `tests/python/conftest.py`.
-- **Frontend** (`fraimic-panel.js`): Playwright, unchanged — see
+- **Frontend** (`digital-frames-panel.js`): Playwright, unchanged — see
   `tests/panel/README.md`.
 - One suite per language, not split further — pure-logic modules
   (`image_converter.py`, `frame_types.py`, `helpers.render_spec_for_entry`)
@@ -37,7 +37,7 @@ every time backend coverage comes up.
   current HA core's minimum) — noticeably newer than whatever ships as
   the system `python3` on most machines. Create a venv against a 3.13+
   interpreter and `pip install -r requirements-test.txt`, then
-  `python -m pytest tests/python/ --cov=custom_components.fraimic --cov-report=term-missing`.
+  `python -m pytest tests/python/ --cov=custom_components.digital_frames --cov-report=term-missing`.
 
 ## 3. Where test results live
 
@@ -48,7 +48,7 @@ every time backend coverage comes up.
   Manually-run suites for changes CI's path filters won't cover get a
   `local` row appended by hand (see AGENTS.md).
 - **CI**: `.github/workflows/python-tests.yaml` runs the backend suite on
-  every push/PR touching `custom_components/fraimic/**.py` or
+  every push/PR touching `custom_components/digital_frames/**.py` or
   `tests/python/**`, writes a coverage summary to the GitHub Actions job
   summary (visible directly in the PR checks tab — no third-party
   coverage service), and uploads the full HTML coverage report as a
@@ -125,7 +125,7 @@ Phases 0-5:
 | `library.py` | 55% (local backend/crop/albums/backfill covered; Dropbox/Google Drive OAuth backends still untested) |
 | `scene_packs.py` | 50% (widget install/scheduling/subprocess execution untested) |
 | `library_http.py`, `scenes_http.py`, `schedules_http.py`, `walls_http.py`, `scene_packs_http.py` | 23-33% (thin view wrappers over already-tested manager methods) |
-| Overall (`custom_components.fraimic`) | ~62% (Phase 5b — cloud backends, OAuth, and the `*_http.py` view layer — still open) |
+| Overall (`custom_components.digital_frames`) | ~62% (Phase 5b — cloud backends, OAuth, and the `*_http.py` view layer — still open) |
 
 Already past the **65% overall** target originally set for "once Phase 5
 lands" — reasonable given Phase 5b's remaining scope (OAuth flows,

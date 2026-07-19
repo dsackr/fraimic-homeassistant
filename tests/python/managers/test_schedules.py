@@ -11,8 +11,8 @@ from datetime import timedelta
 
 import pytest
 
-from custom_components.fraimic.const import DOMAIN
-from custom_components.fraimic.schedules import (
+from custom_components.digital_frames.const import DOMAIN
+from custom_components.digital_frames.schedules import (
     STATUS_COMPLETED,
     STATUS_PENDING,
     STATUS_TARGET_MISSING,
@@ -387,7 +387,7 @@ async def test_edit_resets_broken_schedule_to_pending(
 
 
 def _schedule(trigger, enabled=True, status=STATUS_PENDING):
-    from custom_components.fraimic.schedules import Schedule
+    from custom_components.digital_frames.schedules import Schedule
 
     return Schedule(
         {

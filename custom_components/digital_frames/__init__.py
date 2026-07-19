@@ -34,9 +34,8 @@ from .coordinator import FraimicCoordinator
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 # panel_custom is a built-in HA component; import lazily to avoid load-order issues.
-# Product display name is PRODUCT_NAME; URL path stays /fraimic for stable bookmarks.
-_PANEL_URL = "/fraimic/fraimic-panel.js"
-_PANEL_PATH = "fraimic"  # URL path: /fraimic
+_PANEL_URL = "/digital_frames/digital-frames-panel.js"
+_PANEL_PATH = "digital_frames"
 _PANEL_SIDEBAR_TITLE = PRODUCT_NAME
 _PANEL_SIDEBAR_ICON = "mdi:image-frame"
 
@@ -99,7 +98,7 @@ _SEND_SKILL_SCHEMA = vol.Schema(
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Register static paths, HTTP view, sidebar panel, and Lovelace card JS."""
-    base_dir = hass.config.path("custom_components/fraimic")
+    base_dir = hass.config.path("custom_components/digital_frames")
 
     # Serve the Lovelace card JS and the sidebar panel JS at stable URLs.
     # Cache headers are ON: the ?v=<version> suffix below changes the URL
@@ -108,13 +107,13 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     await hass.http.async_register_static_paths(
         [
             StaticPathConfig(
-                "/fraimic/fraimic-card.js",
-                f"{base_dir}/fraimic-card.js",
+                "/digital_frames/digital-frames-card.js",
+                f"{base_dir}/digital-frames-card.js",
                 True,
             ),
             StaticPathConfig(
-                "/fraimic/fraimic-panel.js",
-                f"{base_dir}/fraimic-panel.js",
+                "/digital_frames/digital-frames-panel.js",
+                f"{base_dir}/digital-frames-panel.js",
                 True,
             ),
         ]
@@ -353,14 +352,14 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     # Inject the Lovelace card JS so it's available on any dashboard.
     from homeassistant.components.frontend import add_extra_js_url  # noqa: PLC0415
 
-    add_extra_js_url(hass, f"/fraimic/fraimic-card.js?v={_cache_bust}")
+    add_extra_js_url(hass, f"/digital_frames/digital-frames-card.js?v={_cache_bust}")
 
     # Register the "Frames" sidebar panel.
     from homeassistant.components.panel_custom import async_register_panel  # noqa: PLC0415
 
     await async_register_panel(
         hass,
-        webcomponent_name="fraimic-panel",
+        webcomponent_name="digital-frames-panel",
         frontend_url_path=_PANEL_PATH,
         sidebar_title=_PANEL_SIDEBAR_TITLE,
         sidebar_icon=_PANEL_SIDEBAR_ICON,

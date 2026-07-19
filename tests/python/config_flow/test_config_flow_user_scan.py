@@ -10,7 +10,7 @@ import pytest
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResultType
 
-from custom_components.fraimic.const import (
+from custom_components.digital_frames.const import (
     CONF_DEVICE_KEY,
     CONF_DRIVER,
     CONF_HEIGHT,
@@ -39,7 +39,7 @@ def _no_real_network(monkeypatch):
     254 concurrent probes) -- stub the helpers module-level functions
     config_flow.py imported instead."""
     monkeypatch.setattr(
-        "custom_components.fraimic.config_flow.get_local_ip", lambda: "192.168.1.2"
+        "custom_components.digital_frames.config_flow.get_local_ip", lambda: "192.168.1.2"
     )
 
 
@@ -60,13 +60,13 @@ async def test_manual_host_entry_success_creates_entry(hass, monkeypatch):
     async def _probe(session, host, timeout=None):
         return FRAME_INFO if host == "192.168.1.50" else None
 
-    monkeypatch.setattr("custom_components.fraimic.config_flow.probe_frame", _probe)
+    monkeypatch.setattr("custom_components.digital_frames.config_flow.probe_frame", _probe)
     monkeypatch.setattr(
-        "custom_components.fraimic.config_flow.probe_device_size",
+        "custom_components.digital_frames.config_flow.probe_device_size",
         lambda session, host: _async_none(),
     )
     monkeypatch.setattr(
-        "custom_components.fraimic.config_flow.detect_frame_type_from_info",
+        "custom_components.digital_frames.config_flow.detect_frame_type_from_info",
         lambda info: None,
     )
 
@@ -98,8 +98,8 @@ async def test_manual_host_entry_cannot_connect(hass, monkeypatch):
     async def _scan(local_ip, session, **kwargs):
         return []
 
-    monkeypatch.setattr("custom_components.fraimic.config_flow.probe_frame", _probe)
-    monkeypatch.setattr("custom_components.fraimic.config_flow.scan_subnet", _scan)
+    monkeypatch.setattr("custom_components.digital_frames.config_flow.probe_frame", _probe)
+    monkeypatch.setattr("custom_components.digital_frames.config_flow.scan_subnet", _scan)
 
     result = await _start_fraimic_path(hass)
     assert result["step_id"] == "add_fraimic"
@@ -117,7 +117,7 @@ async def test_auto_scan_no_host_finds_devices_and_proceeds_to_pick_device(
     async def _scan(local_ip, session, **kwargs):
         return [{"ip": "192.168.1.50", "info": FRAME_INFO}]
 
-    monkeypatch.setattr("custom_components.fraimic.config_flow.scan_subnet", _scan)
+    monkeypatch.setattr("custom_components.digital_frames.config_flow.scan_subnet", _scan)
 
     result = await _start_fraimic_path(hass)
     # add_fraimic first visit auto-scans (user_input is None).
@@ -129,7 +129,7 @@ async def test_auto_scan_no_devices_found_shows_error(hass, monkeypatch):
     async def _scan(local_ip, session, **kwargs):
         return []
 
-    monkeypatch.setattr("custom_components.fraimic.config_flow.scan_subnet", _scan)
+    monkeypatch.setattr("custom_components.digital_frames.config_flow.scan_subnet", _scan)
 
     result = await _start_fraimic_path(hass)
     assert result["type"] == FlowResultType.FORM
@@ -141,7 +141,7 @@ async def test_pick_device_manual_sentinel_goes_to_manual_step(hass, monkeypatch
     async def _scan(local_ip, session, **kwargs):
         return [{"ip": "192.168.1.50", "info": FRAME_INFO}]
 
-    monkeypatch.setattr("custom_components.fraimic.config_flow.scan_subnet", _scan)
+    monkeypatch.setattr("custom_components.digital_frames.config_flow.scan_subnet", _scan)
 
     result = await _start_fraimic_path(hass)
     result = await hass.config_entries.flow.async_configure(
@@ -154,13 +154,13 @@ async def test_pick_device_selects_discovered_frame(hass, monkeypatch):
     async def _scan(local_ip, session, **kwargs):
         return [{"ip": "192.168.1.50", "info": FRAME_INFO}]
 
-    monkeypatch.setattr("custom_components.fraimic.config_flow.scan_subnet", _scan)
+    monkeypatch.setattr("custom_components.digital_frames.config_flow.scan_subnet", _scan)
     monkeypatch.setattr(
-        "custom_components.fraimic.config_flow.probe_device_size",
+        "custom_components.digital_frames.config_flow.probe_device_size",
         lambda session, host: _async_none(),
     )
     monkeypatch.setattr(
-        "custom_components.fraimic.config_flow.detect_frame_type_from_info",
+        "custom_components.digital_frames.config_flow.detect_frame_type_from_info",
         lambda info: None,
     )
 
@@ -178,10 +178,10 @@ async def test_size_auto_detected_skips_resolution_field(hass, monkeypatch):
     async def _scan(local_ip, session, **kwargs):
         return []
 
-    monkeypatch.setattr("custom_components.fraimic.config_flow.probe_frame", _probe)
-    monkeypatch.setattr("custom_components.fraimic.config_flow.scan_subnet", _scan)
+    monkeypatch.setattr("custom_components.digital_frames.config_flow.probe_frame", _probe)
+    monkeypatch.setattr("custom_components.digital_frames.config_flow.scan_subnet", _scan)
     monkeypatch.setattr(
-        "custom_components.fraimic.config_flow.probe_device_size",
+        "custom_components.digital_frames.config_flow.probe_device_size",
         lambda session, host: _async_value("13.3"),
     )
 
@@ -210,7 +210,7 @@ async def test_meural_local_add_creates_entry(hass, monkeypatch):
         }
 
     monkeypatch.setattr(
-        "custom_components.fraimic.config_flow.probe_meural", _probe_meural
+        "custom_components.digital_frames.config_flow.probe_meural", _probe_meural
     )
 
     result = await hass.config_entries.flow.async_init(
@@ -238,7 +238,7 @@ async def test_meural_local_add_creates_entry(hass, monkeypatch):
     assert result["data"][CONF_WIDTH] == 1920
     assert result["data"][CONF_HEIGHT] == 1080
     assert result["data"][CONF_DEVICE_KEY] == "meural:MEURAL123"
-    from custom_components.fraimic.const import (  # noqa: PLC0415
+    from custom_components.digital_frames.const import (  # noqa: PLC0415
         CONF_ORIENTATION,
         CONF_ORIENTATION_FOLLOW_DEVICE,
         ORIENTATION_PORTRAIT,
@@ -253,7 +253,7 @@ async def test_meural_cannot_connect(hass, monkeypatch):
         return None
 
     monkeypatch.setattr(
-        "custom_components.fraimic.config_flow.probe_meural", _probe_meural
+        "custom_components.digital_frames.config_flow.probe_meural", _probe_meural
     )
 
     result = await hass.config_entries.flow.async_init(
@@ -279,7 +279,7 @@ async def test_dhcp_discovery_matches_existing_entry_aborts(
     async def _probe(session, host, timeout=None):
         return FRAME_INFO
 
-    monkeypatch.setattr("custom_components.fraimic.config_flow.probe_frame", _probe)
+    monkeypatch.setattr("custom_components.digital_frames.config_flow.probe_frame", _probe)
 
     from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
@@ -300,9 +300,9 @@ async def test_dhcp_discovery_new_frame_proceeds_to_name_device(hass, monkeypatc
     async def _probe(session, host, timeout=None):
         return FRAME_INFO
 
-    monkeypatch.setattr("custom_components.fraimic.config_flow.probe_frame", _probe)
+    monkeypatch.setattr("custom_components.digital_frames.config_flow.probe_frame", _probe)
     monkeypatch.setattr(
-        "custom_components.fraimic.config_flow.probe_device_size",
+        "custom_components.digital_frames.config_flow.probe_device_size",
         lambda session, host: _async_none(),
     )
 
@@ -325,7 +325,7 @@ async def test_dhcp_discovery_non_fraimic_device_aborts(hass, monkeypatch):
     async def _probe(session, host, timeout=None):
         return None
 
-    monkeypatch.setattr("custom_components.fraimic.config_flow.probe_frame", _probe)
+    monkeypatch.setattr("custom_components.digital_frames.config_flow.probe_frame", _probe)
 
     from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 

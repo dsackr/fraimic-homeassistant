@@ -1,5 +1,5 @@
 // Regression coverage for a real bug: the Add-ons tab's catalog
-// (GET /api/fraimic/scene_packs) was only ever fetched once at initial
+// (GET /api/digital_frames/scene_packs) was only ever fetched once at initial
 // panel load, plus after this session's own install/sync/uninstall
 // actions. Switching tabs (_setTab) and reconnecting the panel element
 // (_revive -- e.g. navigating away in the HA sidebar and back) never
@@ -29,7 +29,7 @@ async function openAddons(page) {
 }
 
 function scenePackRequestCount(mockServer) {
-  return mockServer.requestLog.filter((r) => r.startsWith('GET /api/fraimic/scene_packs')).length;
+  return mockServer.requestLog.filter((r) => r.startsWith('GET /api/digital_frames/scene_packs')).length;
 }
 
 test.describe('Add-ons catalog refresh', () => {

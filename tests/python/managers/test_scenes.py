@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.fraimic.const import DOMAIN
-from custom_components.fraimic.scenes import SceneError, SceneManager
+from custom_components.digital_frames.const import DOMAIN
+from custom_components.digital_frames.scenes import SceneError, SceneManager
 
 
 @pytest.fixture
@@ -138,7 +138,7 @@ async def test_send_mappings_all_succeed(
     async def _fake_send(self, image_bytes, *, image_id=None, thumbnail=None):
         return {"success": True, "queued": False}
 
-    from custom_components.fraimic.coordinator import FraimicCoordinator
+    from custom_components.digital_frames.coordinator import FraimicCoordinator
 
     monkeypatch.setattr(FraimicCoordinator, "async_send_image_or_queue", _fake_send)
 
@@ -157,7 +157,7 @@ async def test_send_mappings_partial_failure_does_not_block_others(
     async def _fake_send(self, image_bytes, *, image_id=None, thumbnail=None):
         return {"success": True, "queued": False}
 
-    from custom_components.fraimic.coordinator import FraimicCoordinator
+    from custom_components.digital_frames.coordinator import FraimicCoordinator
 
     monkeypatch.setattr(FraimicCoordinator, "async_send_image_or_queue", _fake_send)
 
@@ -190,7 +190,7 @@ async def test_send_mappings_queued_reported_not_as_failure_shape(
     async def _fake_send(self, image_bytes, *, image_id=None, thumbnail=None):
         return {"success": False, "queued": True}
 
-    from custom_components.fraimic.coordinator import FraimicCoordinator
+    from custom_components.digital_frames.coordinator import FraimicCoordinator
 
     monkeypatch.setattr(FraimicCoordinator, "async_send_image_or_queue", _fake_send)
 
@@ -252,7 +252,7 @@ async def test_send_mappings_skill_bin_kind_sent_without_image_id(
         sent_calls.append((image_bytes, image_id, thumbnail))
         return {"success": True, "queued": False}
 
-    from custom_components.fraimic.coordinator import FraimicCoordinator
+    from custom_components.digital_frames.coordinator import FraimicCoordinator
 
     monkeypatch.setattr(FraimicCoordinator, "async_send_image_or_queue", _fake_send)
 
@@ -276,7 +276,7 @@ async def test_send_mappings_skill_image_kind_routes_through_library(
     async def _fake_send(self, image_bytes, *, image_id=None, thumbnail=None):
         return {"success": True, "queued": False}
 
-    from custom_components.fraimic.coordinator import FraimicCoordinator
+    from custom_components.digital_frames.coordinator import FraimicCoordinator
 
     monkeypatch.setattr(FraimicCoordinator, "async_send_image_or_queue", _fake_send)
 
@@ -295,7 +295,7 @@ async def test_send_mappings_skill_render_failure_does_not_block_other_mappings(
     async def _fake_send(self, image_bytes, *, image_id=None, thumbnail=None):
         return {"success": True, "queued": False}
 
-    from custom_components.fraimic.coordinator import FraimicCoordinator
+    from custom_components.digital_frames.coordinator import FraimicCoordinator
 
     monkeypatch.setattr(FraimicCoordinator, "async_send_image_or_queue", _fake_send)
 
@@ -320,7 +320,7 @@ async def test_send_mappings_skill_without_skill_manager_fails_that_mapping_only
     async def _fake_send(self, image_bytes, *, image_id=None, thumbnail=None):
         return {"success": True, "queued": False}
 
-    from custom_components.fraimic.coordinator import FraimicCoordinator
+    from custom_components.digital_frames.coordinator import FraimicCoordinator
 
     monkeypatch.setattr(FraimicCoordinator, "async_send_image_or_queue", _fake_send)
 

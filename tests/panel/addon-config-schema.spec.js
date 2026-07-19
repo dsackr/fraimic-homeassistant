@@ -4,7 +4,7 @@ const { gotoPanel } = require('./fixtures/panel-page');
 
 // _openWidgetConfigModal used to have one hardcoded HTML branch per known
 // field name (quote_feed, bible_translation, scripture_source, ...) baked
-// into fraimic-panel.js. It's now a generic renderer driven entirely by
+// into digital-frames-panel.js. It's now a generic renderer driven entirely by
 // each pack's config_schema (type: select/entity/string, show_if, default,
 // group) -- see _renderConfigField. This covers the two other widget packs
 // that relied on the old hardcoded branches, proving the generic engine

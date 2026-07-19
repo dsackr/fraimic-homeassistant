@@ -1,6 +1,6 @@
 # Panel browser tests
 
-Regression tests for `custom_components/fraimic/fraimic-panel.js`, driven with
+Regression tests for `custom_components/digital_frames/digital-frames-panel.js`, driven with
 [Playwright](https://playwright.dev) against a real Chromium instance. These
 exist because the panel's real bugs live in browser behavior -- DOM/pointer
 events, async fetch timing, `<script>`-scope variable shadowing -- that don't
@@ -33,15 +33,15 @@ show-trace <path>` from the failure output steps through the exact DOM state
 frame by frame).
 
 CI runs this automatically (`.github/workflows/panel-tests.yaml`) on any push
-or PR touching `fraimic-panel.js` or this directory.
+or PR touching `digital-frames-panel.js` or this directory.
 
 ## How it works
 
 There's no real Home Assistant instance here. `fixtures/harness.html` hosts a
-bare `<fraimic-panel>` element and loads the actual `fraimic-panel.js` from
-`custom_components/fraimic/`; `fixtures/mock-server.js` is a small in-memory
+bare `<fraimic-panel>` element and loads the actual `digital-frames-panel.js` from
+`custom_components/digital_frames/`; `fixtures/mock-server.js` is a small in-memory
 HTTP server standing in for both HA's WebSocket registries (`hass.callWS`)
-and the `/api/fraimic/*` endpoints, so every test gets fresh, isolated
+and the `/api/digital_frames/*` endpoints, so every test gets fresh, isolated
 frames/scenes/walls/library state.
 
 **`hass.states` must be populated realistically.** The panel reads

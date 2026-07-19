@@ -1,11 +1,11 @@
 """HTTP API views for Fraimic skills.
 
 Endpoints:
-    GET    /api/fraimic/skills                 list skills
-    POST   /api/fraimic/skills                 create a skill ({name, content_mode, config})
-    POST   /api/fraimic/skills/{skill_id}      update a skill ({name, content_mode, config})
-    DELETE /api/fraimic/skills/{skill_id}      delete a skill
-    POST   /api/fraimic/skills/{skill_id}/send send a skill to one frame now ({entry_id})
+    GET    /api/digital_frames/skills                 list skills
+    POST   /api/digital_frames/skills                 create a skill ({name, content_mode, config})
+    POST   /api/digital_frames/skills/{skill_id}      update a skill ({name, content_mode, config})
+    DELETE /api/digital_frames/skills/{skill_id}      delete a skill
+    POST   /api/digital_frames/skills/{skill_id}/send send a skill to one frame now ({entry_id})
 """
 
 from __future__ import annotations
@@ -44,8 +44,8 @@ def _parse_skill_body(body: Any) -> tuple[str | None, str | None, dict]:
 class FraimicSkillsView(HomeAssistantView):
     """List (GET) or create (POST) skills."""
 
-    url = "/api/fraimic/skills"
-    name = "api:fraimic:skills"
+    url = "/api/digital_frames/skills"
+    name = "api:digital_frames:skills"
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
@@ -81,8 +81,8 @@ class FraimicSkillsView(HomeAssistantView):
 class FraimicSkillView(HomeAssistantView):
     """Update (POST) or delete (DELETE) a single skill."""
 
-    url = "/api/fraimic/skills/{skill_id}"
-    name = "api:fraimic:skills:one"
+    url = "/api/digital_frames/skills/{skill_id}"
+    name = "api:digital_frames:skills:one"
     requires_auth = True
 
     async def post(self, request: web.Request, skill_id: str) -> web.Response:
@@ -125,8 +125,8 @@ class FraimicSkillView(HomeAssistantView):
 class FraimicSkillSendView(HomeAssistantView):
     """Send one skill to one frame now (ad hoc, no scene/schedule needed)."""
 
-    url = "/api/fraimic/skills/{skill_id}/send"
-    name = "api:fraimic:skills:send"
+    url = "/api/digital_frames/skills/{skill_id}/send"
+    name = "api:digital_frames:skills:send"
     requires_auth = True
 
     async def post(self, request: web.Request, skill_id: str) -> web.Response:

@@ -2570,7 +2570,7 @@
         <!-- First-run onboarding: a 6-step tour (Welcome / Frames / Walls /
              Scenes / Library & Storage / Done) that opens for admins until
              someone completes or skips it -- the flag is server-side
-             (/api/fraimic/onboarding), so one dismissal retires it for the
+             (/api/digital_frames/onboarding), so one dismissal retires it for the
              whole install. Step 2 embeds the real Add-Frame flow (which
              stacks above at the standard modal z-index) and step 5 mounts
              the real storage-backend picker inline. -->
@@ -3054,7 +3054,7 @@
       let healthy = true;
       try {
         const [entries, devices, entities] = await Promise.all([
-          this._hass.callWS({ type: 'config_entries/get', domain: 'fraimic' }),
+          this._hass.callWS({ type: 'config_entries/get', domain: 'digital_frames' }),
           this._hass.callWS({ type: 'config/device_registry/list' }),
           this._hass.callWS({ type: 'config/entity_registry/list' }),
         ]);
@@ -3097,7 +3097,7 @@
       // configured resolution has to come from our own backend endpoint instead.
       // Used by the Library crop editor to filter "Send to" by matching size.
       try {
-        const resp = await fetch('/api/fraimic/frames', { headers: this._authHeaders() });
+        const resp = await fetch('/api/digital_frames/frames', { headers: this._authHeaders() });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const result = await resp.json();
         const byEntry = {};
@@ -3267,7 +3267,7 @@
 
     _startConfigFlow() {
       return this._flowRequest('POST', '/api/config/config_entries/flow', {
-        handler: 'fraimic',
+        handler: 'digital_frames',
         show_advanced_options: false,
       });
     }
@@ -3658,7 +3658,7 @@
           if (!frame) return;
           e.target.disabled = true;
           try {
-            const resp = await fetch('/api/fraimic/frame/reload', {
+            const resp = await fetch('/api/digital_frames/frame/reload', {
               method: 'POST',
               headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
               body: JSON.stringify({ entry_id: frame.entryId }),
@@ -3782,7 +3782,7 @@
       statusEl.textContent = force ? 'Checking GitHub for updates…' : 'Loading…';
       if (installBtn) installBtn.style.display = 'none';
       try {
-        const path = force ? '/api/fraimic/update/check' : '/api/fraimic/update';
+        const path = force ? '/api/digital_frames/update/check' : '/api/digital_frames/update';
         const data = force
           ? await this._apiUpdate(path, { method: 'POST' })
           : await this._apiUpdate(path);
@@ -3831,7 +3831,7 @@
         return;
       }
       try {
-        const data = await this._apiUpdate('/api/fraimic/update');
+        const data = await this._apiUpdate('/api/digital_frames/update');
         this._lastUpdateStatus = data;
         this._renderUpdateBanner(data);
       } catch (err) {
@@ -3885,7 +3885,7 @@
         banner.innerHTML = '';
       }
       try {
-        await this._apiUpdate('/api/fraimic/update/dismiss', {
+        await this._apiUpdate('/api/digital_frames/update/dismiss', {
           method: 'POST',
           body: { version },
         });
@@ -3912,7 +3912,7 @@
       if (statusEl) statusEl.textContent = 'Downloading and installing…';
       try {
         const version = this._lastUpdateStatus && this._lastUpdateStatus.latest;
-        const result = await this._apiUpdate('/api/fraimic/update/install', {
+        const result = await this._apiUpdate('/api/digital_frames/update/install', {
           method: 'POST',
           body: version ? { version } : {},
         });
@@ -3957,7 +3957,7 @@
       }
       const statusEl = this.shadowRoot.getElementById('settings-update-status');
       try {
-        await this._apiUpdate('/api/fraimic/update/restart', { method: 'POST' });
+        await this._apiUpdate('/api/digital_frames/update/restart', { method: 'POST' });
         if (statusEl) statusEl.textContent = 'Home Assistant is restarting…';
       } catch (err) {
         if (statusEl) statusEl.textContent = `Restart failed: ${err.message}`;
@@ -3981,7 +3981,7 @@
 
     _isDiscoveryFlow(flow) {
       const source = flow && flow.context && flow.context.source;
-      return flow && flow.handler === 'fraimic'
+      return flow && flow.handler === 'digital_frames'
         && !['user', 'import', 'reconfigure'].includes(source);
     }
 
@@ -3991,7 +3991,7 @@
       // the flow subscription. Fire-and-forget: a failed rescan just means
       // the banner shows the last sweep's state.
       if (!this._isAdmin()) return;
-      fetch('/api/fraimic/discovery/scan', {
+      fetch('/api/digital_frames/discovery/scan', {
         method: 'POST',
         headers: this._authHeaders(),
       }).catch(() => {});
@@ -4118,7 +4118,7 @@
       }
       let complete;
       try {
-        const resp = await fetch('/api/fraimic/onboarding', { headers: this._authHeaders() });
+        const resp = await fetch('/api/digital_frames/onboarding', { headers: this._authHeaders() });
         // Fail closed on ANY unhealthy read -- a thrown fetch, a non-JSON
         // body, or an error status whose JSON body simply lacks `complete`
         // must never read as "not completed" and flash the tour.
@@ -4497,7 +4497,7 @@
       this.shadowRoot.getElementById('onboarding-overlay').style.display = 'none';
       // Server-side and fire-and-forget: one completion (or skip) retires
       // the wizard for every admin on every browser.
-      fetch('/api/fraimic/onboarding', { method: 'POST', headers: this._authHeaders() })
+      fetch('/api/digital_frames/onboarding', { method: 'POST', headers: this._authHeaders() })
         .catch((err) => console.warn('[fraimic-panel] could not save onboarding flag:', err));
     }
 
@@ -4580,7 +4580,7 @@
       const worker = async () => {
         for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
           try {
-            const resp = await fetch(`/api/fraimic/library/image/${id}`, {
+            const resp = await fetch(`/api/digital_frames/library/image/${id}`, {
               method: 'DELETE', headers: this._authHeaders(),
             });
             const result = await resp.json().catch(() => ({}));
@@ -4614,7 +4614,7 @@
     async _loadBackendSettings() {
       let healthy = true;
       try {
-        const resp = await fetch('/api/fraimic/library/settings', { headers: this._authHeaders() });
+        const resp = await fetch('/api/digital_frames/library/settings', { headers: this._authHeaders() });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const result = await resp.json();
         this._backend = result.backend || 'local';
@@ -4649,7 +4649,7 @@
       btn.textContent = '⏳ Discovering…';
 
       try {
-        const resp = await fetch('/api/fraimic/library/discover', {
+        const resp = await fetch('/api/digital_frames/library/discover', {
           method: 'POST', headers: this._authHeaders(),
         });
         const result = await resp.json().catch(() => ({}));
@@ -4741,7 +4741,7 @@
       const hint = this.shadowRoot.getElementById('gdrive-hint');
       if (!hint) return;
       try {
-        const resp = await fetch('/api/fraimic/library/oauth/google/redirect_uri', { headers: this._authHeaders() });
+        const resp = await fetch('/api/digital_frames/library/oauth/google/redirect_uri', { headers: this._authHeaders() });
         const result = await resp.json();
         if (result.redirect_uri) {
           hint.innerHTML = `In Google Cloud Console, create an OAuth Client ID (type: Web application) `
@@ -4762,7 +4762,7 @@
       if (!clientId || !clientSecret) return;
 
       try {
-        const resp = await fetch('/api/fraimic/library/oauth/google/start', {
+        const resp = await fetch('/api/digital_frames/library/oauth/google/start', {
           method: 'POST',
           headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
@@ -4787,7 +4787,7 @@
     async _toggleAiTagging(enabled) {
       const fb = this._settingsFb();
       try {
-        const resp = await fetch('/api/fraimic/library/settings', {
+        const resp = await fetch('/api/digital_frames/library/settings', {
           method: 'POST',
           headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({ ai_auto_tagging: enabled }),
@@ -4816,7 +4816,7 @@
     async _switchBackend(settings) {
       const fb = this._settingsFb();
       try {
-        const resp = await fetch('/api/fraimic/library/settings', {
+        const resp = await fetch('/api/digital_frames/library/settings', {
           method: 'POST',
           headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify(settings),
@@ -4859,8 +4859,8 @@
     async _loadLibrary(album) {
       try {
         const url = album
-          ? `/api/fraimic/library/list?album=${encodeURIComponent(album)}`
-          : '/api/fraimic/library/list';
+          ? `/api/digital_frames/library/list?album=${encodeURIComponent(album)}`
+          : '/api/digital_frames/library/list';
         const resp = await fetch(url, { headers: this._authHeaders() });
         const result = await resp.json();
         this._library = result.images || [];
@@ -4873,7 +4873,7 @@
 
     async _loadAlbums() {
       try {
-        const resp = await fetch('/api/fraimic/library/albums', { headers: this._authHeaders() });
+        const resp = await fetch('/api/digital_frames/library/albums', { headers: this._authHeaders() });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const result = await resp.json();
         this._albums = result.albums || [];
@@ -5005,7 +5005,7 @@
 
       const fb = this.shadowRoot.getElementById('lib-fb');
       try {
-        const resp = await fetch('/api/fraimic/library/albums', {
+        const resp = await fetch('/api/digital_frames/library/albums', {
           method: 'POST',
           headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({ old_name: oldName, new_name: newName.trim() }),
@@ -5032,7 +5032,7 @@
 
       const fb = this.shadowRoot.getElementById('lib-fb');
       try {
-        const resp = await fetch('/api/fraimic/library/albums', {
+        const resp = await fetch('/api/digital_frames/library/albums', {
           method: 'DELETE',
           headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({ name }),
@@ -5203,7 +5203,7 @@
         }
         if (!this._thumbFetches[imageId]) {
           this._thumbFetches[imageId] = (async () => {
-            const resp = await fetch(`/api/fraimic/library/image/${imageId}?thumb=480`, { headers: this._authHeaders() });
+            const resp = await fetch(`/api/digital_frames/library/image/${imageId}?thumb=480`, { headers: this._authHeaders() });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const blob = await resp.blob();
             const url  = URL.createObjectURL(blob);
@@ -5238,7 +5238,7 @@
     async _deleteFromLibrary(imageId) {
       const fb = this.shadowRoot.getElementById('lib-fb');
       try {
-        const resp = await fetch(`/api/fraimic/library/image/${imageId}`, {
+        const resp = await fetch(`/api/digital_frames/library/image/${imageId}`, {
           method: 'DELETE', headers: this._authHeaders(),
         });
         const result = await resp.json().catch(() => ({}));
@@ -5415,7 +5415,7 @@
       fb.style.display = 'none';
 
       try {
-        const resp = await fetch('/api/fraimic/library/upload', {
+        const resp = await fetch('/api/digital_frames/library/upload', {
           method: 'POST', headers: this._authHeaders(), body: form,
         });
         const result = await resp.json().catch(() => ({}));
@@ -5474,7 +5474,7 @@
       if (this._packerOverride) form.append('packer', this._packerOverride);
 
       try {
-        const resp = await fetch('/api/fraimic/library/send', {
+        const resp = await fetch('/api/digital_frames/library/send', {
           method: 'POST', headers: this._authHeaders(), body: form,
         });
         const result = await resp.json().catch(() => ({}));
@@ -5548,8 +5548,8 @@
       let images = [];
       try {
         const url = album
-          ? `/api/fraimic/library/list?album=${encodeURIComponent(album)}`
-          : '/api/fraimic/library/list';
+          ? `/api/digital_frames/library/list?album=${encodeURIComponent(album)}`
+          : '/api/digital_frames/library/list';
         const resp = await fetch(url, { headers: this._authHeaders() });
         const result = await resp.json();
         images = result.images || [];
@@ -5613,7 +5613,7 @@
         try {
           // URL-encoded rather than FormData purely for simplicity -- the
           // backend's request.post() parses both identically.
-          const resp = await fetch('/api/fraimic/library/send', {
+          const resp = await fetch('/api/digital_frames/library/send', {
             method: 'POST',
             headers: { ...this._authHeaders(), 'Content-Type': 'application/x-www-form-urlencoded' },
             body: new URLSearchParams({ entity_id: entityId, image_id: imageId, packer }),
@@ -5644,7 +5644,7 @@
 
     // Frames the crop editor can target: anything discovery found with
     // usable render dimensions. width/height here are the frame's
-    // *effective* composition dimensions from /api/fraimic/frames -- they
+    // *effective* composition dimensions from /api/digital_frames/frames -- they
     // already reflect the frame's orientation lock, so the crop box aspect
     // simply follows the selected frame. No free size/orientation choice:
     // the frame dictates the shape (that's the whole point of the lock).
@@ -5795,7 +5795,7 @@
       img.removeAttribute('src');
 
       try {
-        const resp = await fetch(`/api/fraimic/library/image/${image.image_id}`, { headers: this._authHeaders() });
+        const resp = await fetch(`/api/digital_frames/library/image/${image.image_id}`, { headers: this._authHeaders() });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const blob = await resp.blob();
         if (this._editorImgUrl) URL.revokeObjectURL(this._editorImgUrl);
@@ -6048,7 +6048,7 @@
         h = 0;
       }
 
-      const resp = await fetch('/api/fraimic/library/crop', {
+      const resp = await fetch('/api/digital_frames/library/crop', {
         method: 'POST',
         headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -6098,7 +6098,7 @@
         h = 0;
       }
       try {
-        const resp = await fetch('/api/fraimic/library/crop', {
+        const resp = await fetch('/api/digital_frames/library/crop', {
           method: 'DELETE',
           headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({ image_id: st.image.image_id, width: w, height: h }),
@@ -6202,7 +6202,7 @@
       saveBtn.textContent = 'Saving…';
 
       try {
-        const resp = await fetch(`/api/fraimic/library/image/${image.image_id}/albums`, {
+        const resp = await fetch(`/api/digital_frames/library/image/${image.image_id}/albums`, {
           method: 'POST',
           headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({ albums: checked }),
@@ -6289,7 +6289,7 @@
       fb.style.display = 'none';
 
       try {
-        const resp = await fetch(`/api/fraimic/library/image/${image.image_id}/voice_name`, {
+        const resp = await fetch(`/api/digital_frames/library/image/${image.image_id}/voice_name`, {
           method: 'POST',
           headers: {
             ...this._authHeaders(),
@@ -6371,7 +6371,7 @@
       fb.style.display = 'none';
 
       try {
-        const resp = await fetch(`/api/fraimic/library/image/${image.image_id}/tags`, {
+        const resp = await fetch(`/api/digital_frames/library/image/${image.image_id}/tags`, {
           method: 'POST',
           headers: {
             ...this._authHeaders(),
@@ -6446,7 +6446,7 @@
 
       let images = [];
       try {
-        const resp = await fetch('/api/fraimic/library/list', { headers: this._authHeaders() });
+        const resp = await fetch('/api/digital_frames/library/list', { headers: this._authHeaders() });
         const result = await resp.json();
         images = result.images || [];
       } catch (err) {
@@ -6517,7 +6517,7 @@
       saveBtn.textContent = 'Creating…';
 
       try {
-        const resp = await fetch(`/api/fraimic/library/albums/${encodeURIComponent(name)}/images`, {
+        const resp = await fetch(`/api/digital_frames/library/albums/${encodeURIComponent(name)}/images`, {
           method: 'POST',
           headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({ image_ids: [...this._albumCreateSelected] }),
@@ -6569,7 +6569,7 @@
 
     async _loadScenes() {
       try {
-        const resp = await fetch('/api/fraimic/scenes', { headers: this._authHeaders() });
+        const resp = await fetch('/api/digital_frames/scenes', { headers: this._authHeaders() });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const result = await resp.json();
         this._scenes = result.scenes || [];
@@ -6884,7 +6884,7 @@
 
     async _loadWalls() {
       try {
-        const resp = await fetch('/api/fraimic/walls', { headers: this._authHeaders() });
+        const resp = await fetch('/api/digital_frames/walls', { headers: this._authHeaders() });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const result = await resp.json();
         this._walls = result.walls || [];
@@ -6999,7 +6999,7 @@
 
       const fb = this.shadowRoot.getElementById('wall-fb');
       try {
-        const resp = await fetch('/api/fraimic/walls', {
+        const resp = await fetch('/api/digital_frames/walls', {
           method: 'POST',
           headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: name.trim(), placements: {} }),
@@ -7025,7 +7025,7 @@
 
       const fb = this.shadowRoot.getElementById('wall-fb');
       try {
-        const resp = await fetch(`/api/fraimic/walls/${wall.wall_id}`, {
+        const resp = await fetch(`/api/digital_frames/walls/${wall.wall_id}`, {
           method: 'DELETE', headers: this._authHeaders(),
         });
         const result = await resp.json().catch(() => ({}));
@@ -7358,7 +7358,7 @@
       if (frame.entityId) form.append('entity_id', frame.entityId);
       form.append('image_id', imageId);
       if (this._packerOverride) form.append('packer', this._packerOverride);
-      const resp = await fetch('/api/fraimic/library/send', {
+      const resp = await fetch('/api/digital_frames/library/send', {
         method: 'POST', headers: this._authHeaders(), body: form,
       });
       const result = await resp.json().catch(() => ({}));
@@ -7545,7 +7545,7 @@
         badge.dataset.kind = 'onframe';
         badge.style.display = '';
       } else if (!modeling && frame.hasThumbnail) {
-        media.innerHTML = `<img src="/api/fraimic/frame/${this._esc(frame.entryId)}/thumbnail" alt="">`;
+        media.innerHTML = `<img src="/api/digital_frames/frame/${this._esc(frame.entryId)}/thumbnail" alt="">`;
         badge.textContent = 'on frame';
         badge.dataset.kind = 'onframe';
         badge.style.display = '';
@@ -7863,7 +7863,7 @@
     async _persistWallLayout(wallId, name, placements, excluded) {
       const fb = this.shadowRoot.getElementById('wall-fb');
       try {
-        const resp = await fetch(`/api/fraimic/walls/${wallId}`, {
+        const resp = await fetch(`/api/digital_frames/walls/${wallId}`, {
           method: 'POST',
           headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, placements, excluded }),
@@ -8137,8 +8137,8 @@
       let images = [];
       try {
         const url = album
-          ? `/api/fraimic/library/list?album=${encodeURIComponent(album)}`
-          : '/api/fraimic/library/list';
+          ? `/api/digital_frames/library/list?album=${encodeURIComponent(album)}`
+          : '/api/digital_frames/library/list';
         const resp = await fetch(url, { headers: this._authHeaders() });
         const result = await resp.json();
         images = result.images || [];
@@ -8316,7 +8316,7 @@
           if (frame.entryId) form.append('entry_id', frame.entryId);
           if (frame.entityId) form.append('entity_id', frame.entityId);
           form.append('image', file);
-          const resp = await fetch('/api/fraimic/send_image', {
+          const resp = await fetch('/api/digital_frames/send_image', {
             method: 'POST', headers: this._authHeaders(), body: form,
           });
           const result = await resp.json().catch(() => ({}));
@@ -8364,7 +8364,7 @@
       let image = (this._library || []).find(i => i.image_id === imageId);
       if (!image) {
         try {
-          const resp = await fetch('/api/fraimic/library/list', { headers: this._authHeaders() });
+          const resp = await fetch('/api/digital_frames/library/list', { headers: this._authHeaders() });
           const result = await resp.json();
           image = (result.images || []).find(i => i.image_id === imageId);
         } catch (_) { /* handled below */ }
@@ -8405,7 +8405,7 @@
         }
 
         try {
-          const resp = await fetch('/api/fraimic/scenes', {
+          const resp = await fetch('/api/digital_frames/scenes', {
             method: 'POST',
             headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: name.trim(), mappings }),
@@ -8477,7 +8477,7 @@
           }
         }
 
-        const resp = await fetch(`/api/fraimic/scenes/${scene.scene_id}`, {
+        const resp = await fetch(`/api/digital_frames/scenes/${scene.scene_id}`, {
           method: 'POST',
           headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: scene.name, mappings: mergedMappings, album: scene.album }),
@@ -8510,7 +8510,7 @@
 
       const fb = this.shadowRoot.getElementById('wall-scene-fb');
       try {
-        const resp = await fetch(`/api/fraimic/scenes/${scene.scene_id}`, {
+        const resp = await fetch(`/api/digital_frames/scenes/${scene.scene_id}`, {
           method: 'DELETE', headers: this._authHeaders(),
         });
         const result = await resp.json().catch(() => ({}));
@@ -8539,7 +8539,7 @@
       const fb = this.shadowRoot.getElementById('pack-fb');
       fb.style.display = 'none';
       try {
-        const resp = await fetch('/api/fraimic/scene_packs', { headers: this._authHeaders() });
+        const resp = await fetch('/api/digital_frames/scene_packs', { headers: this._authHeaders() });
         const result = await resp.json().catch(() => ({}));
         if (!resp.ok) throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
         this._scenePacks = result.packs || [];
@@ -9142,7 +9142,7 @@
         newSubmitBtn.textContent = 'Saving…';
         
         try {
-          const resp = await fetch(`/api/fraimic/scene_packs/${pack.id}/install`, {
+          const resp = await fetch(`/api/digital_frames/scene_packs/${pack.id}/install`, {
             method: 'POST',
             headers: {
               ...this._authHeaders(),
@@ -9270,7 +9270,7 @@
       const fb = this.shadowRoot.getElementById('xotd-fb');
       if (fb) fb.style.display = 'none';
       try {
-        const resp = await fetch('/api/fraimic/skills', { headers: this._authHeaders() });
+        const resp = await fetch('/api/digital_frames/skills', { headers: this._authHeaders() });
         const result = await resp.json().catch(() => ({}));
         if (!resp.ok) throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
         this._skills = result.skills || [];
@@ -9366,7 +9366,7 @@
       btn.textContent = '⏳ Sending…';
 
       try {
-        const resp = await fetch(`/api/fraimic/skills/${skill.skill_id}/send`, {
+        const resp = await fetch(`/api/digital_frames/skills/${skill.skill_id}/send`, {
           method: 'POST',
           headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({ entry_id: entryId }),
@@ -9398,7 +9398,7 @@
       btn.textContent = '⏳ Deleting…';
 
       try {
-        const resp = await fetch(`/api/fraimic/skills/${skill.skill_id}`, {
+        const resp = await fetch(`/api/digital_frames/skills/${skill.skill_id}`, {
           method: 'DELETE', headers: this._authHeaders(),
         });
         const result = await resp.json().catch(() => ({}));
@@ -9642,7 +9642,7 @@
         newSubmitBtn.textContent = instance ? 'Saving…' : 'Creating…';
 
         try {
-          const url = instance ? `/api/fraimic/skills/${instance.skill_id}` : '/api/fraimic/skills';
+          const url = instance ? `/api/digital_frames/skills/${instance.skill_id}` : '/api/digital_frames/skills';
           const resp = await fetch(url, {
             method: 'POST',
             headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
@@ -9687,7 +9687,7 @@
       btn.textContent = '⏳ Refreshing…';
       
       try {
-        const resp = await fetch(`/api/fraimic/scene_packs/${pack.id}/sync`, {
+        const resp = await fetch(`/api/digital_frames/scene_packs/${pack.id}/sync`, {
           method: 'POST', headers: this._authHeaders(),
         });
         const result = await resp.json().catch(() => ({}));
@@ -9716,7 +9716,7 @@
       btn.textContent = '⏳ Installing…';
 
       try {
-        const resp = await fetch(`/api/fraimic/scene_packs/${pack.id}/install`, {
+        const resp = await fetch(`/api/digital_frames/scene_packs/${pack.id}/install`, {
           method: 'POST', headers: this._authHeaders(),
         });
         const result = await resp.json().catch(() => ({}));
@@ -9764,7 +9764,7 @@
       btn.textContent = '⏳ Syncing…';
 
       try {
-        const resp = await fetch(`/api/fraimic/scene_packs/${pack.id}/sync`, {
+        const resp = await fetch(`/api/digital_frames/scene_packs/${pack.id}/sync`, {
           method: 'POST', headers: this._authHeaders(),
         });
         const result = await resp.json().catch(() => ({}));
@@ -9812,7 +9812,7 @@
       btn.textContent = '⏳ Removing…';
 
       try {
-        const resp = await fetch(`/api/fraimic/scene_packs/${pack.id}`, {
+        const resp = await fetch(`/api/digital_frames/scene_packs/${pack.id}`, {
           method: 'DELETE', headers: this._authHeaders(),
         });
         const result = await resp.json().catch(() => ({}));
@@ -9934,7 +9934,7 @@
         if (entityId) form.append('entity_id', entityId);
         form.append('image_id', st.image.image_id);
         if (this._packerOverride) form.append('packer', this._packerOverride);
-        const resp = await fetch('/api/fraimic/library/send', {
+        const resp = await fetch('/api/digital_frames/library/send', {
           method: 'POST', headers: this._authHeaders(), body: form,
         });
         const result = await resp.json().catch(() => ({}));
@@ -10030,7 +10030,7 @@
 
     async _loadSchedules() {
       try {
-        const resp = await fetch('/api/fraimic/schedules', { headers: this._authHeaders() });
+        const resp = await fetch('/api/digital_frames/schedules', { headers: this._authHeaders() });
         const result = await resp.json();
         this._schedules = result.schedules || [];
       } catch (err) {
@@ -10236,8 +10236,8 @@
       let images = [];
       try {
         const url = album
-          ? `/api/fraimic/library/list?album=${encodeURIComponent(album)}`
-          : '/api/fraimic/library/list';
+          ? `/api/digital_frames/library/list?album=${encodeURIComponent(album)}`
+          : '/api/digital_frames/library/list';
         const resp = await fetch(url, { headers: this._authHeaders() });
         const result = await resp.json();
         images = result.images || [];
@@ -10317,8 +10317,8 @@
         }
 
         const url = state.editingId
-          ? `/api/fraimic/schedules/${state.editingId}`
-          : '/api/fraimic/schedules';
+          ? `/api/digital_frames/schedules/${state.editingId}`
+          : '/api/digital_frames/schedules';
         const resp = await fetch(url, {
           method: 'POST',
           headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
@@ -10518,7 +10518,7 @@
     async _setScheduleEnabled(schedule, enabled) {
       const fb = this.shadowRoot.getElementById('schedule-calendar-fb');
       try {
-        const resp = await fetch(`/api/fraimic/schedules/${schedule.schedule_id}`, {
+        const resp = await fetch(`/api/digital_frames/schedules/${schedule.schedule_id}`, {
           method: 'POST',
           headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled }),
@@ -10540,7 +10540,7 @@
       if (!window.confirm(`Delete the scheduled event "${schedule.name}"?`)) return;
       const fb = this.shadowRoot.getElementById('schedule-calendar-fb');
       try {
-        const resp = await fetch(`/api/fraimic/schedules/${schedule.schedule_id}`, {
+        const resp = await fetch(`/api/digital_frames/schedules/${schedule.schedule_id}`, {
           method: 'DELETE', headers: this._authHeaders(),
         });
         const result = await resp.json().catch(() => ({}));
@@ -10613,7 +10613,7 @@
     }
   }
 
-  customElements.define('fraimic-panel', FraimicPanel);
+  customElements.define('digital-frames-panel', FraimicPanel);
 
   console.info(
     '%c FRAIMIC-PANEL %c v' + PANEL_VERSION + ' ',

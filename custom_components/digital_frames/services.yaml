@@ -8,7 +8,7 @@ send_image:
       required: true
       selector:
         device:
-          integration: fraimic
+          integration: digital_frames
     media_content_id:
       name: Image
       description: Image to send (select from your media library).
@@ -33,7 +33,7 @@ restart:
       required: true
       selector:
         device:
-          integration: fraimic
+          integration: digital_frames
 
 sleep:
   name: Sleep Frame
@@ -47,7 +47,7 @@ sleep:
       required: true
       selector:
         device:
-          integration: fraimic
+          integration: digital_frames
 
 wake:
   name: Wake Frame
@@ -61,7 +61,7 @@ wake:
       required: true
       selector:
         device:
-          integration: fraimic
+          integration: digital_frames
 
 refresh:
   name: Refresh Display
@@ -73,7 +73,7 @@ refresh:
       required: true
       selector:
         device:
-          integration: fraimic
+          integration: digital_frames
 
 generate_ai_image:
   name: Generate AI Image
@@ -85,7 +85,7 @@ generate_ai_image:
       required: true
       selector:
         device:
-          integration: fraimic
+          integration: digital_frames
     prompt:
       name: Prompt
       description: Description of the image to generate.
@@ -122,7 +122,7 @@ send_skill:
       required: true
       selector:
         device:
-          integration: fraimic
+          integration: digital_frames
     skill_id:
       name: Skill
       description: The skill to render and send (set up in the Digital Frames panel's Daily Content section).

@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.fraimic.frame_types import FRAME_TYPES
-from custom_components.fraimic.image_converter import (
+from custom_components.digital_frames.frame_types import FRAME_TYPES
+from custom_components.digital_frames.image_converter import (
     _pack_sequential,
     _quantize_to_spectra6,
     convert_image_bytes,
@@ -130,7 +130,7 @@ def test_default_cover_crop_box_is_centered_for_wider_source():
 
 
 def test_quantized_pixels_are_restricted_to_spectra6_palette(sample_image_bytes):
-    from custom_components.fraimic.image_converter import SPECTRA6_REAL_WORLD_RGB
+    from custom_components.digital_frames.image_converter import SPECTRA6_REAL_WORLD_RGB
     from PIL import Image
     import io
 
@@ -148,7 +148,7 @@ def test_quantized_pixels_are_restricted_to_spectra6_palette(sample_image_bytes)
 
 @pytest.mark.parametrize("width,height", [OFFICIAL_13_3, CLONE_7_3])
 def test_unpack_round_trips_packed_bin(sample_image_bytes, width, height):
-    from custom_components.fraimic.image_converter import (
+    from custom_components.digital_frames.image_converter import (
         _open_as_rgb,
         _pack_to_spectra6_bin,
         unpack_spectra6_bin,
@@ -162,14 +162,14 @@ def test_unpack_round_trips_packed_bin(sample_image_bytes, width, height):
 
 
 def test_unpack_rejects_wrong_length():
-    from custom_components.fraimic.image_converter import unpack_spectra6_bin
+    from custom_components.digital_frames.image_converter import unpack_spectra6_bin
 
     with pytest.raises(ValueError, match="expected"):
         unpack_spectra6_bin(b"too-short", 1200, 1600)
 
 
 def test_preview_png_from_bin_is_png():
-    from custom_components.fraimic.image_converter import preview_png_from_bin
+    from custom_components.digital_frames.image_converter import preview_png_from_bin
 
     png = preview_png_from_bin(bytes((800 * 480) // 2), 800, 480)
     assert png[:8] == b"\x89PNG\r\n\x1a\n"

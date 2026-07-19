@@ -6,14 +6,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from custom_components.fraimic.frame_types import (
+from custom_components.digital_frames.frame_types import (
     CODEC_SPECTRA6_SEQUENTIAL,
     CODEC_SPECTRA6_SPLIT_HALF,
     FRAME_TYPES,
     LAYOUT_SEQUENTIAL,
     LAYOUT_SPLIT_HALF,
 )
-from custom_components.fraimic.panel_codec import (
+from custom_components.digital_frames.panel_codec import (
     CODECS,
     CODEC_JPEG_Q90,
     encode_for_panel,

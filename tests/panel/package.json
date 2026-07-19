@@ -1,7 +1,7 @@
 {
   "name": "fraimic-panel-tests",
   "private": true,
-  "description": "Browser regression tests for custom_components/fraimic/fraimic-panel.js. See README.md.",
+  "description": "Browser regression tests for custom_components/digital_frames/digital-frames-panel.js. See README.md.",
   "scripts": {
     "test": "playwright test",
     "test:headed": "playwright test --headed",

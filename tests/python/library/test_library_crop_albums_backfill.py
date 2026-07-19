@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.fraimic.helpers import RenderSpec
-from custom_components.fraimic.library import DEFAULT_ALBUM, LibraryBackendError, LibraryManager
+from custom_components.digital_frames.helpers import RenderSpec
+from custom_components.digital_frames.library import DEFAULT_ALBUM, LibraryBackendError, LibraryManager
 
 
 @pytest.fixture
@@ -169,7 +169,7 @@ async def test_backfill_generates_bin_for_configured_frame_resolution(
     record = await library_manager.async_upload("photo.jpg", sample_image_bytes(2000, 2000))
     await hass.async_block_till_done()
 
-    from custom_components.fraimic.frame_types import CODEC_SPECTRA6_SPLIT_HALF
+    from custom_components.digital_frames.frame_types import CODEC_SPECTRA6_SPLIT_HALF
 
     cached = await library_manager._backend.async_get_bin(
         record["image_id"], 1200, 1600, "", CODEC_SPECTRA6_SPLIT_HALF
@@ -187,7 +187,7 @@ async def test_get_bin_for_send_generates_on_the_fly_when_uncached(
     assert len(bin_bytes) == (1200 * 1600) // 2
 
     # Cached under the Phase-2 codec-keyed path (13.3" → spectra6_split_half).
-    from custom_components.fraimic.frame_types import CODEC_SPECTRA6_SPLIT_HALF
+    from custom_components.digital_frames.frame_types import CODEC_SPECTRA6_SPLIT_HALF
 
     cached = await library_manager._backend.async_get_bin(
         record["image_id"], 1200, 1600, spec.variant, CODEC_SPECTRA6_SPLIT_HALF
@@ -202,7 +202,7 @@ async def test_get_bin_for_send_cache_hit_skips_conversion(
     spec = RenderSpec(width=1200, height=1600, rotation=0, locked=False)
     await library_manager.async_get_bin_for_send(record["image_id"], spec)
 
-    from custom_components.fraimic import image_converter
+    from custom_components.digital_frames import image_converter
 
     calls = []
     monkeypatch.setattr(
@@ -229,7 +229,7 @@ async def test_get_bin_for_send_pack_method_override_bypasses_cache(
     assert legacy == normal  # byte-identical per image_converter's own guarantee
 
     # The override must not have polluted the cache with anything different.
-    from custom_components.fraimic.frame_types import CODEC_SPECTRA6_SPLIT_HALF
+    from custom_components.digital_frames.frame_types import CODEC_SPECTRA6_SPLIT_HALF
 
     cached = await library_manager._backend.async_get_bin(
         record["image_id"], 1200, 1600, spec.variant, CODEC_SPECTRA6_SPLIT_HALF
@@ -243,7 +243,7 @@ async def test_get_bin_for_send_pack_method_override_bypasses_cache(
 
 
 async def test_bin_cache_keys_by_codec_id(library_manager, sample_image_bytes):
-    from custom_components.fraimic.frame_types import (
+    from custom_components.digital_frames.frame_types import (
         CODEC_SPECTRA6_SEQUENTIAL,
         CODEC_SPECTRA6_SPLIT_HALF,
     )
@@ -282,7 +282,7 @@ async def test_bin_cache_falls_back_to_legacy_path_for_same_geometry(
     library_manager, sample_image_bytes
 ):
     """Pre-Phase-2 bins (no codec dir) still serve when codec is requested."""
-    from custom_components.fraimic.frame_types import CODEC_SPECTRA6_SPLIT_HALF
+    from custom_components.digital_frames.frame_types import CODEC_SPECTRA6_SPLIT_HALF
 
     record = await library_manager.async_upload("photo.jpg", sample_image_bytes(400, 300))
     image_id = record["image_id"]
@@ -298,7 +298,7 @@ async def test_bin_cache_falls_back_to_legacy_path_for_same_geometry(
 async def test_get_bin_for_send_writes_codec_keyed_path(
     library_manager, sample_image_bytes
 ):
-    from custom_components.fraimic.frame_types import CODEC_SPECTRA6_SEQUENTIAL
+    from custom_components.digital_frames.frame_types import CODEC_SPECTRA6_SEQUENTIAL
 
     record = await library_manager.async_upload("photo.jpg", sample_image_bytes(400, 300))
     # 7.3" geometry → sequential codec.

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant.exceptions import HomeAssistantError
 
-from custom_components.fraimic.const import (
+from custom_components.digital_frames.const import (
     API_SLEEP,
     CONF_DRIVER,
     CONF_HOST,
@@ -20,18 +20,18 @@ from custom_components.fraimic.const import (
     ORIENTATION_LANDSCAPE,
     ORIENTATION_PORTRAIT,
 )
-from custom_components.fraimic.panel_codec import (
+from custom_components.digital_frames.panel_codec import (
     CODEC_JPEG_Q90,
     encode_for_panel,
     panel_codec_for_entry,
 )
-from custom_components.fraimic.meural import (
+from custom_components.digital_frames.meural import (
     meural_orientation_from_payload,
     parse_meural_system_stats,
     probe_meural,
     send_meural_postcard,
 )
-from custom_components.fraimic.meural_coordinator import MeuralCoordinator
+from custom_components.digital_frames.meural_coordinator import MeuralCoordinator
 
 
 def test_panel_codec_for_meural_entry():
@@ -156,7 +156,7 @@ async def test_follow_device_writes_orientation_option():
 
     with (
         patch(
-            "custom_components.fraimic.meural_coordinator.probe_meural",
+            "custom_components.digital_frames.meural_coordinator.probe_meural",
             new=AsyncMock(
                 return_value={
                     "wifi_ip": "192.168.1.32",
@@ -166,19 +166,19 @@ async def test_follow_device_writes_orientation_option():
             ),
         ),
         patch(
-            "custom_components.fraimic.meural_coordinator.meural_system_info",
+            "custom_components.digital_frames.meural_coordinator.meural_system_info",
             new=AsyncMock(return_value=system),
         ),
         patch(
-            "custom_components.fraimic.meural_coordinator.meural_get_backlight",
+            "custom_components.digital_frames.meural_coordinator.meural_get_backlight",
             new=AsyncMock(return_value=9),
         ),
         patch(
-            "custom_components.fraimic.meural_coordinator.meural_is_sleeping",
+            "custom_components.digital_frames.meural_coordinator.meural_is_sleeping",
             new=AsyncMock(return_value=False),
         ),
         patch(
-            "custom_components.fraimic.meural_coordinator.async_get_clientsession",
+            "custom_components.digital_frames.meural_coordinator.async_get_clientsession",
             return_value=MagicMock(),
         ),
     ):
@@ -215,25 +215,25 @@ async def test_follow_device_skipped_when_manual_lock():
 
     with (
         patch(
-            "custom_components.fraimic.meural_coordinator.probe_meural",
+            "custom_components.digital_frames.meural_coordinator.probe_meural",
             new=AsyncMock(
                 return_value={"orientation": "portrait", "host": "192.168.1.32"}
             ),
         ),
         patch(
-            "custom_components.fraimic.meural_coordinator.meural_system_info",
+            "custom_components.digital_frames.meural_coordinator.meural_system_info",
             new=AsyncMock(return_value={"gsensor": "portrait"}),
         ),
         patch(
-            "custom_components.fraimic.meural_coordinator.meural_get_backlight",
+            "custom_components.digital_frames.meural_coordinator.meural_get_backlight",
             new=AsyncMock(return_value=None),
         ),
         patch(
-            "custom_components.fraimic.meural_coordinator.meural_is_sleeping",
+            "custom_components.digital_frames.meural_coordinator.meural_is_sleeping",
             new=AsyncMock(return_value=None),
         ),
         patch(
-            "custom_components.fraimic.meural_coordinator.async_get_clientsession",
+            "custom_components.digital_frames.meural_coordinator.async_get_clientsession",
             return_value=MagicMock(),
         ),
     ):
@@ -256,11 +256,11 @@ async def test_sleep_command_maps_to_suspend():
     coord.data = {"sleeping": False, "backlight": 9}
 
     with patch(
-        "custom_components.fraimic.meural_coordinator.meural_suspend",
+        "custom_components.digital_frames.meural_coordinator.meural_suspend",
         new=AsyncMock(),
     ) as suspend:
         with patch(
-            "custom_components.fraimic.meural_coordinator.async_get_clientsession",
+            "custom_components.digital_frames.meural_coordinator.async_get_clientsession",
             return_value=MagicMock(),
         ):
             status = await coord.async_send_command(API_SLEEP)
@@ -292,11 +292,11 @@ async def test_set_backlight():
     coord.data = {"backlight": 9}
     with (
         patch(
-            "custom_components.fraimic.meural_coordinator.meural_set_backlight",
+            "custom_components.digital_frames.meural_coordinator.meural_set_backlight",
             new=AsyncMock(),
         ) as set_bl,
         patch(
-            "custom_components.fraimic.meural_coordinator.async_get_clientsession",
+            "custom_components.digital_frames.meural_coordinator.async_get_clientsession",
             return_value=MagicMock(),
         ),
     ):
@@ -317,11 +317,11 @@ async def test_meural_unreachable_returns_offline_data_not_raise():
 
     with (
         patch(
-            "custom_components.fraimic.meural_coordinator.probe_meural",
+            "custom_components.digital_frames.meural_coordinator.probe_meural",
             new=AsyncMock(return_value=None),
         ),
         patch(
-            "custom_components.fraimic.meural_coordinator.async_get_clientsession",
+            "custom_components.digital_frames.meural_coordinator.async_get_clientsession",
             return_value=MagicMock(),
         ),
     ):
@@ -382,11 +382,11 @@ async def test_redisplay_prefers_library_image_id():
         patch.object(coord, "async_send_image", new=AsyncMock()) as send,
         patch.object(coord, "async_set_last_image", new=AsyncMock()) as set_last,
         patch(
-            "custom_components.fraimic.panel_codec.panel_codec_for_entry",
+            "custom_components.digital_frames.panel_codec.panel_codec_for_entry",
             return_value=SimpleNamespace(id="jpeg_q90"),
         ),
         patch(
-            "custom_components.fraimic.helpers.render_spec_for_entry",
+            "custom_components.digital_frames.helpers.render_spec_for_entry",
             return_value=SimpleNamespace(width=1080, height=1920, variant="_c", locked=True, rotation=90),
         ),
     ):

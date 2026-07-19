@@ -10,7 +10,7 @@ having a ledger.
 Notes on reading it:
 - Both test workflows are path-filtered, so a push that touches neither
   the backend nor the frontend (docs, CI) legitimately has no row.
-- `Coverage` is the backend suite's overall `custom_components.fraimic`
+- `Coverage` is the backend suite's overall `custom_components.digital_frames`
   percentage; the Playwright suite doesn't measure coverage.
 - Rows marked `local` were recorded by hand before CI recording existed
   (or for suites run outside CI); everything after 2026-07-12 should come

@@ -1,10 +1,10 @@
 """HTTP API views for Fraimic walls.
 
 Endpoints:
-    GET    /api/fraimic/walls               list walls
-    POST   /api/fraimic/walls               create a wall ({name, placements})
-    POST   /api/fraimic/walls/{wall_id}     update a wall ({name, placements})
-    DELETE /api/fraimic/walls/{wall_id}     delete a wall
+    GET    /api/digital_frames/walls               list walls
+    POST   /api/digital_frames/walls               create a wall ({name, placements})
+    POST   /api/digital_frames/walls/{wall_id}     update a wall ({name, placements})
+    DELETE /api/digital_frames/walls/{wall_id}     delete a wall
 """
 
 from __future__ import annotations
@@ -49,8 +49,8 @@ def _parse_wall_body(body: Any) -> tuple[str | None, dict, list | None]:
 class FraimicWallsView(HomeAssistantView):
     """List (GET) or create (POST) walls."""
 
-    url = "/api/fraimic/walls"
-    name = "api:fraimic:walls"
+    url = "/api/digital_frames/walls"
+    name = "api:digital_frames:walls"
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
@@ -86,8 +86,8 @@ class FraimicWallsView(HomeAssistantView):
 class FraimicWallView(HomeAssistantView):
     """Update (POST) or delete (DELETE) a single wall."""
 
-    url = "/api/fraimic/walls/{wall_id}"
-    name = "api:fraimic:walls:one"
+    url = "/api/digital_frames/walls/{wall_id}"
+    name = "api:digital_frames:walls:one"
     requires_auth = True
 
     async def post(self, request: web.Request, wall_id: str) -> web.Response:

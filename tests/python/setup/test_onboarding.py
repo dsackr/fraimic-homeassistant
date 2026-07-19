@@ -9,8 +9,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from custom_components.fraimic.const import DOMAIN
-from custom_components.fraimic.http_api import FraimicOnboardingView
+from custom_components.digital_frames.const import DOMAIN
+from custom_components.digital_frames.http_api import FraimicOnboardingView
 
 
 class _FakeRequest:

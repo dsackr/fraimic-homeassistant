@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from custom_components.fraimic.const import DOMAIN
-from custom_components.fraimic.http_api import resolve_frame_by_entity
+from custom_components.digital_frames.const import DOMAIN
+from custom_components.digital_frames.http_api import resolve_frame_by_entity
 
 
 def _coord(host="192.168.1.32"):
@@ -48,7 +48,7 @@ def test_resolve_prefers_entity_config_entry_id():
     ent_reg.async_get = MagicMock(return_value=entity_entry)
 
     with patch(
-        "custom_components.fraimic.http_api.er.async_get", return_value=ent_reg
+        "custom_components.digital_frames.http_api.er.async_get", return_value=ent_reg
     ):
         got_coord, got_entry = resolve_frame_by_entity(hass, "sensor.kitchen_meural_ip")
 
@@ -72,7 +72,7 @@ def test_resolve_from_unique_id_suffix_when_config_entry_id_missing():
     ent_reg.async_get = MagicMock(return_value=entity_entry)
 
     with patch(
-        "custom_components.fraimic.http_api.er.async_get", return_value=ent_reg
+        "custom_components.digital_frames.http_api.er.async_get", return_value=ent_reg
     ):
         got_coord, got_entry = resolve_frame_by_entity(hass, "sensor.meural_ip")
 
@@ -102,8 +102,8 @@ def test_resolve_skips_non_coordinator_domain_keys():
     dev_reg.async_get = MagicMock(return_value=device_entry)
 
     with (
-        patch("custom_components.fraimic.http_api.er.async_get", return_value=ent_reg),
-        patch("custom_components.fraimic.http_api.dr.async_get", return_value=dev_reg),
+        patch("custom_components.digital_frames.http_api.er.async_get", return_value=ent_reg),
+        patch("custom_components.digital_frames.http_api.dr.async_get", return_value=dev_reg),
     ):
         got_coord, got_entry = resolve_frame_by_entity(hass, "sensor.frame_battery")
 
@@ -117,7 +117,7 @@ def test_resolve_missing_entity_raises():
     ent_reg = MagicMock()
     ent_reg.async_get = MagicMock(return_value=None)
     with patch(
-        "custom_components.fraimic.http_api.er.async_get", return_value=ent_reg
+        "custom_components.digital_frames.http_api.er.async_get", return_value=ent_reg
     ):
         with pytest.raises(ValueError, match="not found"):
             resolve_frame_by_entity(hass, "sensor.missing")
@@ -133,7 +133,7 @@ def test_resolve_no_coordinator_raises_clear_message():
     ent_reg.async_get = MagicMock(return_value=entity_entry)
     hass.config_entries.async_get_entry = MagicMock(return_value=None)
     with patch(
-        "custom_components.fraimic.http_api.er.async_get", return_value=ent_reg
+        "custom_components.digital_frames.http_api.er.async_get", return_value=ent_reg
     ):
         with pytest.raises(ValueError, match="No frame coordinator"):
             resolve_frame_by_entity(hass, "sensor.meural_ip")

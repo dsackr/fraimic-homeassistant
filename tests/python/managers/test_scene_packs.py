@@ -14,7 +14,7 @@ import uuid
 
 import pytest
 
-from custom_components.fraimic.scene_packs import (
+from custom_components.digital_frames.scene_packs import (
     ScenePackError,
     ScenePackManager,
     _assign_images_to_frames,
@@ -94,14 +94,14 @@ def fake_library():
 
 @pytest.fixture
 def scene_pack_manager(hass, fake_library):
-    from custom_components.fraimic.scenes import SceneManager
+    from custom_components.digital_frames.scenes import SceneManager
 
     scene_manager = SceneManager(hass)
     return ScenePackManager(hass, fake_library, scene_manager)
 
 
 def _catalog_url_and_body(images):
-    from custom_components.fraimic.const import SCENE_PACK_INDEX_URL
+    from custom_components.digital_frames.const import SCENE_PACK_INDEX_URL
 
     return SCENE_PACK_INDEX_URL, {
         "packs": [
@@ -115,7 +115,7 @@ def _catalog_url_and_body(images):
 
 
 def _image_url(spec):
-    from custom_components.fraimic.const import SCENE_PACK_RAW_BASE
+    from custom_components.digital_frames.const import SCENE_PACK_RAW_BASE
 
     return f"{SCENE_PACK_RAW_BASE}/{spec['path']}"
 
@@ -197,7 +197,7 @@ async def test_install_pack_already_installed_rejected(
 
 
 async def test_catalog_fetch_http_error_raises(hass, scene_pack_manager, aioclient_mock):
-    from custom_components.fraimic.const import SCENE_PACK_INDEX_URL
+    from custom_components.digital_frames.const import SCENE_PACK_INDEX_URL
 
     aioclient_mock.get(SCENE_PACK_INDEX_URL, status=500)
 

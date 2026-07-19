@@ -1,11 +1,11 @@
 """HTTP API views for Fraimic scenes.
 
 Endpoints:
-    GET    /api/fraimic/scenes                 list scenes
-    POST   /api/fraimic/scenes                 create a scene ({name, mappings})
-    POST   /api/fraimic/scenes/{scene_id}       update a scene ({name, mappings})
-    DELETE /api/fraimic/scenes/{scene_id}       delete a scene
-    POST   /api/fraimic/scenes/{scene_id}/send  send a scene now
+    GET    /api/digital_frames/scenes                 list scenes
+    POST   /api/digital_frames/scenes                 create a scene ({name, mappings})
+    POST   /api/digital_frames/scenes/{scene_id}       update a scene ({name, mappings})
+    DELETE /api/digital_frames/scenes/{scene_id}       delete a scene
+    POST   /api/digital_frames/scenes/{scene_id}/send  send a scene now
 """
 
 from __future__ import annotations
@@ -46,8 +46,8 @@ def _parse_scene_body(body: Any) -> tuple[str | None, dict, str | None]:
 class FraimicScenesView(HomeAssistantView):
     """List (GET) or create (POST) scenes."""
 
-    url = "/api/fraimic/scenes"
-    name = "api:fraimic:scenes"
+    url = "/api/digital_frames/scenes"
+    name = "api:digital_frames:scenes"
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
@@ -83,8 +83,8 @@ class FraimicScenesView(HomeAssistantView):
 class FraimicSceneView(HomeAssistantView):
     """Update (POST) or delete (DELETE) a single scene."""
 
-    url = "/api/fraimic/scenes/{scene_id}"
-    name = "api:fraimic:scenes:one"
+    url = "/api/digital_frames/scenes/{scene_id}"
+    name = "api:digital_frames:scenes:one"
     requires_auth = True
 
     async def post(self, request: web.Request, scene_id: str) -> web.Response:
@@ -126,8 +126,8 @@ class FraimicSceneView(HomeAssistantView):
 class FraimicSceneSendView(HomeAssistantView):
     """Send every image in a scene to its assigned frame."""
 
-    url = "/api/fraimic/scenes/{scene_id}/send"
-    name = "api:fraimic:scenes:send"
+    url = "/api/digital_frames/scenes/{scene_id}/send"
+    name = "api:digital_frames:scenes:send"
     requires_auth = True
 
     async def post(self, request: web.Request, scene_id: str) -> web.Response:

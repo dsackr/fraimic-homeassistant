@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from custom_components.fraimic.frame_types import (
+from custom_components.digital_frames.frame_types import (
     CODEC_SPECTRA6_SEQUENTIAL,
     CODEC_SPECTRA6_SPLIT_HALF,
     DEFAULT_SEND_TIMEOUT_S,

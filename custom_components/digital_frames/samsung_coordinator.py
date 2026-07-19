@@ -138,7 +138,7 @@ class SamsungCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             allow_cloud=False,
             allow_external=True,
         ).rstrip("/")
-        return f"{base}/api/fraimic/samsung/{token}/content.png"
+        return f"{base}/api/digital_frames/samsung/{token}/content.png"
 
     async def _async_update_data(self) -> dict[str, Any]:
         reachable = await self.hass.async_add_executor_job(

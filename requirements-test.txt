@@ -1,4 +1,4 @@
-# Backend test dependencies for custom_components/fraimic/.
+# Backend test dependencies for custom_components/digital_frames/.
 #
 # pytest-homeassistant-custom-component (PHACC) vendors a specific Home
 # Assistant core release as a transitive dependency -- pinning it here is

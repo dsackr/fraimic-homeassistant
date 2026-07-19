@@ -1,5 +1,5 @@
 // Regression coverage for the Walls drag-and-drop bug fixed in commit
-// 129835b: fraimic-panel.js has a top-level `const CSS` (its stylesheet
+// 129835b: digital-frames-panel.js has a top-level `const CSS` (its stylesheet
 // text) that shadows the global CSS object for the whole file, so
 // CSS.escape() -- used to look up a placed tile by entry_id -- threw
 // immediately and silently killed every drag. If that regresses, these

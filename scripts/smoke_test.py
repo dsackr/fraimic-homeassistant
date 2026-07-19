@@ -54,13 +54,13 @@ CHECKS = [
     # one -- e.g. {"frames": [...]} -- or None if the body itself is a
     # list/dict with no wrapper, optional per-collection validator).
     ("Base API reachable", "/api/", None, None),
-    ("Frames list (KPF 3/25: setup + coordinator)", "/api/fraimic/frames", "frames", None),
-    ("Frames expose card fields (KPF 29)", "/api/fraimic/frames", "frames", _frames_have_card_fields),
-    ("Scenes list (KPF 16)", "/api/fraimic/scenes", "scenes", None),
-    ("Library list (KPF 8)", "/api/fraimic/library/list", None, None),
-    ("Walls list (KPF 19)", "/api/fraimic/walls", None, None),
-    ("Schedules list (KPF 20)", "/api/fraimic/schedules", None, None),
-    ("Skills list (KPF 28)", "/api/fraimic/skills", "skills", None),
+    ("Frames list (KPF 3/25: setup + coordinator)", "/api/digital_frames/frames", "frames", None),
+    ("Frames expose card fields (KPF 29)", "/api/digital_frames/frames", "frames", _frames_have_card_fields),
+    ("Scenes list (KPF 16)", "/api/digital_frames/scenes", "scenes", None),
+    ("Library list (KPF 8)", "/api/digital_frames/library/list", None, None),
+    ("Walls list (KPF 19)", "/api/digital_frames/walls", None, None),
+    ("Schedules list (KPF 20)", "/api/digital_frames/schedules", None, None),
+    ("Skills list (KPF 28)", "/api/digital_frames/skills", "skills", None),
 ]
 
 

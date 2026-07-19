@@ -16,7 +16,7 @@ import pytest
 
 pytest_plugins = "pytest_homeassistant_custom_component"
 
-# custom_components/fraimic imports its sibling modules as `from .const import
+# custom_components/digital_frames imports its sibling modules as `from .const import
 # ...` -- PHACC's enable_custom_integrations fixture makes HA's component
 # loader look under this repo's custom_components/ for the "fraimic" domain,
 # but the repo root also needs to be on sys.path for that discovery to work
@@ -25,23 +25,23 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-# Force our custom_components.fraimic to be the first thing bound into
+# Force our custom_components.digital_frames to be the first thing bound into
 # sys.modules for the "custom_components" top-level name. PHACC ships its
 # own custom_components/__init__.py (a *regular* package, used by HA core's
 # own test suite) under its installed package dir; if hass-fixture setup
 # imports that one first (which it does, as soon as any test lazily
-# `import`s custom_components.fraimic *after* the hass fixture has already
+# `import`s custom_components.digital_frames *after* the hass fixture has already
 # run), sys.modules["custom_components"] gets cached pointing at PHACC's
-# directory and every subsequent `custom_components.fraimic` import fails
+# directory and every subsequent `custom_components.digital_frames` import fails
 # with ModuleNotFoundError, no matter what's on sys.path. Importing eagerly
 # here, at conftest collection time (before any fixture runs), wins that
 # race for our own package instead.
-import custom_components.fraimic  # noqa: E402,F401
+import custom_components.digital_frames  # noqa: E402,F401
 
 
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations):
-    """Make hass.config_entries.async_setup discover custom_components/fraimic."""
+    """Make hass.config_entries.async_setup discover custom_components/digital_frames."""
     yield
 
 
@@ -65,7 +65,7 @@ def make_frame_entry():
     tests only need to override the fields they care about."""
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-    from custom_components.fraimic.const import (
+    from custom_components.digital_frames.const import (
         CONF_DEVICE_KEY,
         CONF_HEIGHT,
         CONF_HOST,
@@ -112,7 +112,7 @@ def make_scenes_hub_entry():
     entry, see const.py / __init__.py's async_setup_entry branch on it."""
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-    from custom_components.fraimic.const import DOMAIN, KIND_SCENES_HUB
+    from custom_components.digital_frames.const import DOMAIN, KIND_SCENES_HUB
 
     def _make():
         return MockConfigEntry(domain=DOMAIN, data={"kind": KIND_SCENES_HUB})
@@ -130,7 +130,7 @@ def make_coordinator(hass):
     up None outside of a real entry-setup call stack."""
     from homeassistant.config_entries import current_entry
 
-    from custom_components.fraimic.coordinator import FraimicCoordinator
+    from custom_components.digital_frames.coordinator import FraimicCoordinator
 
     def _make(entry):
         entry.add_to_hass(hass)

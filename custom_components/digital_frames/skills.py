@@ -57,6 +57,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    ADDONS_DIRNAME,
     DOMAIN,
     SIGNAL_SKILLS_UPDATED,
     XOTD_RENDERER_PINNED_BASE,
@@ -407,7 +408,7 @@ class SkillManager:
         # simultaneously) must never share a config.json/xotd.bin, or
         # concurrent renders clobber each other's files.
         run_dir = self.hass.config.path(
-            "fraimic_addons", f"skill_{skill.skill_id}", f"run_{uuid.uuid4().hex[:8]}"
+            ADDONS_DIRNAME, f"skill_{skill.skill_id}", f"run_{uuid.uuid4().hex[:8]}"
         )
 
         def _write_inputs() -> tuple[str, str]:

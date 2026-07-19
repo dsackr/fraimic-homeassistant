@@ -1,36 +1,36 @@
 """HTTP API views for the Fraimic shared image library.
 
 Endpoints:
-    GET  /api/fraimic/library/list                       list images + active backend
+    GET  /api/digital_frames/library/list                       list images + active backend
                                                             (optional ?album=<name> filter)
-    POST /api/fraimic/library/upload                      upload one or more originals (multipart
+    POST /api/digital_frames/library/upload                      upload one or more originals (multipart
                                                             "image", repeatable) into an album
                                                             (optional "album" / "new_album" fields)
-    GET  /api/fraimic/library/image/{id}                  stream an original; ?thumb=<edge>
+    GET  /api/digital_frames/library/image/{id}                  stream an original; ?thumb=<edge>
                                                             serves a small cached JPEG instead
                                                             (what the panel's grids use)
-    POST /api/fraimic/library/image/{id}/albums           replace an image's album tags
-    POST /api/fraimic/library/send                        send a library image to a frame
-    POST /api/fraimic/library/crop                         save a manual crop rect for one image+resolution
-    DELETE /api/fraimic/library/crop                       clear a saved crop, revert to auto framing
-    GET  /api/fraimic/library/albums                      list albums with photo counts + cover image
-    POST /api/fraimic/library/albums                      rename an album
-    DELETE /api/fraimic/library/albums                     delete an album (untags, doesn't delete photos)
-    POST /api/fraimic/library/albums/{name}/images         add a batch of images to an album (creates it
+    POST /api/digital_frames/library/image/{id}/albums           replace an image's album tags
+    POST /api/digital_frames/library/send                        send a library image to a frame
+    POST /api/digital_frames/library/crop                         save a manual crop rect for one image+resolution
+    DELETE /api/digital_frames/library/crop                       clear a saved crop, revert to auto framing
+    GET  /api/digital_frames/library/albums                      list albums with photo counts + cover image
+    POST /api/digital_frames/library/albums                      rename an album
+    DELETE /api/digital_frames/library/albums                     delete an album (untags, doesn't delete photos)
+    POST /api/digital_frames/library/albums/{name}/images         add a batch of images to an album (creates it
                                                             if the name isn't in use yet)
-    GET  /api/fraimic/frames                              list frames with their configured width/height
-    GET  /api/fraimic/frame/{entry_id}/thumbnail          last-sent-image preview for sends with no
+    GET  /api/digital_frames/frames                              list frames with their configured width/height
+    GET  /api/digital_frames/frame/{entry_id}/thumbnail          last-sent-image preview for sends with no
                                                             Library image_id (send_image service / raw
                                                             upload) -- see FraimicCoordinator.last_thumbnail
-    GET  /api/fraimic/library/settings                    current backend name
-    POST /api/fraimic/library/settings                    change backend (validates first;
+    GET  /api/digital_frames/library/settings                    current backend name
+    POST /api/digital_frames/library/settings                    change backend (validates first;
                                                             used directly by Local + Dropbox)
-    POST /api/fraimic/library/discover                    adopt files added outside Fraimic
+    POST /api/digital_frames/library/discover                    adopt files added outside Fraimic
                                                             (Dropbox only -- see LibraryBackend.
                                                             supports_discovery)
-    GET  /api/fraimic/library/oauth/google/redirect_uri   the URI to register in Google Cloud Console
-    POST /api/fraimic/library/oauth/google/start          begin the Google consent flow
-    GET  /api/fraimic/library/oauth/google/callback       Google's redirect target (no auth --
+    GET  /api/digital_frames/library/oauth/google/redirect_uri   the URI to register in Google Cloud Console
+    POST /api/digital_frames/library/oauth/google/start          begin the Google consent flow
+    GET  /api/digital_frames/library/oauth/google/callback       Google's redirect target (no auth --
                                                             this is a plain browser navigation)
 """
 
@@ -80,8 +80,8 @@ def _get_manager(hass):
 class FraimicLibraryListView(HomeAssistantView):
     """List every image currently in the library."""
 
-    url = "/api/fraimic/library/list"
-    name = "api:fraimic:library:list"
+    url = "/api/digital_frames/library/list"
+    name = "api:digital_frames:library:list"
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
@@ -103,8 +103,8 @@ class FraimicLibraryUploadView(HomeAssistantView):
     background (see LibraryManager.async_upload / _schedule_backfill).
     """
 
-    url = "/api/fraimic/library/upload"
-    name = "api:fraimic:library:upload"
+    url = "/api/digital_frames/library/upload"
+    name = "api:digital_frames:library:upload"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
@@ -155,8 +155,8 @@ class FraimicLibraryImageView(HomeAssistantView):
     """Stream a stored original (GET; add ?thumb=<edge> for a small cached
     JPEG -- what the panel's grids use) or remove it (DELETE)."""
 
-    url = "/api/fraimic/library/image/{image_id}"
-    name = "api:fraimic:library:image"
+    url = "/api/digital_frames/library/image/{image_id}"
+    name = "api:digital_frames:library:image"
     requires_auth = True
 
     # image_ids are immutable (fresh uuid per upload, originals never
@@ -213,8 +213,8 @@ class FraimicLibraryImageView(HomeAssistantView):
 class FraimicLibraryImageAlbumsView(HomeAssistantView):
     """Replace the full set of album tags on one library image."""
 
-    url = "/api/fraimic/library/image/{image_id}/albums"
-    name = "api:fraimic:library:image:albums"
+    url = "/api/digital_frames/library/image/{image_id}/albums"
+    name = "api:digital_frames:library:image:albums"
     requires_auth = True
 
     async def post(self, request: web.Request, image_id: str) -> web.Response:
@@ -246,8 +246,8 @@ class FraimicLibraryImageAlbumsView(HomeAssistantView):
 class FraimicLibraryImageVoiceNameView(HomeAssistantView):
     """Update the voice name on one library image."""
 
-    url = "/api/fraimic/library/image/{image_id}/voice_name"
-    name = "api:fraimic:library:image:voice_name"
+    url = "/api/digital_frames/library/image/{image_id}/voice_name"
+    name = "api:digital_frames:library:image:voice_name"
     requires_auth = True
 
     async def post(self, request: web.Request, image_id: str) -> web.Response:
@@ -279,8 +279,8 @@ class FraimicLibraryImageVoiceNameView(HomeAssistantView):
 class FraimicLibraryImageTagsView(HomeAssistantView):
     """Update the tags on one library image."""
 
-    url = "/api/fraimic/library/image/{image_id}/tags"
-    name = "api:fraimic:library:image:tags"
+    url = "/api/digital_frames/library/image/{image_id}/tags"
+    name = "api:digital_frames:library:image:tags"
     requires_auth = True
 
     async def post(self, request: web.Request, image_id: str) -> web.Response:
@@ -317,8 +317,8 @@ class FraimicLibrarySendView(HomeAssistantView):
     converts on the fly and caches the result for next time.
     """
 
-    url = "/api/fraimic/library/send"
-    name = "api:fraimic:library:send"
+    url = "/api/digital_frames/library/send"
+    name = "api:digital_frames:library:send"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
@@ -422,8 +422,8 @@ class FraimicLibraryCropView(HomeAssistantView):
     centered cover-crop render).
     """
 
-    url = "/api/fraimic/library/crop"
-    name = "api:fraimic:library:crop"
+    url = "/api/digital_frames/library/crop"
+    name = "api:digital_frames:library:crop"
     requires_auth = True
 
     @staticmethod
@@ -515,8 +515,8 @@ class FraimicLibraryAlbumsView(HomeAssistantView):
     only rewrites which album tags they carry.
     """
 
-    url = "/api/fraimic/library/albums"
-    name = "api:fraimic:library:albums"
+    url = "/api/digital_frames/library/albums"
+    name = "api:digital_frames:library:albums"
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
@@ -581,8 +581,8 @@ class FraimicLibraryAlbumImagesView(HomeAssistantView):
     """Add a batch of existing images to an album in one call. Doubles as
     "create an album" -- a fresh (not-yet-used) name is all that takes."""
 
-    url = "/api/fraimic/library/albums/{name}/images"
-    name = "api:fraimic:library:albums:images"
+    url = "/api/digital_frames/library/albums/{name}/images"
+    name = "api:digital_frames:library:albums:images"
     requires_auth = True
 
     async def post(self, request: web.Request, name: str) -> web.Response:
@@ -618,8 +618,8 @@ class FraimicFramesView(HomeAssistantView):
     the panel otherwise uses for discovery, so the crop editor and sidebar
     panel call this directly for data that only lives in entry.data."""
 
-    url = "/api/fraimic/frames"
-    name = "api:fraimic:frames"
+    url = "/api/digital_frames/frames"
+    name = "api:digital_frames:frames"
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
@@ -751,8 +751,8 @@ class FraimicFrameThumbnailView(HomeAssistantView):
     whenever the last send instead came from the Library/Scene path (which
     uses last_image_id + FraimicLibraryImageView instead)."""
 
-    url = "/api/fraimic/frame/{entry_id}/thumbnail"
-    name = "api:fraimic:frame:thumbnail"
+    url = "/api/digital_frames/frame/{entry_id}/thumbnail"
+    name = "api:digital_frames:frame:thumbnail"
     requires_auth = True
 
     async def get(self, request: web.Request, entry_id: str) -> web.Response:
@@ -776,8 +776,8 @@ class FraimicFrameThumbnailView(HomeAssistantView):
 class FraimicLibrarySettingsView(HomeAssistantView):
     """Get/set which storage backend the library uses and AI auto-tagging options."""
 
-    url = "/api/fraimic/library/settings"
-    name = "api:fraimic:library:settings"
+    url = "/api/digital_frames/library/settings"
+    name = "api:digital_frames:library:settings"
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
@@ -828,8 +828,8 @@ class FraimicLibraryDiscoverView(HomeAssistantView):
     supported by the Dropbox backend today -- see
     LibraryBackend.supports_discovery)."""
 
-    url = "/api/fraimic/library/discover"
-    name = "api:fraimic:library:discover"
+    url = "/api/digital_frames/library/discover"
+    name = "api:digital_frames:library:discover"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
@@ -852,8 +852,8 @@ class FraimicLibraryDiscoverView(HomeAssistantView):
 class FraimicLibraryGoogleRedirectUriView(HomeAssistantView):
     """Tell the panel which redirect URI to register in Google Cloud Console."""
 
-    url = "/api/fraimic/library/oauth/google/redirect_uri"
-    name = "api:fraimic:library:oauth:google:redirect_uri"
+    url = "/api/digital_frames/library/oauth/google/redirect_uri"
+    name = "api:digital_frames:library:oauth:google:redirect_uri"
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
@@ -866,8 +866,8 @@ class FraimicLibraryGoogleOAuthStartView(HomeAssistantView):
     """Begin the Google consent flow: stash the client id/secret the user
     just entered, return the URL to open so they can sign in."""
 
-    url = "/api/fraimic/library/oauth/google/start"
-    name = "api:fraimic:library:oauth:google:start"
+    url = "/api/digital_frames/library/oauth/google/start"
+    name = "api:digital_frames:library:oauth:google:start"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:
@@ -912,8 +912,8 @@ class FraimicLibraryGoogleOAuthCallbackView(HomeAssistantView):
     -- so it must stay unauthenticated. It's protected instead by the
     one-time `state` token minted in the start step above."""
 
-    url = "/api/fraimic/library/oauth/google/callback"
-    name = "api:fraimic:library:oauth:google:callback"
+    url = "/api/digital_frames/library/oauth/google/callback"
+    name = "api:digital_frames:library:oauth:google:callback"
     requires_auth = False
 
     async def get(self, request: web.Request) -> web.Response:
@@ -1004,8 +1004,8 @@ class FraimicLibraryGoogleOAuthCallbackView(HomeAssistantView):
 class FraimicFrameReloadView(HomeAssistantView):
     """Reload the config entry for a specific frame."""
 
-    url = "/api/fraimic/frame/reload"
-    name = "api:fraimic:frame:reload"
+    url = "/api/digital_frames/frame/reload"
+    name = "api:digital_frames:frame:reload"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:

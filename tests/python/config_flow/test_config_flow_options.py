@@ -10,7 +10,7 @@ from __future__ import annotations
 import voluptuous as vol
 from homeassistant.data_entry_flow import FlowResultType
 
-from custom_components.fraimic.const import (
+from custom_components.digital_frames.const import (
     CONF_ORIENTATION,
     CONF_ROTATE_LANDSCAPE_180,
     CONF_ROTATION_EDGE,

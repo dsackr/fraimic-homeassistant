@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.fraimic.walls import (
+from custom_components.digital_frames.walls import (
     DEFAULT_WALL_ID,
     DEFAULT_WALL_NAME,
     KIND_DEFAULT,

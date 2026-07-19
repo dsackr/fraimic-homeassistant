@@ -60,7 +60,7 @@ class FraimicMediaSource(MediaSource):
             path_obj = None
 
         # The URL for streaming original image
-        url = f"/api/fraimic/library/image/{image_id}"
+        url = f"/api/digital_frames/library/image/{image_id}"
         return PlayMedia(
             url=url,
             mime_type=entry.get("content_type", "image/png"),
@@ -104,7 +104,7 @@ class FraimicMediaSource(MediaSource):
                         can_play=False,
                         can_expand=True,
                         thumbnail=(
-                            f"/api/fraimic/library/image/{album['cover_image_id']}?thumb=128"
+                            f"/api/digital_frames/library/image/{album['cover_image_id']}?thumb=128"
                             if album.get("cover_image_id")
                             else None
                         ),
@@ -136,7 +136,7 @@ class FraimicMediaSource(MediaSource):
                         title=img.get("filename", "image"),
                         can_play=True,
                         can_expand=False,
-                        thumbnail=f"/api/fraimic/library/image/{img_id}?thumb=128",
+                        thumbnail=f"/api/digital_frames/library/image/{img_id}?thumb=128",
                     )
                 )
             return BrowseMediaSource(
@@ -166,7 +166,7 @@ class FraimicMediaSource(MediaSource):
                             title=img.get("filename", "image"),
                             can_play=True,
                             can_expand=False,
-                            thumbnail=f"/api/fraimic/library/image/{img_id}?thumb=128",
+                            thumbnail=f"/api/digital_frames/library/image/{img_id}?thumb=128",
                         )
                     )
             return BrowseMediaSource(
@@ -194,7 +194,7 @@ class FraimicMediaSource(MediaSource):
                 title=img.get("filename", "image"),
                 can_play=True,
                 can_expand=False,
-                thumbnail=f"/api/fraimic/library/image/{image_id}?thumb=128",
+                thumbnail=f"/api/digital_frames/library/image/{image_id}?thumb=128",
             )
 
         raise Unresolvable(f"Unknown media identifier: {identifier}")

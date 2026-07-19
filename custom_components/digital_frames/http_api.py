@@ -24,8 +24,8 @@ class FraimicSamsungContentView(HomeAssistantView):
     token (staged per send, short TTL). Protocol pattern from fayep/Joyous.
     """
 
-    url = "/api/fraimic/samsung/{token}/content.png"
-    name = "api:fraimic:samsung:content"
+    url = "/api/digital_frames/samsung/{token}/content.png"
+    name = "api:digital_frames:samsung:content"
     requires_auth = False
 
     async def get(self, request: web.Request, token: str) -> web.Response:
@@ -51,14 +51,14 @@ _ONBOARDING_STORE_VERSION = 1
 
 
 class FraimicOnboardingView(HomeAssistantView):
-    """GET/POST /api/fraimic/onboarding — the first-run wizard's flag.
+    """GET/POST /api/digital_frames/onboarding — the first-run wizard's flag.
 
     Server-side (an HA Store, not localStorage) so completing or skipping
     the wizard once dismisses it for every admin on every browser, forever.
     """
 
-    url = "/api/fraimic/onboarding"
-    name = "api:fraimic:onboarding"
+    url = "/api/digital_frames/onboarding"
+    name = "api:digital_frames:onboarding"
     requires_auth = True
 
     def _store(self, hass) -> Store:
@@ -200,17 +200,17 @@ def resolve_frame_by_entity(
 
 
 class FraimicFrameStatusView(HomeAssistantView):
-    """GET /api/fraimic/frame_status?entity_id=... — resolve any Fraimic
+    """GET /api/digital_frames/frame_status?entity_id=... — resolve any Fraimic
     entity to its frame's on-frame preview info, for the standalone Lovelace
-    card (fraimic-card.js). The sidebar panel resolves this itself via
+    card (digital-frames-card.js). The sidebar panel resolves this itself via
     admin-only config_entries/device_registry websocket calls, which a card
     on a non-admin's dashboard can't use -- this endpoint does the same
     resolve_frame_by_entity lookup server-side so any authenticated user's
     card can show the current on-frame thumbnail.
     """
 
-    url = "/api/fraimic/frame_status"
-    name = "api:fraimic:frame_status"
+    url = "/api/digital_frames/frame_status"
+    name = "api:digital_frames:frame_status"
     requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
@@ -235,15 +235,15 @@ class FraimicFrameStatusView(HomeAssistantView):
 
 
 class FraimicSendImageView(HomeAssistantView):
-    """Handle POST /api/fraimic/send_image.
+    """Handle POST /api/digital_frames/send_image.
 
     Accepts a multipart form with:
         entity_id   — any sensor entity belonging to the target Fraimic device
         image       — the image file to convert and send
     """
 
-    url = "/api/fraimic/send_image"
-    name = "api:fraimic:send_image"
+    url = "/api/digital_frames/send_image"
+    name = "api:digital_frames:send_image"
     requires_auth = True
 
     async def post(self, request: web.Request) -> web.Response:

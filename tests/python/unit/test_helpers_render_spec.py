@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from custom_components.fraimic.const import (
+from custom_components.digital_frames.const import (
     CONF_DRIVER,
     CONF_HEIGHT,
     CONF_ORIENTATION,
@@ -29,7 +29,7 @@ from custom_components.fraimic.const import (
     ORIENTATION_LANDSCAPE,
     ORIENTATION_PORTRAIT,
 )
-from custom_components.fraimic.helpers import (
+from custom_components.digital_frames.helpers import (
     orientation_for_entry,
     render_spec_for_entry,
 )

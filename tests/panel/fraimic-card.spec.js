@@ -118,7 +118,7 @@ test.describe('Fraimic card', () => {
     const badge = await cardQ(page, 'badge');
     expect(badge.display).toBe('block');
     expect(badge.text).toBe('ON FRAME');
-    expect(mockServer.requestLog).toContain('GET /api/fraimic/library/image/image_beach?thumb=480');
+    expect(mockServer.requestLog).toContain('GET /api/digital_frames/library/image/image_beach?thumb=480');
   });
 
   test('a render-preview send (upload or xOTD skill) shows via the frame thumbnail endpoint', async ({ page }) => {
@@ -129,7 +129,7 @@ test.describe('Fraimic card', () => {
     await page.waitForFunction(
       () => document.getElementById('card').shadowRoot.getElementById('mediaImg').style.display === 'block'
     );
-    expect(mockServer.requestLog).toContain('GET /api/fraimic/frame/entry_1/thumbnail');
+    expect(mockServer.requestLog).toContain('GET /api/digital_frames/frame/entry_1/thumbnail');
     // Render previews are shown whole (contain), not cropped like photos.
     const cls = await page.evaluate(
       () => document.getElementById('card').shadowRoot.getElementById('mediaImg').className

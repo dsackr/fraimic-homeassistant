@@ -12,9 +12,9 @@ from homeassistant.components.media_source import (
 )
 from homeassistant.components.media_player import MediaClass, MediaType
 
-from custom_components.fraimic.library import LibraryManager
-from custom_components.fraimic.const import DOMAIN
-from custom_components.fraimic.media_source import FraimicMediaSource
+from custom_components.digital_frames.library import LibraryManager
+from custom_components.digital_frames.const import DOMAIN
+from custom_components.digital_frames.media_source import FraimicMediaSource
 
 
 @pytest.fixture(autouse=True)
@@ -42,7 +42,7 @@ def _no_real_network(monkeypatch):
             return _FakeResponse()
 
     monkeypatch.setattr(
-        "custom_components.fraimic.coordinator.async_get_clientsession",
+        "custom_components.digital_frames.coordinator.async_get_clientsession",
         lambda hass: _FakeSession(),
     )
 
@@ -147,7 +147,7 @@ async def test_media_source_resolve_and_browse(
     item = MediaSourceItem(hass, DOMAIN, f"image/{record['image_id']}", None)
     playable = await media_source.async_resolve_media(item)
     assert isinstance(playable, PlayMedia)
-    assert playable.url == f"/api/fraimic/library/image/{record['image_id']}"
+    assert playable.url == f"/api/digital_frames/library/image/{record['image_id']}"
     assert playable.mime_type == "image/png"
     assert playable.path is not None
     assert str(playable.path).endswith(record["filename"])

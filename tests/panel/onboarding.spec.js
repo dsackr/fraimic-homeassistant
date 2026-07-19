@@ -1,5 +1,5 @@
 // Coverage for the first-run onboarding wizard: a 6-step tour that opens
-// for admins until the server-side flag (/api/fraimic/onboarding) is set.
+// for admins until the server-side flag (/api/digital_frames/onboarding) is set.
 // Step 2 embeds the real Add-Frame flow (manual and discovered paths),
 // step 5 mounts the real storage-backend picker inline, and completing or
 // skipping anywhere sets the flag install-wide so it never reopens.
@@ -10,7 +10,7 @@ const { gotoPanel, clickPanelButton } = require('./fixtures/panel-page');
 
 const DISCOVERED_FLOW = {
   flow_id: 'flow_disc1',
-  handler: 'fraimic',
+  handler: 'digital_frames',
   context: { source: 'integration_discovery', title_placeholders: { name: '192.168.1.31' } },
   step_id: 'name_device',
 };
@@ -240,7 +240,7 @@ test.describe('First-run onboarding', () => {
     try {
       const { pageErrors } = await gotoPanel(page, completedUrl, { frames: [] });
       await expect.poll(
-        () => completedServer.requestLog.some((r) => r === 'GET /api/fraimic/onboarding')
+        () => completedServer.requestLog.some((r) => r === 'GET /api/digital_frames/onboarding')
       ).toBe(true);
       expect((await wizardState(page)).open).toBe(false);
       expect(pageErrors).toEqual([]);

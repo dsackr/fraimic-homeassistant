@@ -1,5 +1,5 @@
 // A minimal in-memory stand-in for the Fraimic HTTP API + Home Assistant's
-// own frame/entity registries, just enough for fraimic-panel.js's init
+// own frame/entity registries, just enough for digital-frames-panel.js's init
 // sequence and the Frames/Walls/Scenes flows to run against in a real
 // browser. Each test gets its own instance (see createMockServer) so state
 // never leaks between tests.
@@ -8,8 +8,8 @@ const path = require('path');
 const http = require('http');
 const fs = require('fs');
 
-const PANEL_JS_PATH = path.join(__dirname, '..', '..', '..', 'custom_components', 'fraimic', 'fraimic-panel.js');
-const CARD_JS_PATH = path.join(__dirname, '..', '..', '..', 'custom_components', 'fraimic', 'fraimic-card.js');
+const PANEL_JS_PATH = path.join(__dirname, '..', '..', '..', 'custom_components', 'digital_frames', 'digital-frames-panel.js');
+const CARD_JS_PATH = path.join(__dirname, '..', '..', '..', 'custom_components', 'digital_frames', 'digital-frames-card.js');
 const HARNESS_HTML_PATH = path.join(__dirname, 'harness.html');
 const CARD_HARNESS_HTML_PATH = path.join(__dirname, 'card-harness.html');
 const TINY_PNG = fs.readFileSync(path.join(__dirname, 'tiny.png'));
@@ -75,7 +75,7 @@ function parseMultipartFields(buf) {
 // onboardingComplete: the server-side first-run-wizard flag. Defaults to
 // true so every non-onboarding suite loads straight to the dashboard;
 // onboarding tests opt in with false.
-// updateStatus: optional override for GET/POST /api/fraimic/update*. When
+// updateStatus: optional override for GET/POST /api/digital_frames/update*. When
 // omitted, the server reports "up to date" with no banner.
 function createMockServer({
   frames = [], scenes = [], images = [], albums = [], walls = [], scenePacks = [], schedules = [],
@@ -147,12 +147,12 @@ function createMockServer({
 
   const flowSteps = {
     user: (flowId) => ({
-      type: 'menu', flow_id: flowId, handler: 'fraimic', step_id: 'user',
+      type: 'menu', flow_id: flowId, handler: 'digital_frames', step_id: 'user',
       menu_options: ['add_fraimic', 'add_meural'],
       description_placeholders: null,
     }),
     add_fraimic: (flowId) => ({
-      type: 'form', flow_id: flowId, handler: 'fraimic', step_id: 'add_fraimic',
+      type: 'form', flow_id: flowId, handler: 'digital_frames', step_id: 'add_fraimic',
       data_schema: [{ name: 'host', type: 'string', optional: true, default: '' }],
       errors: {}, description_placeholders: null, last_step: false,
     }),
@@ -160,7 +160,7 @@ function createMockServer({
       ...flowSteps.add_fraimic(flowId), errors: { host: 'cannot_connect' },
     }),
     add_meural: (flowId) => ({
-      type: 'form', flow_id: flowId, handler: 'fraimic', step_id: 'add_meural',
+      type: 'form', flow_id: flowId, handler: 'digital_frames', step_id: 'add_meural',
       data_schema: [
         { name: 'host', type: 'string', required: true },
         { name: 'name', type: 'string', optional: true, default: '' },
@@ -170,7 +170,7 @@ function createMockServer({
       errors: {}, description_placeholders: null, last_step: true,
     }),
     pick_device: (flowId) => ({
-      type: 'form', flow_id: flowId, handler: 'fraimic', step_id: 'pick_device',
+      type: 'form', flow_id: flowId, handler: 'digital_frames', step_id: 'pick_device',
       data_schema: [{
         name: 'device', type: 'select', required: true,
         options: [
@@ -182,12 +182,12 @@ function createMockServer({
       errors: {}, description_placeholders: null, last_step: false,
     }),
     manual: (flowId) => ({
-      type: 'form', flow_id: flowId, handler: 'fraimic', step_id: 'manual',
+      type: 'form', flow_id: flowId, handler: 'digital_frames', step_id: 'manual',
       data_schema: [{ name: 'host', type: 'string', required: true }],
       errors: {}, description_placeholders: null, last_step: false,
     }),
     name_device: (flowId, host) => ({
-      type: 'form', flow_id: flowId, handler: 'fraimic', step_id: 'name_device',
+      type: 'form', flow_id: flowId, handler: 'digital_frames', step_id: 'name_device',
       data_schema: [{ name: 'name', type: 'string', required: true }],
       errors: {}, description_placeholders: { host }, last_step: true,
     }),
@@ -248,12 +248,12 @@ function createMockServer({
     const p = url.pathname;
     requestLog.push(`${req.method} ${p}${url.search}`);
 
-    if (p === '/fraimic-panel.js') {
+    if (p === '/digital-frames-panel.js') {
       res.writeHead(200, { 'Content-Type': 'application/javascript' });
       fs.createReadStream(PANEL_JS_PATH).pipe(res);
       return;
     }
-    if (p === '/fraimic-card.js') {
+    if (p === '/digital-frames-card.js') {
       res.writeHead(200, { 'Content-Type': 'application/javascript' });
       fs.createReadStream(CARD_JS_PATH).pipe(res);
       return;
@@ -272,17 +272,17 @@ function createMockServer({
     // Simulated HA-restart window: every fraimic endpoint answers 503
     // (with a JSON body -- deliberately, so tests prove an error status
     // that PARSES still never reads as real data) until setFailing(false).
-    if (failing && p.startsWith('/api/fraimic/')) {
+    if (failing && p.startsWith('/api/digital_frames/')) {
       return json(res, 503, { message: 'Home Assistant is starting up' });
     }
 
-    if (p === '/api/fraimic/frames') {
+    if (p === '/api/digital_frames/frames') {
       return json(res, 200, { frames });
     }
-    if (p === '/api/fraimic/discovery/scan' && req.method === 'POST') {
+    if (p === '/api/digital_frames/discovery/scan' && req.method === 'POST') {
       return json(res, 200, { success: true });
     }
-    if (p === '/api/fraimic/onboarding') {
+    if (p === '/api/digital_frames/onboarding') {
       // A broken flag endpoint that still returns JSON -- the panel must
       // treat this as unknown (fail closed), never as complete: false.
       if (onboardingBroken) return json(res, 500, { message: 'flag store unavailable' });
@@ -292,10 +292,10 @@ function createMockServer({
       }
       return json(res, 200, { complete: onboardingComplete });
     }
-    if (p === '/api/fraimic/update' || p === '/api/fraimic/update/check') {
+    if (p === '/api/digital_frames/update' || p === '/api/digital_frames/update/check') {
       return json(res, 200, { ...updateState });
     }
-    if (p === '/api/fraimic/update/dismiss' && req.method === 'POST') {
+    if (p === '/api/digital_frames/update/dismiss' && req.method === 'POST') {
       const body = await readJsonBody(req);
       const version = (body && body.version) || updateState.latest;
       updateDismisses.push({ version });
@@ -306,7 +306,7 @@ function createMockServer({
       };
       return json(res, 200, { success: true, dismissed_version: version });
     }
-    if (p === '/api/fraimic/update/install' && req.method === 'POST') {
+    if (p === '/api/digital_frames/update/install' && req.method === 'POST') {
       const body = await readJsonBody(req);
       updateInstalls.push(body || {});
       const ver = (body && body.version) || updateState.latest;
@@ -328,7 +328,7 @@ function createMockServer({
         message: `Digital Frames ${ver} is on disk. Restart Home Assistant to load it.`,
       });
     }
-    if (p === '/api/fraimic/update/restart' && req.method === 'POST') {
+    if (p === '/api/digital_frames/update/restart' && req.method === 'POST') {
       return json(res, 200, { success: true, message: 'Home Assistant is restarting…' });
     }
 
@@ -373,7 +373,7 @@ function createMockServer({
       return json(res, 200, { require_restart: false });
     }
 
-    if (p === '/api/fraimic/library/list') {
+    if (p === '/api/digital_frames/library/list') {
       // Mirrors library_http.py's FraimicLibraryListView: `album` is an
       // optional filter over the full image list, not a required param.
       // The default album 'Images' includes all images.
@@ -381,7 +381,7 @@ function createMockServer({
       const filtered = (album && album !== 'Images') ? images.filter((img) => (img.albums || []).includes(album)) : images;
       return json(res, 200, { images: filtered, backend: libraryBackend });
     }
-    if (p === '/api/fraimic/library/settings') {
+    if (p === '/api/digital_frames/library/settings') {
       if (req.method === 'POST') {
         // Mirrors FraimicLibrarySettingsView: dropbox without a token is
         // the one validation failure the panel's inline connect can hit.
@@ -394,16 +394,16 @@ function createMockServer({
       }
       return json(res, 200, { backend: libraryBackend });
     }
-    if (p === '/api/fraimic/library/albums') return json(res, 200, { albums });
-    if (p === '/api/fraimic/scene_packs') return json(res, 200, { packs: scenePacks });
-    const installMatch = p.match(/^\/api\/fraimic\/scene_packs\/([^/]+)\/install$/);
+    if (p === '/api/digital_frames/library/albums') return json(res, 200, { albums });
+    if (p === '/api/digital_frames/scene_packs') return json(res, 200, { packs: scenePacks });
+    const installMatch = p.match(/^\/api\/digital_frames\/scene_packs\/([^/]+)\/install$/);
     if (installMatch && req.method === 'POST') {
       const parsed = await readJsonBody(req);
       installCalls.push({ pack_id: installMatch[1], config: parsed.config || {} });
       return json(res, 200, { success: true, pack_id: installMatch[1], type: 'widget' });
     }
 
-    if (p === '/api/fraimic/library/crop') {
+    if (p === '/api/digital_frames/library/crop') {
       // Mirrors FraimicLibraryCropView: save/clear a crop rect keyed by
       // effective resolution, returning the updated image record.
       const parsed = await readJsonBody(req);
@@ -421,7 +421,7 @@ function createMockServer({
       return json(res, 200, { success: true, image });
     }
 
-    if (p.startsWith('/api/fraimic/library/image/') && p.endsWith('/voice_name')) {
+    if (p.startsWith('/api/digital_frames/library/image/') && p.endsWith('/voice_name')) {
       const parts = p.split('/');
       const imageId = parts[parts.length - 2];
       const parsed = await readJsonBody(req);
@@ -432,7 +432,7 @@ function createMockServer({
       return json(res, 200, { success: true, image });
     }
 
-    if (p.startsWith('/api/fraimic/library/image/') && p.endsWith('/tags')) {
+    if (p.startsWith('/api/digital_frames/library/image/') && p.endsWith('/tags')) {
       const parts = p.split('/');
       const imageId = parts[parts.length - 2];
       const parsed = await readJsonBody(req);
@@ -443,7 +443,7 @@ function createMockServer({
       return json(res, 200, { success: true, image });
     }
 
-    if (p.startsWith('/api/fraimic/library/image/') && p.endsWith('/albums')) {
+    if (p.startsWith('/api/digital_frames/library/image/') && p.endsWith('/albums')) {
       const parts = p.split('/');
       const imageId = parts[parts.length - 2];
       const parsed = await readJsonBody(req);
@@ -454,13 +454,13 @@ function createMockServer({
       return json(res, 200, { success: true, image });
     }
 
-    if (p.startsWith('/api/fraimic/library/image/')) {
+    if (p.startsWith('/api/digital_frames/library/image/')) {
       res.writeHead(200, { 'Content-Type': 'image/png' });
       res.end(TINY_PNG);
       return;
     }
 
-    if (p.match(/^\/api\/fraimic\/frame\/[^/]+\/thumbnail$/)) {
+    if (p.match(/^\/api\/digital_frames\/frame\/[^/]+\/thumbnail$/)) {
       // The frame's own render preview (uploads, xOTD/skill text renders) --
       // ETag'd like the real FraimicFrameThumbnailView.
       const etag = '"tiny-png"';
@@ -474,14 +474,14 @@ function createMockServer({
       return;
     }
 
-    if (p === '/api/fraimic/send_image' && req.method === 'POST') {
+    if (p === '/api/digital_frames/send_image' && req.method === 'POST') {
       // Raw upload → convert → send (the per-tile "Upload a photo" path).
       const form = await readFormBody(req);
       rawSends.push({ entity_id: form.entity_id, has_image: 'image' in form });
       return json(res, 200, { success: true, bytes_sent: 960000 });
     }
 
-    if (p === '/api/fraimic/library/send' && req.method === 'POST') {
+    if (p === '/api/digital_frames/library/send' && req.method === 'POST') {
       // Only parses URL-encoded bodies (what the ?packtest modal sends);
       // FormData/multipart senders aren't exercised through this route yet.
       const form = await readFormBody(req);
@@ -491,7 +491,7 @@ function createMockServer({
       return json(res, 200, body);
     }
 
-    if (p === '/api/fraimic/scenes') {
+    if (p === '/api/digital_frames/scenes') {
       if (req.method === 'GET') return json(res, 200, { scenes: sceneList });
       if (req.method === 'POST') {
         const parsed = await readJsonBody(req);
@@ -503,7 +503,7 @@ function createMockServer({
         return json(res, 200, { success: true, scene });
       }
     }
-    const sceneMatch = p.match(/^\/api\/fraimic\/scenes\/([^/]+)$/);
+    const sceneMatch = p.match(/^\/api\/digital_frames\/scenes\/([^/]+)$/);
     if (sceneMatch) {
       const sceneId = sceneMatch[1];
       if (req.method === 'POST') {
@@ -524,7 +524,7 @@ function createMockServer({
       }
     }
 
-    if (p === '/api/fraimic/schedules') {
+    if (p === '/api/digital_frames/schedules') {
       if (req.method === 'GET') {
         return json(res, 200, {
           schedules: scheduleList.map((s) => ({ next_fire_at: null, ...s })),
@@ -559,7 +559,7 @@ function createMockServer({
         return json(res, 200, { success: true, schedule });
       }
     }
-    const scheduleMatch = p.match(/^\/api\/fraimic\/schedules\/([^/]+)$/);
+    const scheduleMatch = p.match(/^\/api\/digital_frames\/schedules\/([^/]+)$/);
     if (scheduleMatch) {
       const scheduleId = scheduleMatch[1];
       if (req.method === 'POST') {
@@ -581,7 +581,7 @@ function createMockServer({
       }
     }
 
-    const skillSendMatch = p.match(/^\/api\/fraimic\/skills\/([^/]+)\/send$/);
+    const skillSendMatch = p.match(/^\/api\/digital_frames\/skills\/([^/]+)\/send$/);
     if (skillSendMatch && req.method === 'POST') {
       const skillId = skillSendMatch[1];
       const skill = skillList.find((s) => s.skill_id === skillId);
@@ -591,7 +591,7 @@ function createMockServer({
       skillSendCalls.push({ skill_id: skillId, entry_id: parsed.entry_id });
       return json(res, 200, { success: true, results: [{ entry_id: parsed.entry_id, success: true }] });
     }
-    if (p === '/api/fraimic/skills') {
+    if (p === '/api/digital_frames/skills') {
       if (req.method === 'GET') {
         return json(res, 200, { skills: skillList });
       }
@@ -613,7 +613,7 @@ function createMockServer({
         return json(res, 200, { success: true, skill });
       }
     }
-    const skillMatch = p.match(/^\/api\/fraimic\/skills\/([^/]+)$/);
+    const skillMatch = p.match(/^\/api\/digital_frames\/skills\/([^/]+)$/);
     if (skillMatch) {
       const skillId = skillMatch[1];
       if (req.method === 'POST') {
@@ -631,7 +631,7 @@ function createMockServer({
       }
     }
 
-    if (p === '/api/fraimic/walls') {
+    if (p === '/api/digital_frames/walls') {
       if (req.method === 'GET') return json(res, 200, { walls: wallList });
       if (req.method === 'POST') {
         const parsed = await readJsonBody(req);
@@ -640,7 +640,7 @@ function createMockServer({
         return json(res, 200, { success: true, wall });
       }
     }
-    const wallMatch = p.match(/^\/api\/fraimic\/walls\/(.+)$/);
+    const wallMatch = p.match(/^\/api\/digital_frames\/walls\/(.+)$/);
     if (wallMatch) {
       const wallId = wallMatch[1];
       if (req.method === 'POST') {
