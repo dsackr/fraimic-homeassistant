@@ -3308,14 +3308,6 @@
         return;
       }
 
-      if (result.type !== 'form') {
-        // Our flows only emit form/create_entry/abort; menu/progress would
-        // mean a future backend change this renderer predates.
-        body.innerHTML = `<p class="flow-desc">Unsupported step type "${this._esc(result.type)}" — use HA Settings for this one.</p>`;
-        this._setFlowButtons({ submit: false, cancel: true, cancelLabel: 'Close' });
-        return;
-      }
-
       const stepKey = `${keyBase}.step.${result.step_id}`;
       const title = this._flowText(`${stepKey}.title`, null, result.description_placeholders);
       if (title) this.shadowRoot.getElementById('flow-modal-title').textContent = title;
@@ -3325,6 +3317,40 @@
         p.className = 'flow-desc';
         p.textContent = desc;
         body.appendChild(p);
+      }
+
+      // Menu step (driver chooser: Fraimic vs Meural) — options are buttons
+      // that POST { next_step_id } like HA's frontend.
+      if (result.type === 'menu') {
+        const options = result.menu_options || [];
+        const list = document.createElement('div');
+        list.className = 'flow-menu';
+        for (const opt of options) {
+          const id = typeof opt === 'string' ? opt : (opt && opt.id) || String(opt);
+          const label = this._flowText(
+            `${stepKey}.menu_options.${id}`,
+            id.replace(/_/g, ' '),
+            result.description_placeholders,
+          );
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'btn secondary flow-menu-btn';
+          btn.dataset.nextStepId = id;
+          btn.textContent = label;
+          btn.addEventListener('click', () => {
+            this._submitFlowStep({ next_step_id: id });
+          });
+          list.appendChild(btn);
+        }
+        body.appendChild(list);
+        this._setFlowButtons({ submit: false, cancel: true });
+        return;
+      }
+
+      if (result.type !== 'form') {
+        body.innerHTML = `<p class="flow-desc">Unsupported step type "${this._esc(result.type)}" — use HA Settings for this one.</p>`;
+        this._setFlowButtons({ submit: false, cancel: true, cancelLabel: 'Close' });
+        return;
       }
 
       const errors = result.errors || {};
@@ -3433,11 +3459,13 @@
       return values;
     }
 
-    async _submitFlowStep() {
+    async _submitFlowStep(overrideValues) {
       const modal = this._flowModal;
-      if (!modal || !modal.step || modal.step.type !== 'form') return;
+      if (!modal || !modal.step) return;
+      // Form steps collect field values; menu steps pass { next_step_id }.
+      if (!overrideValues && modal.step.type !== 'form') return;
       const submitBtn = this.shadowRoot.getElementById('flow-modal-submit');
-      const values = this._collectFlowValues();
+      const values = overrideValues || this._collectFlowValues();
       submitBtn.disabled = true;
       submitBtn.textContent = 'Working…';
       try {
@@ -3462,8 +3490,7 @@
         base: '/api/config/config_entries/flow',
         start: () => this._startConfigFlow(),
         userInitiated: true,
-        // async_step_user auto-scans the subnet before its first form.
-        loadingText: 'Scanning your network for frames…',
+        loadingText: 'Starting…',
         onDone: () => {
           this._onboardingFrameAdded();
           this._refreshAfterEntryChange();

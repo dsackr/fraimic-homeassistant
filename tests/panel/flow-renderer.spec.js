@@ -64,11 +64,22 @@ test.describe('Embedded flow renderer', () => {
     await mockServer.stop();
   });
 
-  test('Add Frame drives user → pick_device → name_device → create_entry with correct payloads', async ({ page }) => {
+  async function chooseFraimicFromMenu(page) {
+    await waitForStep(page, 'user');
+    await page.evaluate(() => {
+      const root = document.getElementById('panel').shadowRoot;
+      const btn = [...root.querySelectorAll('.flow-menu-btn')]
+        .find((b) => b.dataset.nextStepId === 'add_fraimic');
+      btn.click();
+    });
+    await waitForStep(page, 'add_fraimic');
+  }
+
+  test('Add Frame drives menu → add_fraimic → pick_device → name_device → create_entry', async ({ page }) => {
     const { pageErrors } = await gotoPanel(page, baseUrl, { frames: FRAMES });
 
     await clickPanelButton(page, 'frame-add-btn');
-    await waitForStep(page, 'user');
+    await chooseFraimicFromMenu(page);
 
     let state = await flowModalState(page);
     expect(state.fields).toEqual([
@@ -78,7 +89,7 @@ test.describe('Embedded flow renderer', () => {
     // Empty host = "scan my network" -- must be submitted as "".
     await clickPanelButton(page, 'flow-modal-submit');
     await waitForStep(page, 'pick_device');
-    expect(mockServer.flowSubmissions[0].body).toEqual({ host: '' });
+    expect(mockServer.flowSubmissions.at(-1).body).toEqual({ host: '' });
 
     state = await flowModalState(page);
     expect(state.fields[0]).toEqual(expect.objectContaining({
@@ -89,12 +100,12 @@ test.describe('Embedded flow renderer', () => {
     await setFlowField(page, 'device', '192.168.1.35');
     await clickPanelButton(page, 'flow-modal-submit');
     await waitForStep(page, 'name_device');
-    expect(mockServer.flowSubmissions[1].body).toEqual({ device: '192.168.1.35' });
+    expect(mockServer.flowSubmissions.at(-1).body).toEqual({ device: '192.168.1.35' });
 
     await setFlowField(page, 'name', 'Hallway Frame');
     await clickPanelButton(page, 'flow-modal-submit');
     await page.waitForFunction(() => !document.getElementById('panel')._flowModal, { timeout: 5000 });
-    expect(mockServer.flowSubmissions[2].body).toEqual({ name: 'Hallway Frame' });
+    expect(mockServer.flowSubmissions.at(-1).body).toEqual({ name: 'Hallway Frame' });
 
     // create_entry closes the modal without DELETEing the finished flow.
     expect(mockServer.flowDeletes).toEqual([]);
@@ -105,7 +116,7 @@ test.describe('Embedded flow renderer', () => {
     await gotoPanel(page, baseUrl, { frames: FRAMES });
 
     await clickPanelButton(page, 'frame-add-btn');
-    await waitForStep(page, 'user');
+    await chooseFraimicFromMenu(page);
     await clickPanelButton(page, 'flow-modal-submit');   // empty host → picker
     await waitForStep(page, 'pick_device');
 
@@ -122,7 +133,7 @@ test.describe('Embedded flow renderer', () => {
     await gotoPanel(page, baseUrl, { frames: FRAMES });
 
     await clickPanelButton(page, 'frame-add-btn');
-    await waitForStep(page, 'user');
+    await chooseFraimicFromMenu(page);
     await setFlowField(page, 'host', '10.0.0.99');
     await clickPanelButton(page, 'flow-modal-submit');
 
@@ -142,7 +153,7 @@ test.describe('Embedded flow renderer', () => {
     await gotoPanel(page, baseUrl, { frames: FRAMES });
 
     await clickPanelButton(page, 'frame-add-btn');
-    await waitForStep(page, 'user');
+    await chooseFraimicFromMenu(page);
 
     await page.evaluate(() => {
       const el = document.getElementById('panel').shadowRoot.getElementById('flow-field-host');
@@ -152,7 +163,7 @@ test.describe('Embedded flow renderer', () => {
     await page.keyboard.press('Enter');
 
     await waitForStep(page, 'name_device');
-    expect(mockServer.flowSubmissions[0].body).toEqual({ host: '192.168.1.31' });
+    expect(mockServer.flowSubmissions.at(-1).body).toEqual({ host: '192.168.1.31' });
   });
 
   test('cancelling a user-initiated flow DELETEs it server-side', async ({ page }) => {

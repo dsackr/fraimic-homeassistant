@@ -88,6 +88,17 @@ test.describe('First-run onboarding', () => {
       const panel = document.getElementById('panel');
       return panel._flowModal && panel._flowModal.step && panel._flowModal.step.step_id === 'user';
     }, { timeout: 5000 });
+    // Driver menu → Fraimic path.
+    await page.evaluate(() => {
+      const root = document.getElementById('panel').shadowRoot;
+      const btn = [...root.querySelectorAll('.flow-menu-btn')]
+        .find((b) => b.dataset.nextStepId === 'add_fraimic');
+      btn.click();
+    });
+    await page.waitForFunction(() => {
+      const panel = document.getElementById('panel');
+      return panel._flowModal && panel._flowModal.step && panel._flowModal.step.step_id === 'add_fraimic';
+    }, { timeout: 5000 });
     await page.evaluate(() => {
       document.getElementById('panel').shadowRoot.getElementById('flow-field-host').value = '192.168.1.35';
     });

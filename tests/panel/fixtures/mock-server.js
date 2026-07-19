@@ -114,10 +114,9 @@ function createMockServer({
   const cropDeletes = []; // { image_id, width, height } per /library/crop DELETE
 
   // --- Embedded config/options flow state machine -----------------------
-  // Mirrors FraimicConfigFlow's real step graph (user → pick_device →
-  // name_device → create_entry, with a cannot_connect error branch) and
-  // FraimicOptionsFlow's single init step carrying one field of each
-  // serialized type the renderer must handle.
+  // Mirrors FraimicConfigFlow: menu user → add_fraimic/add_meural →
+  // pick_device → name_device → create_entry (cannot_connect error branch)
+  // and FraimicOptionsFlow's single init step.
   const flowSubmissions = [];   // { flow_id, body } per step POST
   const flowDeletes = [];       // flow_id per flow DELETE
   const entryDeletes = [];      // entry_id per config entry DELETE
@@ -126,12 +125,27 @@ function createMockServer({
 
   const flowSteps = {
     user: (flowId) => ({
-      type: 'form', flow_id: flowId, handler: 'fraimic', step_id: 'user',
+      type: 'menu', flow_id: flowId, handler: 'fraimic', step_id: 'user',
+      menu_options: ['add_fraimic', 'add_meural'],
+      description_placeholders: null,
+    }),
+    add_fraimic: (flowId) => ({
+      type: 'form', flow_id: flowId, handler: 'fraimic', step_id: 'add_fraimic',
       data_schema: [{ name: 'host', type: 'string', optional: true, default: '' }],
       errors: {}, description_placeholders: null, last_step: false,
     }),
-    userCannotConnect: (flowId) => ({
-      ...flowSteps.user(flowId), errors: { host: 'cannot_connect' },
+    add_fraimicCannotConnect: (flowId) => ({
+      ...flowSteps.add_fraimic(flowId), errors: { host: 'cannot_connect' },
+    }),
+    add_meural: (flowId) => ({
+      type: 'form', flow_id: flowId, handler: 'fraimic', step_id: 'add_meural',
+      data_schema: [
+        { name: 'host', type: 'string', required: true },
+        { name: 'name', type: 'string', optional: true, default: '' },
+        { name: 'width', type: 'integer', optional: true, default: 1920 },
+        { name: 'height', type: 'integer', optional: true, default: 1080 },
+      ],
+      errors: {}, description_placeholders: null, last_step: true,
     }),
     pick_device: (flowId) => ({
       type: 'form', flow_id: flowId, handler: 'fraimic', step_id: 'pick_device',
@@ -176,10 +190,20 @@ function createMockServer({
   function advanceConfigFlow(flowId, body) {
     const current = activeFlows[flowId];
     if (!current) return null;
-    if (current.step_id === 'user') {
+    if (current.step_id === 'user' && current.type === 'menu') {
+      if (body.next_step_id === 'add_meural') return flowSteps.add_meural(flowId);
+      return flowSteps.add_fraimic(flowId);
+    }
+    if (current.step_id === 'add_fraimic') {
       if (body.host === '') return flowSteps.pick_device(flowId);
-      if (body.host === '10.0.0.99') return flowSteps.userCannotConnect(flowId);
+      if (body.host === '10.0.0.99') return flowSteps.add_fraimicCannotConnect(flowId);
       return flowSteps.name_device(flowId, body.host);
+    }
+    if (current.step_id === 'add_meural') {
+      if (body.host === '10.0.0.99') {
+        return { ...flowSteps.add_meural(flowId), errors: { host: 'cannot_connect' } };
+      }
+      return { type: 'create_entry', flow_id: flowId, title: body.name || 'Meural', version: 1 };
     }
     if (current.step_id === 'pick_device') {
       if (body.device === '__manual__') return flowSteps.manual(flowId);
