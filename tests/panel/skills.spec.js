@@ -97,13 +97,22 @@ async function clickModeTile(page, mode) {
 }
 
 // Find the skill card whose title contains `titleSubstring`, then click a
-// button inside it matching `buttonText`.
+// button inside it matching `buttonText` (label text, aria-label, or title).
 async function clickCardButton(page, titleSubstring, buttonText) {
   await page.evaluate(({ titleSubstring, buttonText }) => {
     const root = document.getElementById('panel').shadowRoot;
     const card = [...root.getElementById('xotd-grid').querySelectorAll('.pack-card')]
       .find((c) => c.querySelector('.scene-card-title').textContent.includes(titleSubstring));
-    const btn = [...card.querySelectorAll('button')].find((b) => b.textContent.includes(buttonText));
+    const btn = [...card.querySelectorAll('button')].find((b) => {
+      const hay = [
+        b.textContent || '',
+        b.getAttribute('aria-label') || '',
+        b.getAttribute('title') || '',
+        b.id || '',
+      ].join(' ');
+      return hay.includes(buttonText);
+    });
+    if (!btn) throw new Error(`No button matching "${buttonText}" on card "${titleSubstring}"`);
     btn.click();
   }, { titleSubstring, buttonText });
 }

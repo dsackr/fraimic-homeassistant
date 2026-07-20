@@ -8,7 +8,7 @@
   'use strict';
 
   // Bump when user-visible panel copy/layout changes (handoff / cache check).
-  const PANEL_VERSION = '0.13.1';
+  const PANEL_VERSION = '0.13.2';
 
   // Mirrors library.py's DEFAULT_ALBUM -- every photo belongs to this album
   // unless/until it's reorganized elsewhere; can't be renamed or deleted.
@@ -235,8 +235,36 @@
       flex-wrap: wrap;
       gap: 8px;
     }
-    /* Live skill cards: keep secondary actions (Edit/Delete) on a second
-       row so they aren't clipped by .card { overflow: hidden }. */
+    /* Live skill cards are interactive and taller than art packs. Grid
+       neighbors paint later and sit on top — bottom-of-card Delete was
+       unclickable "under" the next tile. Raise the focused/hovered card
+       and put Delete in the header so it never lives under a neighbor. */
+    .skill-card {
+      position: relative;
+      z-index: 0;
+      overflow: visible;
+    }
+    .skill-card:hover,
+    .skill-card:focus-within {
+      z-index: 5;
+    }
+    .skill-card-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin-bottom: 2px;
+    }
+    .skill-card-header .scene-card-title {
+      flex: 1;
+      min-width: 0;
+    }
+    .skill-card-header .skill-delete-btn {
+      flex: 0 0 auto;
+      width: auto;
+      min-width: 36px;
+      padding: 6px 10px;
+      margin: -4px -4px 0 0;
+    }
     .skill-card .btns-primary,
     .skill-card .btns-secondary {
       display: flex;
@@ -244,9 +272,15 @@
       gap: 8px;
     }
     .skill-card .btns-secondary { margin-top: 6px; }
+    .skill-card .btns-primary button,
     .skill-card .btns-secondary button {
       flex: 1 1 calc(50% - 4px);
       min-width: 0;
+    }
+    /* Wider tiles so frame select + actions aren't crushed into neighbors. */
+    .lib-grid.skill-grid {
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      align-items: start;
     }
     button {
       flex: 1;
@@ -9085,7 +9119,7 @@
       const skills = this._skills || [];
 
       if (!skills.length) {
-        grid.className = 'lib-grid';
+        grid.className = 'lib-grid skill-grid';
         grid.innerHTML = `
           <div class="empty">
             <div class="empty-icon">◈</div>
@@ -9098,7 +9132,7 @@
         return;
       }
 
-      grid.className = 'lib-grid';
+      grid.className = 'lib-grid skill-grid';
       grid.innerHTML = '';
       for (const skill of skills) {
         grid.appendChild(this._buildXotdCard(skill));
@@ -9121,7 +9155,11 @@
       ).join('');
 
       el.innerHTML = `
-        <div class="scene-card-title">${this._esc(skill.name)}</div>
+        <div class="skill-card-header">
+          <div class="scene-card-title">${this._esc(skill.name)}</div>
+          <button type="button" class="btn-ghost skill-delete-btn" id="xotd-delete-${sid}"
+                  title="Delete this live content" aria-label="Delete ${this._esc(skill.name)}">🗑</button>
+        </div>
         <div class="scene-card-summary">${modeLabel}${subLabel ? ' · ' + subLabel : ''}</div>
         <div class="modal-row" style="margin-top:10px">
           <select id="xotd-send-frame-${sid}" ${this._frames.length ? '' : 'disabled'}>
@@ -9133,12 +9171,11 @@
           <input type="time" id="xotd-schedule-time-${sid}" value="08:00" style="flex:1;min-width:0">
         </div>
         <div class="btns-primary" style="margin-top:6px">
-          <button class="btn-primary" id="xotd-run-${sid}" ${this._frames.length ? '' : 'disabled'}>▶ Send Now</button>
-          <button class="btn-ghost" id="xotd-schedule-${sid}" ${this._frames.length ? '' : 'disabled'} title="Create a daily schedule for the selected frame">Schedule daily</button>
+          <button type="button" class="btn-primary" id="xotd-run-${sid}" ${this._frames.length ? '' : 'disabled'}>▶ Send Now</button>
+          <button type="button" class="btn-ghost" id="xotd-schedule-${sid}" ${this._frames.length ? '' : 'disabled'} title="Create a daily schedule for the selected frame">Schedule daily</button>
         </div>
         <div class="btns-secondary">
-          <button class="btn-ghost" id="xotd-edit-${sid}">✎ Edit</button>
-          <button class="btn-ghost" id="xotd-delete-${sid}" title="Remove this live content preset">🗑 Delete</button>
+          <button type="button" class="btn-ghost" id="xotd-edit-${sid}">✎ Edit</button>
         </div>
         <div class="feedback" id="xotd-card-fb-${sid}"></div>
       `;
@@ -9146,7 +9183,10 @@
       el.querySelector(`#xotd-run-${sid}`).addEventListener('click', () => this._runXotdInstanceNow(skill, el, sid));
       el.querySelector(`#xotd-schedule-${sid}`).addEventListener('click', () => this._quickScheduleLive(skill, el, sid));
       el.querySelector(`#xotd-edit-${sid}`).addEventListener('click', () => this._openXotdModal(skill));
-      el.querySelector(`#xotd-delete-${sid}`).addEventListener('click', () => this._deleteXotdInstance(skill, el, sid));
+      el.querySelector(`#xotd-delete-${sid}`).addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._deleteXotdInstance(skill, el, sid);
+      });
 
       return el;
     }
