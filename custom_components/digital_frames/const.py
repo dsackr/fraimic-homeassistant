@@ -111,6 +111,11 @@ SCENE_PACK_RAW_BASE = (
 )
 SCENE_PACK_INDEX_URL = f"{SCENE_PACK_RAW_BASE}/scene_packs/index.json"
 
+# Gallery catalog schema_version supported by this integration build
+# (Content Platform Phase 7). Higher catalog schema_versions are ignored
+# with a log warning until we add a new decoder.
+GALLERY_CATALOG_SCHEMA_VERSION = 1
+
 # The xOTD renderer script skills.py downloads and runs as a subprocess for
 # every text-mode skill render (see skills.py's _async_script_bytes). Unlike
 # SCENE_PACK_RAW_BASE above, this is pinned to a specific frame-addons

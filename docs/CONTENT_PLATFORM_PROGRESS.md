@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | **Last updated** | 2026-07-19 |
-| **Active phase** | **Phase 7 optional** (marketplace foundations) — Phases 0–6 done |
+| **Active phase** | **Complete through Phase 7** |
 | **Branch** | `main` |
 | **Repos** | this repo + `../frame-addons` |
 
@@ -13,40 +13,29 @@
 
 | Phase | Status | Notes |
 |:---:|---|---|
-| 0 Contract | **done** | Roadmap + handoff |
-| 1 Surface rename | **done** | Gallery / Live |
-| 2 Gallery install UX | **done** | library-only |
-| 3 Live quick-setup | **done** | Schedule daily |
-| 4 Agenda as Live | **done** | skill + pin + migration |
-| 5 Retire widgets | **done** | install rejected; catalog clean |
-| 6 Dead-code purge | **done** | widget runtime + Tools UI removed |
-| 7 Marketplace | not started | Later |
+| 0–6 | **done** | Gallery/Live, agenda skill, widget purge |
+| **7 Marketplace foundations** | **done** | versioned catalog, checksums, search/featured, community template |
 
-## What shipped in Phases 4–5
+## Phase 7 summary
 
 ### frame-addons
-- `agenda_renderer.py`: `--render-only`, `--config`, outputs `agenda.bin` + `agenda_preview.png`
-- Pinned commit for skills: `779df8acbec36385c277df346e48ecf025ad5fb3`
-- Catalog: removed `xotd` and `daily_agenda` widgets (art packs only)
+- `scripts/stamp_catalog.py` — stamps `schema_version`, pack `version` /
+  `min_integration` / `featured`, per-image `sha256`
+- `docs/CATALOG_SCHEMA.md` — catalog contract
+- `.github/PULL_REQUEST_TEMPLATE/art_pack.md` — community PR checklist
+- `scene_packs/index.json` restamped (28 packs, 253 checksums)
 
 ### Integration
-- `content_mode=agenda`, built-in skill `daily_agenda`
-- `AGENDA_RENDERER_*` pins in `const.py`
-- Prefetch HA calendar → `ha_events.json` in render temp dir
-- `_async_migrate_agenda_widget` on setup
-- Widget install/sync rejected with Live-tab message
-- Panel: agenda mode tile + config fields; Gallery copy no longer promises Tools widgets
+- Filters packs by `min_integration` vs `manifest.json` version
+- Verifies `sha256` on image download when present
+- `GET /api/digital_frames/scene_packs` returns `catalog` metadata
+- Gallery UI: search box, Featured strip, version on pack cards
 
-### Tests
-- `tests/python/setup/test_agenda_migration.py`
-- skills built-in seeding includes Daily Agenda
+### Explicit non-goals (still out of scope)
+- Community remote-exec Python
+- Multi-publisher signed marketplaces beyond checksum integrity
 
-## Phase 6 done
-- Deleted `_async_install_widget` / `_schedule_widget` / `async_run_widget` from `scene_packs.py`
-- Catalog fetch filters `type=widget`
-- Panel: removed Tools section + widget modal/install path
-- Removed obsolete Playwright widget-form specs
-
-## Phase 7 (optional)
-- Versioned art catalog / community images only — see roadmap
-- Optional rename `ScenePackManager` → `ArtPackManager`
+## Follow-ups (optional polish, not blocking)
+- Wire `stamp_catalog.py` into `build_scene_pack.py` so rebuilds auto-stamp
+- Panel Playwright coverage for Featured + search
+- Rename `ScenePackManager` → `ArtPackManager`

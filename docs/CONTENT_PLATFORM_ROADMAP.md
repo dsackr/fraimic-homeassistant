@@ -1,6 +1,7 @@
 # Content platform workover (Gallery + Live Content)
 
-**Status:** Phases 0–6 done (see [CONTENT_PLATFORM_PROGRESS.md](CONTENT_PLATFORM_PROGRESS.md)); Phase 7 optional marketplace  
+**Status:** Phases 0–7 **complete** (see [CONTENT_PLATFORM_PROGRESS.md](CONTENT_PLATFORM_PROGRESS.md))  
+
 
 
 
@@ -320,17 +321,18 @@ Community agenda variants; full layout redesign.
 
 ---
 
-## Phase 7 — Marketplace foundations (optional, later)
+## Phase 7 — Marketplace foundations ✅
 
-Only after Phases 1–6. **Do not start** while widgets exist.
+### Shipped
 
-### In scope when ready
-
-1. **Versioned art manifests** (`version`, `min_integration`, per-image license).  
-2. **Signed or checksummed packs** (integrity, not DRM).  
-3. **Search / tags / featured** in Gallery UI.  
-4. **Community art PR template** (public domain only; CI license check via existing builder patterns).  
-5. **No community remote-exec.** Future generators = in-process plugins or declarative templates (separate design).
+1. **Versioned art manifests** — `schema_version`, pack `version` /
+   `min_integration` / `featured` via `frame-addons/scripts/stamp_catalog.py`
+   and `docs/CATALOG_SCHEMA.md`.  
+2. **Checksummed packs** — per-image `sha256` verified on install (integrity).  
+3. **Search + featured** — Gallery search box + Featured strip + category browse.  
+4. **Community art PR template** — `.github/PULL_REQUEST_TEMPLATE/art_pack.md`
+   (images/JSON only; public-domain checklist).  
+5. **No community remote-exec** — widgets filtered; generators stay pinned Live skills.
 
 ### Explicitly out of scope forever (unless redesign)
 

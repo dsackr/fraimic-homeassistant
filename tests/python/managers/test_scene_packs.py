@@ -54,6 +54,70 @@ def test_assign_cycles_through_pool_round_robin():
     assert mappings == {"f1": "i1", "f2": "i2", "f3": "i1"}
 
 
+def test_version_tuple_and_pack_compat():
+    from custom_components.digital_frames.scene_packs import (
+        _pack_compatible,
+        _version_tuple,
+    )
+
+    assert _version_tuple("0.12.125") == (0, 12, 125)
+    assert _version_tuple("v1.0.0-beta") == (1, 0, 0)
+    assert _version_tuple("") == (0,)
+    assert _pack_compatible({"min_integration": "0.12.0"}, "0.12.125") is True
+    assert _pack_compatible({"min_integration": "9.0.0"}, "0.12.125") is False
+    assert _pack_compatible({}, "0.1.0") is True
+
+
+async def test_install_rejects_checksum_mismatch(
+    hass, scene_pack_manager, aioclient_mock, sample_image_bytes, make_frame_entry
+):
+    entry = make_frame_entry()
+    entry.add_to_hass(hass)
+    images = [
+        {
+            "filename": "a.jpg",
+            "path": "scene_packs/monet/a.jpg",
+            "sha256": "0" * 64,
+        }
+    ]
+    url, body = _catalog_url_and_body(images)
+    body["schema_version"] = 1
+    body["catalog_version"] = "1.0.0"
+    aioclient_mock.get(url, json=body)
+    aioclient_mock.get(_image_url(images[0]), content=sample_image_bytes(800, 600))
+
+    with pytest.raises(ScenePackError, match="Checksum mismatch"):
+        await scene_pack_manager.async_install_pack("monet")
+
+
+async def test_catalog_hides_incompatible_min_integration(
+    hass, scene_pack_manager, aioclient_mock, monkeypatch
+):
+    from custom_components.digital_frames import scene_packs as sp
+    from custom_components.digital_frames.const import SCENE_PACK_INDEX_URL
+
+    monkeypatch.setattr(sp, "_integration_version", lambda: "0.12.0")
+    aioclient_mock.get(
+        SCENE_PACK_INDEX_URL,
+        json={
+            "schema_version": 1,
+            "catalog_version": "1.0.0",
+            "packs": [
+                {"id": "old", "name": "Old", "min_integration": "0.1.0", "images": []},
+                {
+                    "id": "future",
+                    "name": "Future",
+                    "min_integration": "99.0.0",
+                    "images": [],
+                },
+            ],
+        },
+    )
+    packs = await scene_pack_manager.async_list_available()
+    assert [p["id"] for p in packs] == ["old"]
+    assert scene_pack_manager.catalog_meta().get("packs_hidden_incompatible") == 1
+
+
 # ---------------------------------------------------------------------------
 # Install / sync / uninstall (fake library + mocked catalog fetch)
 # ---------------------------------------------------------------------------

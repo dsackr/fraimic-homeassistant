@@ -1,26 +1,17 @@
-"""Scene packs: curated bundles of public-domain images plus an
-auto-assembled scene.
+"""Gallery art packs: curated public-domain image bundles + auto scene.
 
-Content (a manifest and its source images) lives in this same repo under
-scene_packs/ and is fetched at install time from GitHub raw content -- see
-SCENE_PACK_INDEX_URL in const.py. Installing a pack downloads its images
-through the same LibraryManager.async_upload() pipeline a manual upload
-uses, so images end up wherever the user's library is already configured to
-live (Local/Dropbox/Google Drive) and get the normal per-resolution .bin
-conversion -- packs never ship pre-baked .bin files, since those are keyed
-to each user's specific frame resolutions and byte layout (see
-image_converter.py) and would go stale the moment a new panel size ships.
-
-Installing also auto-builds a ready-to-send Scene by assigning each
-downloaded image to one of the user's configured frames, matching frame
-orientation to image orientation where possible -- no manual mapping step
-required.
+Content lives in dsackr/frame-addons under scene_packs/, fetched at install
+time (SCENE_PACK_INDEX_URL). Catalog schema Phase 7: versioned packs,
+min_integration gating, optional per-image sha256 integrity checks.
+Widgets / remote Python are never accepted from the catalog.
 """
 
 from __future__ import annotations
 
+import hashlib
 import io
 import logging
+import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -33,6 +24,7 @@ from .const import (
     CONF_HEIGHT,
     CONF_WIDTH,
     DOMAIN,
+    GALLERY_CATALOG_SCHEMA_VERSION,
     KIND_SCENES_HUB,
     SCENE_PACK_INDEX_URL,
     SCENE_PACK_RAW_BASE,
@@ -52,10 +44,54 @@ _STORAGE_VERSION = 1
 _INDEX_CACHE_TTL = 60  # seconds -- avoid re-fetching the catalog on every panel load
 _FETCH_TIMEOUT = aiohttp.ClientTimeout(total=15)
 _DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(total=30)
+_SEMVER_PIECE = re.compile(r"^(\d+)")
+
 
 class ScenePackError(Exception):
     """Raised for invalid scene pack operations (unknown pack, fetch
     failure, already installed, not installed)."""
+
+
+def _version_tuple(raw: str | None) -> tuple[int, ...]:
+    """Parse a dotted version prefix into ints for ordering comparisons.
+
+    ``0.12.125``, ``v0.12``, ``1.0.0-beta`` → comparable tuples. Empty/bad
+    input sorts as ``(0,)`` so missing min_integration never blocks install.
+    """
+    if not raw or not isinstance(raw, str):
+        return (0,)
+    parts: list[int] = []
+    for piece in raw.strip().lstrip("vV").split("."):
+        m = _SEMVER_PIECE.match(piece)
+        if not m:
+            break
+        parts.append(int(m.group(1)))
+    return tuple(parts) if parts else (0,)
+
+
+def _integration_version() -> str:
+    """Version stamped in manifest.json (auto-bumped on release)."""
+    try:
+        import json
+        from pathlib import Path
+
+        path = Path(__file__).with_name("manifest.json")
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return str(data.get("version") or "0")
+    except Exception:  # noqa: BLE001
+        return "0"
+
+
+def _pack_compatible(pack: dict[str, Any], integration_version: str) -> bool:
+    """True if this integration may offer/install *pack*."""
+    need = pack.get("min_integration")
+    if not need:
+        return True
+    return _version_tuple(integration_version) >= _version_tuple(str(need))
+
+
+def _sha256_hex(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 def _assign_images_to_frames(
@@ -108,6 +144,7 @@ class ScenePackManager:
         self._installing: set[str] = set()
         self._index_cache: list[dict[str, Any]] | None = None
         self._index_cache_time: float = 0.0
+        self._catalog_meta: dict[str, Any] = {}
 
     async def async_load(self) -> None:
         stored = await self._store.async_load()
@@ -150,7 +187,24 @@ class ScenePackManager:
                 f"Couldn't reach the scene pack catalog: {err}"
             ) from err
 
-        packs = data.get("packs") if isinstance(data, dict) else None
+        if not isinstance(data, dict):
+            raise ScenePackError("Scene pack catalog is malformed")
+
+        schema = data.get("schema_version", 0)
+        try:
+            schema_i = int(schema)
+        except (TypeError, ValueError):
+            schema_i = 0
+        # Legacy indexes omit schema_version — treat as 0 and still accept.
+        if schema_i > GALLERY_CATALOG_SCHEMA_VERSION:
+            _LOGGER.warning(
+                "Gallery catalog schema_version %s is newer than supported %s; "
+                "showing packs best-effort",
+                schema_i,
+                GALLERY_CATALOG_SCHEMA_VERSION,
+            )
+
+        packs = data.get("packs")
         if not isinstance(packs, list):
             raise ScenePackError("Scene pack catalog is malformed")
 
@@ -158,9 +212,37 @@ class ScenePackManager:
         # index still lists them (Content Platform Phase 5/6).
         packs = [p for p in packs if isinstance(p, dict) and p.get("type") != "widget"]
 
-        self._index_cache = packs
+        integ = _integration_version()
+        compatible: list[dict[str, Any]] = []
+        skipped = 0
+        for pack in packs:
+            if _pack_compatible(pack, integ):
+                compatible.append(pack)
+            else:
+                skipped += 1
+                _LOGGER.debug(
+                    "Skipping Gallery pack '%s': requires min_integration %s "
+                    "(this integration is %s)",
+                    pack.get("id"),
+                    pack.get("min_integration"),
+                    integ,
+                )
+        if skipped:
+            _LOGGER.info(
+                "Gallery catalog: hid %d pack(s) requiring a newer Digital Frames",
+                skipped,
+            )
+
+        self._catalog_meta = {
+            "schema_version": schema_i,
+            "catalog_version": data.get("catalog_version"),
+            "generated_at": data.get("generated_at"),
+            "integration_version": integ,
+            "packs_hidden_incompatible": skipped,
+        }
+        self._index_cache = compatible
         self._index_cache_time = now
-        return packs
+        return compatible
 
     async def async_list_available(self) -> list[dict[str, Any]]:
         packs = await self._async_fetch_index()
@@ -176,6 +258,10 @@ class ScenePackManager:
                 }
             )
         return result
+
+    def catalog_meta(self) -> dict[str, Any]:
+        """Last-fetched catalog metadata (schema/version/feature stats)."""
+        return dict(self._catalog_meta)
 
     async def async_get_pack(self, pack_id: str) -> dict[str, Any]:
         """Look up one catalog entry by id -- public since SkillManager also
@@ -207,6 +293,15 @@ class ScenePackManager:
             if resp.status != 200:
                 raise ScenePackError(f"HTTP {resp.status} fetching {filename}")
             raw_bytes = await resp.read()
+
+        expected = image_spec.get("sha256")
+        if expected:
+            got = _sha256_hex(raw_bytes)
+            if got.lower() != str(expected).strip().lower():
+                raise ScenePackError(
+                    f"Checksum mismatch for {filename}: expected {expected}, got {got}"
+                )
+
         width, height = await self.hass.async_add_executor_job(_dimensions, raw_bytes)
         record = await self._library.async_upload(filename, raw_bytes, [album])
         title = image_spec.get("title")

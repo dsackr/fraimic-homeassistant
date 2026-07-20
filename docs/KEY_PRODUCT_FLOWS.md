@@ -296,21 +296,29 @@ install of a public-domain image collection into the library; optionally
 auto-builds an orientation-aware scene (`create_scene=true` default).
 Library-only install is supported (`create_scene=false` / panel
 "Library only"). Sync repairs partial installs.
+
+**Marketplace foundations (Phase 7):** catalog `schema_version` + per-pack
+`version` / `min_integration` / `featured`; packs requiring a newer
+integration are hidden; per-image `sha256` verified on download when
+present; Gallery UI has search + Featured strip. Community PRs are
+images/JSON only (see frame-addons `docs/CATALOG_SCHEMA.md`).
 - **Entry points**: `scene_packs.py` (`ScenePackManager.async_install_pack` /
-  `async_sync_pack` / `async_uninstall_pack`), `scene_packs_http.py`
-  (`POST …/install` body `create_scene`), panel Gallery tab
-  (`digital-frames-panel.js` `_installPack`, `_renderScenePacks`).
+  `async_sync_pack` / `async_uninstall_pack`, `_pack_compatible`, checksum
+  in `_async_import_image`), `scene_packs_http.py`
+  (`GET` returns `catalog` meta; `POST …/install` body `create_scene`),
+  panel Gallery (`_installPack`, `_renderScenePacks`, `#gallery-search`).
 - **If it silently breaks**: an interrupted install leaves orphaned images
   untracked, blocking reinstall; uninstall can leave stray images if some
   deletes fail; library-only installs unexpectedly create scenes (or vice
-  versa).
+  versa); corrupted CDN bytes install silently (checksum bypassed/missing).
 - **Test status**: Panel-tested indirectly (`addons-categories.spec.js`;
   `addons-catalog-refresh.spec.js` covers the catalog re-fetching on tab
   activation and panel revive rather than only once at initial load).
   **Backend-tested** — `tests/python/managers/test_scene_packs.py`
   (install success/partial-failure/all-fail, **library-only create_scene=False**,
   already-installed guard, uninstall scene+image cleanup and untag-vs-delete,
-  sync recovery by filename, orientation-aware image-to-frame assignment).
+  sync recovery by filename, orientation-aware assignment, **checksum
+  mismatch**, **min_integration filter**, version tuple helpers).
 
 ## 18. Scene-pack "widgets" (RETIRED — use Live Agenda)
 **Retired in Content Platform Phases 5–6.** Widget runtime code

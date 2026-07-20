@@ -8,7 +8,7 @@
   'use strict';
 
   // Bump when user-visible panel copy/layout changes (handoff / cache check).
-  const PANEL_VERSION = '0.12.1';
+  const PANEL_VERSION = '0.13.0';
 
   // Mirrors library.py's DEFAULT_ALBUM -- every photo belongs to this album
   // unless/until it's reorganized elsewhere; can't be renamed or deleted.
@@ -1977,6 +1977,8 @@
 
       this._scenePacks    = [];       // [{ id, name, description, categories, license, cover, images, installed, scene_created }]
       this._scenePacksLoadedAt = 0;   // Date.now() of the last successful catalog fetch -- see _refreshScenePacksIfStale
+      this._galleryCatalog = {};      // { schema_version, catalog_version, ... } Phase 7
+      this._gallerySearch = '';       // Gallery search query
       this._skills = [];              // [{ skill_id, name, content_mode, config }] -- loaded at boot and refreshed on tab activation, see _setTab; also feeds the wall picker's Skills section
       this._activeTab     = 'dashboard'; // 'dashboard' | 'addons' | 'xotd'
       this._packCategory  = null;     // null = category-tile view; otherwise the category id being browsed
@@ -2296,6 +2298,13 @@
       const libraryBtn = this.shadowRoot.getElementById('library-open-btn');
       if (libraryBtn) libraryBtn.addEventListener('click', () => this._openLibraryModal());
       this._renderXotdModeTiles();
+      const gallerySearch = this.shadowRoot.getElementById('gallery-search');
+      if (gallerySearch) {
+        gallerySearch.addEventListener('input', () => {
+          this._gallerySearch = (gallerySearch.value || '').trim().toLowerCase();
+          this._renderScenePacks();
+        });
+      }
       this._setTab('dashboard');
     }
 
@@ -2430,6 +2439,10 @@
           Install a collection to add it to your library (and optionally create
           a scene). Daily Agenda and other generators live under the <b>Live</b> tab.
         </p>
+        <div class="modal-row" style="margin:0 0 12px;max-width:420px">
+          <input type="search" id="gallery-search" placeholder="Search collections…"
+                 style="width:100%" autocomplete="off">
+        </div>
         <div class="feedback" id="pack-fb"></div>
         <div class="addons-crumb" id="addons-crumb"></div>
         <div class="lib-grid" id="pack-grid">
@@ -8530,6 +8543,7 @@
         const result = await resp.json().catch(() => ({}));
         if (!resp.ok) throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
         this._scenePacks = result.packs || [];
+        this._galleryCatalog = result.catalog || {};
         this._scenePacksLoadedAt = Date.now();
         return true;
       } catch (err) {
@@ -8571,10 +8585,22 @@
       return this._buildPackCard(pack);
     }
 
+    _galleryPackMatchesSearch(pack, q) {
+      if (!q) return true;
+      const hay = [
+        pack.id, pack.name, pack.description, pack.license,
+        ...(this._packCategoryTags(pack)),
+        ...((pack.images || []).map((i) => i.title || '')),
+      ].join(' ').toLowerCase();
+      return hay.includes(q);
+    }
+
     _renderScenePacks() {
       const grid = this.shadowRoot.getElementById('pack-grid');
       const crumb = this.shadowRoot.getElementById('addons-crumb');
-      const visiblePacks = this._scenePacks;
+      const q = this._gallerySearch || '';
+      let visiblePacks = (this._scenePacks || []).filter((p) => p.type !== 'widget');
+      visiblePacks = visiblePacks.filter((p) => this._galleryPackMatchesSearch(p, q));
 
       if (!visiblePacks.length) {
         crumb.style.display = 'none';
@@ -8582,28 +8608,62 @@
         grid.innerHTML = `
           <div class="empty">
             <div class="empty-icon">◈</div>
-            <h2>No gallery collections available</h2>
-            <p>Couldn't reach the art catalog right now — check your
-               internet connection and reload the page.</p>
+            <h2>${q ? 'No matches' : 'No gallery collections available'}</h2>
+            <p>${q
+              ? 'Try another search term, or clear the search box.'
+              : "Couldn't reach the art catalog right now — check your internet connection and reload the page."}</p>
           </div>
         `;
+        return;
+      }
+
+      // Search: flat grid across the catalog.
+      if (q) {
+        crumb.style.display = 'none';
+        grid.className = 'lib-grid';
+        grid.innerHTML = '';
+        for (const pack of visiblePacks) {
+          grid.appendChild(this._buildAnyPackCard(pack));
+        }
         return;
       }
 
       if (!this._packCategory) {
         crumb.style.display = 'none';
         grid.className = '';
-        grid.innerHTML = `
-          <div class="addons-section">
-            <h2 class="addons-section-title">Art collections</h2>
+        const featured = visiblePacks.filter((p) => p.featured);
+        let html = '';
+        if (featured.length) {
+          html += `
+            <div class="addons-section">
+              <h2 class="addons-section-title">Featured</h2>
+              <div class="lib-grid" id="gallery-featured-grid"></div>
+            </div>
+          `;
+        }
+        html += `
+          <div class="addons-section" style="${featured.length ? 'margin-top:32px' : ''}">
+            <h2 class="addons-section-title">Browse by category</h2>
             <div class="category-grid" id="art-categories-grid"></div>
           </div>
         `;
-        
+        const meta = this._galleryCatalog || {};
+        if (meta.catalog_version) {
+          html += `<p style="font-size:11px;color:var(--secondary-text-color);margin:16px 0 0">
+            Catalog ${this._esc(String(meta.catalog_version))}${meta.schema_version != null ? ` · schema v${this._esc(String(meta.schema_version))}` : ''}
+          </p>`;
+        }
+        grid.innerHTML = html;
+
+        if (featured.length) {
+          const featGrid = grid.querySelector('#gallery-featured-grid');
+          for (const pack of featured) {
+            featGrid.appendChild(this._buildAnyPackCard(pack));
+          }
+        }
         const artGrid = grid.querySelector('#art-categories-grid');
-        const artPacks = visiblePacks.filter(p => p.type !== 'widget');
-        for (const catId of this._artPackCategoryIds(artPacks)) {
-          const packs = artPacks.filter(p => this._packCategoryTags(p).includes(catId));
+        for (const catId of this._artPackCategoryIds(visiblePacks)) {
+          const packs = visiblePacks.filter((p) => this._packCategoryTags(p).includes(catId));
           if (packs.length > 0) {
             artGrid.appendChild(this._buildCategoryTile(catId, packs));
           }
@@ -8624,9 +8684,9 @@
 
       grid.className = 'lib-grid';
       grid.innerHTML = '';
-      for (const pack of visiblePacks.filter(p => {
-        return p.type !== 'widget' && this._packCategoryTags(p).includes(this._packCategory);
-      })) {
+      for (const pack of visiblePacks.filter((p) =>
+        this._packCategoryTags(p).includes(this._packCategory)
+      )) {
         grid.appendChild(this._buildAnyPackCard(pack));
       }
     }
@@ -8701,7 +8761,8 @@
       const sid = this._sid(pack.id);
       const count = (pack.images || []).length;
       const coverUrl = `${SCENE_PACK_RAW_BASE}/${pack.cover}`;
-      const summaryText = `${count} image${count === 1 ? '' : 's'} · ${this._esc(pack.license || '')}`;
+      const ver = pack.version ? ` · v${pack.version}` : '';
+      const summaryText = `${count} image${count === 1 ? '' : 's'}${ver} · ${this._esc(pack.license || '')}`;
 
       let statusHtml;
       let badgeHtml = '';
@@ -8725,7 +8786,7 @@
 
       el.innerHTML = `
         <img class="pack-cover" src="${this._esc(coverUrl)}" alt="${this._esc(pack.name)}" loading="lazy" title="Preview this collection">
-        <div class="scene-card-title">${this._esc(pack.name)}</div>
+        <div class="scene-card-title">${this._esc(pack.name)}${pack.featured ? ' ★' : ''}</div>
         <div class="pack-desc">${this._esc(pack.description || '')}</div>
         <div class="scene-card-summary">${summaryText}</div>
         <div class="btns" style="margin-top:10px">${statusHtml}</div>

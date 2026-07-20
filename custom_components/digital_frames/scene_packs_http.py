@@ -49,7 +49,12 @@ class DigitalFramesScenePacksView(HomeAssistantView):
             _LOGGER.error("Failed to list scene packs: %s", err)
             return self.json_message(f"Failed to list scene packs: {err}", status_code=500)
 
-        return self.json({"packs": packs})
+        return self.json(
+            {
+                "packs": packs,
+                "catalog": manager.catalog_meta(),
+            }
+        )
 
 
 class DigitalFramesScenePackInstallView(HomeAssistantView):
