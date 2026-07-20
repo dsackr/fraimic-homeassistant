@@ -70,3 +70,4 @@ Notes on reading it:
 | 2026-07-19 | e2edd47 | panel-playwright | success | 141 passed | — | CI |
 | 2026-07-19 | e2edd47 | backend-pytest | success | 348 passed in 72.98s (0:01:12) | 62% | CI |
 | 2026-07-20 | b7aad44 | panel-playwright | success | 141 passed | — | CI |
+| 2026-07-20 | b7aad44 | backend-pytest | success | 363 passed in 74.03s (0:01:14) | 63% | CI |
