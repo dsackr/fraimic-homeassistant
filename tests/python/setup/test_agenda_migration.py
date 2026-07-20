@@ -52,7 +52,6 @@ async def test_migrate_agenda_widget_creates_skill_and_schedule(hass):
             }
         },
         async_uninstall_pack=_uninstall,
-        _cancel_scheduler=lambda *a: None,
         _async_persist=AsyncMock(),
     )
 
@@ -93,12 +92,10 @@ async def test_migrate_agenda_noop_without_widget(hass):
 
 
 @pytest.mark.asyncio
-async def test_widget_install_rejected(hass, aioclient_mock):
+async def test_catalog_filters_out_widgets(hass, aioclient_mock):
+    """Phase 6: Gallery index is art-only even if a stale catalog has widgets."""
     from custom_components.digital_frames.const import SCENE_PACK_INDEX_URL
-    from custom_components.digital_frames.scene_packs import (
-        ScenePackError,
-        ScenePackManager,
-    )
+    from custom_components.digital_frames.scene_packs import ScenePackManager
     from custom_components.digital_frames.scenes import SceneManager
 
     class _FakeLibrary:
@@ -114,13 +111,18 @@ async def test_widget_install_rejected(hass, aioclient_mock):
         json={
             "packs": [
                 {
+                    "id": "monet",
+                    "name": "Monet",
+                    "images": [],
+                },
+                {
                     "id": "daily_agenda",
                     "name": "Daily Agenda",
                     "type": "widget",
                     "script_url": "addons/daily_agenda/agenda_renderer.py",
-                }
+                },
             ]
         },
     )
-    with pytest.raises(ScenePackError, match="Live tab"):
-        await mgr.async_install_pack("daily_agenda", config_data={"frame_id": "x"})
+    packs = await mgr.async_list_available()
+    assert [p["id"] for p in packs] == ["monet"]

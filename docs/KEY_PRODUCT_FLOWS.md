@@ -313,20 +313,20 @@ Library-only install is supported (`create_scene=false` / panel
   sync recovery by filename, orientation-aware image-to-frame assignment).
 
 ## 18. Scene-pack "widgets" (RETIRED — use Live Agenda)
-**Retired in Content Platform Phase 5.** Widget install from Gallery is
-rejected. Daily Agenda is a Live skill (`content_mode=agenda`) that renders
-via pinned `agenda_renderer.py --render-only` and sends through FramePort
-(see **KPF 28**). One-time migration
-`_async_migrate_agenda_widget` converts installed `daily_agenda` widgets
-into the built-in Live skill + schedule.
-- **Entry points (legacy remnants)**: `scene_packs.py` still has uninstall
-  paths for leftover widget records; install/sync of `type=widget` raises
-  `ScenePackError` pointing users to Live.
-- **If it silently breaks**: upgraded users keep a silent dual Agenda
-  (widget + skill) or lose their morning agenda after upgrade.
+**Retired in Content Platform Phases 5–6.** Widget runtime code
+(`_async_install_widget` / schedulers / frame-IP subprocess) is **deleted**.
+Catalog fetch filters out `type=widget`. Daily Agenda is a Live skill
+(`content_mode=agenda`) — see **KPF 28**. One-time migration
+`_async_migrate_agenda_widget` still converts leftover `daily_agenda`
+widget install records into the built-in Live skill + schedule; uninstall
+still rmtree's leftover addon dirs.
+- **Entry points (legacy remnants)**: migration in `__init__.py`;
+  widget branch in `async_uninstall_pack` only.
+- **If it silently breaks**: upgraded users lose their morning agenda after
+  upgrade (migration fails).
 - **Test status**: **Backend-tested** —
   `tests/python/setup/test_agenda_migration.py` (widget→skill migration,
-  widget install rejected). Panel widget-form specs remain historical.
+  catalog filters widgets). Panel widget-form specs removed in Phase 6.
 
 ## 19. Walls: virtual multi-frame layout (panel-local state)
 User arranges a subset of frames on a free-form canvas mirroring how

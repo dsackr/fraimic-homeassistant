@@ -886,7 +886,6 @@ async def _async_migrate_agenda_widget(
         )
         # Force-drop tracking so we don't re-migrate forever.
         if "daily_agenda" in scene_pack_manager._installed:
-            scene_pack_manager._cancel_scheduler("daily_agenda")
             del scene_pack_manager._installed["daily_agenda"]
             await scene_pack_manager._async_persist()
 

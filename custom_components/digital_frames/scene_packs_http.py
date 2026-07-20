@@ -56,7 +56,6 @@ class DigitalFramesScenePackInstallView(HomeAssistantView):
     """Install a Gallery pack: import images; optionally build a scene.
 
     JSON body (all optional):
-      config: widget config (tools only)
       create_scene: bool (art packs; default true) — library-only when false
     """
 

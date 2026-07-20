@@ -8,7 +8,7 @@
   'use strict';
 
   // Bump when user-visible panel copy/layout changes (handoff / cache check).
-  const PANEL_VERSION = '0.12.0';
+  const PANEL_VERSION = '0.12.1';
 
   // Mirrors library.py's DEFAULT_ALBUM -- every photo belongs to this album
   // unless/until it's reorganized elsewhere; can't be renamed or deleted.
@@ -30,12 +30,7 @@
     seasons: { label: 'Seasons & Holidays' },
     history: { label: 'History' },
     speed: { label: 'Speed' },
-    productivity: { label: 'Tools' }
   };
-  const PRODUCTIVITY_CATEGORY = 'productivity';
-  // Defensive filter if a stale catalog still lists xotd — Live renderers
-  // are managed on the Live tab, not as Gallery installs.
-  const MULTI_INSTANCE_PACK_IDS = ['xotd'];
   const PACK_CATEGORY_ORDER = [
     'famous_artists',
     'nature',
@@ -2966,18 +2961,6 @@
             <button class="pack-preview-nav pack-preview-next" id="pack-preview-next" title="Next image">›</button>
           </div>
           <div class="pack-preview-caption" id="pack-preview-caption"></div>
-        </div>
-
-        <div class="modal-overlay" id="widget-config-overlay">
-          <div class="modal-box" style="max-width:520px">
-            <h3 id="widget-config-title">Configure tool</h3>
-            <div id="widget-config-fields"></div>
-            <div class="feedback" id="widget-config-fb"></div>
-            <div class="modal-actions">
-              <button class="btn-primary" id="widget-config-submit">Install</button>
-              <button class="btn-ghost" id="widget-config-cancel">Cancel</button>
-            </div>
-          </div>
         </div>
 
         <div class="modal-overlay" id="xotd-modal-overlay">
@@ -8615,28 +8598,15 @@
             <h2 class="addons-section-title">Art collections</h2>
             <div class="category-grid" id="art-categories-grid"></div>
           </div>
-          <div class="addons-section" style="margin-top: 40px;">
-            <h2 class="addons-section-title">Tools</h2>
-            <div class="lib-grid" id="productivity-grid"></div>
-          </div>
         `;
         
         const artGrid = grid.querySelector('#art-categories-grid');
-        const prodGrid = grid.querySelector('#productivity-grid');
-        
-        const artPacks = visiblePacks.filter(p => !this._isProductivityPack(p));
+        const artPacks = visiblePacks.filter(p => p.type !== 'widget');
         for (const catId of this._artPackCategoryIds(artPacks)) {
           const packs = artPacks.filter(p => this._packCategoryTags(p).includes(catId));
           if (packs.length > 0) {
             artGrid.appendChild(this._buildCategoryTile(catId, packs));
           }
-        }
-
-        const prodPacks = visiblePacks.filter(p =>
-          this._isProductivityPack(p) && !MULTI_INSTANCE_PACK_IDS.includes(p.id)
-        );
-        for (const pack of prodPacks) {
-          prodGrid.appendChild(this._buildAnyPackCard(pack));
         }
         return;
       }
@@ -8655,7 +8625,7 @@
       grid.className = 'lib-grid';
       grid.innerHTML = '';
       for (const pack of visiblePacks.filter(p => {
-        return !this._isProductivityPack(p) && this._packCategoryTags(p).includes(this._packCategory);
+        return p.type !== 'widget' && this._packCategoryTags(p).includes(this._packCategory);
       })) {
         grid.appendChild(this._buildAnyPackCard(pack));
       }
@@ -8674,9 +8644,6 @@
       return tags.length ? tags : ['famous_artists'];
     }
 
-    _isProductivityPack(pack) {
-      return pack.type === 'widget' || this._packCategoryTags(pack).includes(PRODUCTIVITY_CATEGORY);
-    }
 
     _packCategoryInfo(catId) {
       if (PACK_CATEGORIES[catId]) return PACK_CATEGORIES[catId];
@@ -8691,7 +8658,7 @@
       const ids = [];
       for (const pack of packs) {
         for (const tag of this._packCategoryTags(pack)) {
-          if (tag === PRODUCTIVITY_CATEGORY || ids.includes(tag)) continue;
+          if (tag === 'productivity' || ids.includes(tag)) continue;
           ids.push(tag);
         }
       }
@@ -8734,38 +8701,20 @@
       const sid = this._sid(pack.id);
       const count = (pack.images || []).length;
       const coverUrl = `${SCENE_PACK_RAW_BASE}/${pack.cover}`;
-      const isWidget = pack.type === 'widget';
-      const summaryText = isWidget
-        ? 'Tool (legacy install — moving to Live in a later release)'
-        : `${count} image${count === 1 ? '' : 's'} · ${this._esc(pack.license || '')}`;
+      const summaryText = `${count} image${count === 1 ? '' : 's'} · ${this._esc(pack.license || '')}`;
 
       let statusHtml;
       let badgeHtml = '';
       if (pack.installed) {
-        if (isWidget) {
-          statusHtml = `
-            <button class="btn-primary" id="pack-run-${sid}">▶ Refresh</button>
-            <button class="btn-ghost" id="pack-configure-${sid}">⚙ Settings</button>
-            <button class="btn-ghost" id="pack-remove-${sid}">🗑 Remove</button>
-          `;
-          badgeHtml = `
-            <div style="margin-top:10px">
-              <span class="badge-installed">✓ Configured & Active</span>
-            </div>
-          `;
-        } else {
-          statusHtml = `
-            <button class="btn-ghost" id="pack-sync-${sid}" title="Re-check for missing or newly added images">🔄 Sync</button>
-            <button class="btn-ghost" id="pack-remove-${sid}">🗑 Remove</button>
-          `;
-          badgeHtml = `
-            <div style="margin-top:10px">
-              <span class="badge-installed">✓ ${pack.scene_created ? 'In library · scene created' : 'In library'}</span>
-            </div>
-          `;
-        }
-      } else if (isWidget) {
-        statusHtml = `<button class="btn-primary" id="pack-install-${sid}">⬇ Set up</button>`;
+        statusHtml = `
+          <button class="btn-ghost" id="pack-sync-${sid}" title="Re-check for missing or newly added images">🔄 Sync</button>
+          <button class="btn-ghost" id="pack-remove-${sid}">🗑 Remove</button>
+        `;
+        badgeHtml = `
+          <div style="margin-top:10px">
+            <span class="badge-installed">✓ ${pack.scene_created ? 'In library · scene created' : 'In library'}</span>
+          </div>
+        `;
       } else {
         // Phase 2: default keeps auto-scene; library-only is explicit.
         statusHtml = `
@@ -8775,7 +8724,7 @@
       }
 
       el.innerHTML = `
-        <img class="pack-cover" src="${this._esc(coverUrl)}" alt="${this._esc(pack.name)}" loading="lazy" title="${isWidget ? 'Configure this tool' : 'Preview this collection'}">
+        <img class="pack-cover" src="${this._esc(coverUrl)}" alt="${this._esc(pack.name)}" loading="lazy" title="Preview this collection">
         <div class="scene-card-title">${this._esc(pack.name)}</div>
         <div class="pack-desc">${this._esc(pack.description || '')}</div>
         <div class="scene-card-summary">${summaryText}</div>
@@ -8784,32 +8733,17 @@
         <div class="feedback" id="pack-card-fb-${sid}"></div>
       `;
 
-      if (!isWidget) {
-        el.querySelector('.pack-cover').addEventListener('click', () => this._openPackPreview(pack, 0));
-      } else {
-        el.querySelector('.pack-cover').addEventListener('click', () => this._openWidgetConfigModal(pack, el, sid));
-      }
+      el.querySelector('.pack-cover').addEventListener('click', () => this._openPackPreview(pack, 0));
 
       if (pack.installed) {
-        if (isWidget) {
-          el.querySelector(`#pack-run-${sid}`)
-            .addEventListener('click', () => this._runWidget(pack, el, sid));
-          el.querySelector(`#pack-configure-${sid}`)
-            .addEventListener('click', () => this._openWidgetConfigModal(pack, el, sid));
-        } else {
-          el.querySelector(`#pack-sync-${sid}`)
-            .addEventListener('click', () => this._syncPack(pack, el, sid));
-        }
+        el.querySelector(`#pack-sync-${sid}`)
+          .addEventListener('click', () => this._syncPack(pack, el, sid));
         el.querySelector(`#pack-remove-${sid}`)
           .addEventListener('click', () => this._uninstallPack(pack, el, sid));
       } else {
         el.querySelector(`#pack-install-${sid}`)
           .addEventListener('click', () => {
-            if (isWidget) {
-              this._openWidgetConfigModal(pack, el, sid);
-            } else {
-              this._installPack(pack, el, sid, { createScene: true });
-            }
+            this._installPack(pack, el, sid, { createScene: true });
           });
         const libOnly = el.querySelector(`#pack-install-lib-${sid}`);
         if (libOnly) {
@@ -8852,8 +8786,8 @@
     //   type 'json' is a free-form textarea for structured config (e.g. a
     //   custom quotes/scriptures list) that a plain string can't express --
     //   validated as JSON on submit and parsed into real config.json
-    //   structure server-side (see scene_packs.py's _async_install_widget).
-    _renderConfigField(field, idPrefix = 'widget') {
+    //   structure server-side for Live/agenda forms.
+    _renderConfigField(field, idPrefix = 'xotd') {
       const fieldId = `${idPrefix}-field-${field.name}`;
       const label = this._esc(field.label || field.name);
       const placeholder = this._esc(field.placeholder || '');
@@ -8966,246 +8900,6 @@
       el.value = value;
     }
 
-    _openWidgetConfigModal(pack, cardEl, sid) {
-      const overlay = this.shadowRoot.getElementById('widget-config-overlay');
-      const title = this.shadowRoot.getElementById('widget-config-title');
-      const fieldsContainer = this.shadowRoot.getElementById('widget-config-fields');
-      const submitBtn = this.shadowRoot.getElementById('widget-config-submit');
-      const fb = this.shadowRoot.getElementById('widget-config-fb');
-      
-      fb.style.display = 'none';
-      title.textContent = `${pack.installed ? 'Configure' : 'Install'} ${pack.name}`;
-      submitBtn.disabled = false;
-      submitBtn.textContent = pack.installed ? 'Save settings' : 'Install';
-      
-      let html = '';
-      
-      const frameOptions = this._frames.map(f => 
-        `<option value="${f.entryId}">${this._esc(f.title)}</option>`
-      ).join('');
-      
-      html += `
-        <div class="modal-row">
-          <label for="widget-config-frame">Target Frame</label>
-          <select id="widget-config-frame" ${this._frames.length ? '' : 'disabled'}>
-            ${this._frames.length ? frameOptions : '<option value="">No frames available</option>'}
-          </select>
-        </div>
-      `;
-      
-      let basicFieldsHtml = '';
-      let weatherFieldsHtml = '';
-
-      for (const field of (pack.config_schema || [])) {
-        const fieldHtml = this._renderConfigField(field);
-        if (field.group === 'weather') {
-          weatherFieldsHtml += fieldHtml;
-        } else {
-          basicFieldsHtml += fieldHtml;
-        }
-      }
-
-      html += basicFieldsHtml;
-      
-      if (weatherFieldsHtml) {
-        html += `
-          <details style="margin-top:16px;cursor:pointer">
-            <summary style="font-weight:500;font-size:13.5px;color:var(--primary-color)">Location / Weather Settings (Optional)</summary>
-            <div style="padding-top:8px">
-              ${weatherFieldsHtml}
-              <div style="font-size:11px;color:var(--secondary-text-color);margin-top:4px;line-height:1.4">
-                Leave blank to automatically use your Home Assistant system coordinates.
-              </div>
-            </div>
-          </details>
-        `;
-      }
-      
-      html += `
-        <div class="modal-row">
-          <label for="widget-schedule-type">Update Schedule</label>
-          <select id="widget-schedule-type">
-            <option value="hourly">Hourly</option>
-            <option value="daily">Daily at specific time</option>
-          </select>
-        </div>
-        <div class="modal-row" id="widget-schedule-time-row" style="display:none">
-          <label for="widget-schedule-time">Daily Update Time (24h format)</label>
-          <input type="text" id="widget-schedule-time" value="07:00:00" placeholder="e.g. 07:30:00">
-        </div>
-      `;
-      
-      fieldsContainer.innerHTML = html;
-      
-      const schedTypeSel = this.shadowRoot.getElementById('widget-schedule-type');
-      const schedTimeRow = this.shadowRoot.getElementById('widget-schedule-time-row');
-      schedTypeSel.addEventListener('change', () => {
-        schedTimeRow.style.display = schedTypeSel.value === 'daily' ? 'block' : 'none';
-      });
-
-      // Generic "Select all / Clear" toolbar wiring for any entity+multiple
-      // field -- keyed off data-target, not a field name, so it applies to
-      // every checkbox-group field a manifest declares, not just calendars.
-      fieldsContainer.querySelectorAll('.entity-select-all, .entity-clear-all').forEach(link => {
-        link.addEventListener('click', (e) => {
-          e.preventDefault();
-          const container = this.shadowRoot.getElementById(link.dataset.target);
-          if (!container) return;
-          const checkAll = link.classList.contains('entity-select-all');
-          container.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = checkAll; });
-          container.dispatchEvent(new Event('change'));
-        });
-      });
-
-      // Generic show_if engine: any field can gate another field's row by
-      // name/value, e.g. quote_api_url only shows while quote_feed=custom,
-      // ha_calendar_entity/calendar_url only show for their matching
-      // calendar_source. This is the piece that replaced a wall of
-      // per-field-name branches -- adding a new conditional field to a pack
-      // manifest just works, no panel change needed.
-      const fieldEls = {};
-      const fieldsByName = {};
-      for (const field of (pack.config_schema || [])) {
-        fieldsByName[field.name] = field;
-        const el = this.shadowRoot.getElementById(`widget-field-${field.name}`);
-        if (el) fieldEls[field.name] = el;
-      }
-
-      const updateConditionalRows = () => {
-        const values = {};
-        for (const [name, el] of Object.entries(fieldEls)) values[name] = this._getFieldValue(fieldsByName[name], el);
-        for (const field of (pack.config_schema || [])) {
-          if (!field.show_if) continue;
-          const row = this.shadowRoot.getElementById(`widget-row-${field.name}`);
-          if (row) row.style.display = values[field.show_if.field] === field.show_if.equals ? 'block' : 'none';
-        }
-      };
-
-      for (const field of (pack.config_schema || [])) {
-        if (field.default !== undefined && fieldEls[field.name]) {
-          this._setFieldValue(field, fieldEls[field.name], field.default);
-        }
-      }
-      for (const el of Object.values(fieldEls)) {
-        el.addEventListener('change', updateConditionalRows);
-      }
-
-      if (pack.installed && pack.config) {
-        const config = pack.config;
-        const frameSel = this.shadowRoot.getElementById('widget-config-frame');
-        if (config.frame_id) frameSel.value = config.frame_id;
-
-        for (const [name, el] of Object.entries(fieldEls)) {
-          if (config[name] !== undefined) this._setFieldValue(fieldsByName[name], el, config[name]);
-        }
-
-        if (config.schedule) {
-          schedTypeSel.value = config.schedule.type || 'hourly';
-          if (schedTypeSel.value === 'daily') {
-            schedTimeRow.style.display = 'block';
-            this.shadowRoot.getElementById('widget-schedule-time').value = config.schedule.time || '07:00:00';
-          }
-        }
-      }
-
-      updateConditionalRows();
-
-      const submitHandler = async () => {
-        const frameId = this.shadowRoot.getElementById('widget-config-frame').value;
-        if (!frameId) {
-          fb.textContent = 'Please select a target frame.';
-          fb.className = 'feedback err';
-          fb.style.display = 'block';
-          return;
-        }
-        
-        const payload = {
-          frame_id: frameId,
-          schedule: {
-            type: schedTypeSel.value,
-            time: this.shadowRoot.getElementById('widget-schedule-time').value
-          }
-        };
-        
-        const values = {};
-        for (const [name, el] of Object.entries(fieldEls)) {
-          const raw = this._getFieldValue(fieldsByName[name], el);
-          values[name] = typeof raw === 'string' ? raw.trim() : raw;
-        }
-
-        for (const field of (pack.config_schema || [])) {
-          if (!(field.name in values)) continue;
-          const visible = !field.show_if || values[field.show_if.field] === field.show_if.equals;
-          const val = values[field.name];
-          if (field.required && visible && !val) {
-            fb.textContent = `${field.label || field.name} is required.`;
-            fb.className = 'feedback err';
-            fb.style.display = 'block';
-            return;
-          }
-          if (field.type === 'json' && visible && val) {
-            try {
-              JSON.parse(val);
-            } catch (e) {
-              fb.textContent = `${field.label || field.name} must be valid JSON.`;
-              fb.className = 'feedback err';
-              fb.style.display = 'block';
-              return;
-            }
-          }
-          payload[field.name] = val;
-        }
-
-        newSubmitBtn.disabled = true;
-        newSubmitBtn.textContent = 'Saving…';
-        
-        try {
-          const resp = await fetch(`/api/digital_frames/scene_packs/${pack.id}/install`, {
-            method: 'POST',
-            headers: {
-              ...this._authHeaders(),
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ config: payload })
-          });
-          const result = await resp.json().catch(() => ({}));
-          if (!resp.ok || !result.success) {
-            throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
-          }
-          
-          overlay.style.display = 'none';
-          
-          const cardFb = cardEl.querySelector(`#pack-card-fb-${sid}`);
-          cardFb.className = 'feedback ok';
-          cardFb.textContent = pack.installed ? 'Settings updated!' : 'Add-on installed successfully!';
-          cardFb.style.display = 'block';
-          setTimeout(() => { cardFb.style.display = 'none'; }, 3000);
-          
-          await this._loadScenePacks();
-          this._renderScenePacks();
-          
-        } catch (err) {
-          fb.textContent = `Installation failed: ${err.message}`;
-          fb.className = 'feedback err';
-          fb.style.display = 'block';
-          newSubmitBtn.disabled = false;
-          newSubmitBtn.textContent = pack.installed ? 'Save settings' : 'Install';
-        }
-      };
-      
-      const newSubmitBtn = submitBtn.cloneNode(true);
-      submitBtn.parentNode.replaceChild(newSubmitBtn, submitBtn);
-      newSubmitBtn.addEventListener('click', submitHandler);
-      
-      const cancelBtn = this.shadowRoot.getElementById('widget-config-cancel');
-      const newCancelBtn = cancelBtn.cloneNode(true);
-      cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
-      newCancelBtn.addEventListener('click', () => {
-        overlay.style.display = 'none';
-      });
-      
-      overlay.style.display = 'flex';
-    }
 
     // -----------------------------------------------------------------------
     // Skills (frame-agnostic content presets: Word/Joke/Quote/Scripture of
@@ -9807,34 +9501,6 @@
       overlay.style.display = 'flex';
     }
 
-    async _runWidget(pack, el, sid) {
-      const btn = el.querySelector(`#pack-run-${sid}`);
-      const fb  = el.querySelector(`#pack-card-fb-${sid}`);
-      btn.disabled = true;
-      const prevText = btn.textContent;
-      btn.textContent = '⏳ Refreshing…';
-      
-      try {
-        const resp = await fetch(`/api/digital_frames/scene_packs/${pack.id}/sync`, {
-          method: 'POST', headers: this._authHeaders(),
-        });
-        const result = await resp.json().catch(() => ({}));
-        if (!resp.ok || !result.success) {
-          throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
-        }
-        fb.className = 'feedback ok';
-        fb.textContent = 'Frame refreshed!';
-        fb.style.display = 'block';
-        setTimeout(() => { fb.style.display = 'none'; }, 3000);
-      } catch (err) {
-        fb.className = 'feedback err';
-        fb.textContent = `Refresh failed: ${err.message}`;
-        fb.style.display = 'block';
-      } finally {
-        btn.disabled = false;
-        btn.textContent = prevText;
-      }
-    }
 
     async _installPack(pack, el, sid, { createScene = true } = {}) {
       const btn = el.querySelector(

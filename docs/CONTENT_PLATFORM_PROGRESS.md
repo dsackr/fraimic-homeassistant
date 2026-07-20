@@ -5,8 +5,8 @@
 | Field | Value |
 |---|---|
 | **Last updated** | 2026-07-19 |
-| **Active phase** | **Phase 6 optional** (catalog split polish) — Phases 0–5 done |
-| **Branch** | `main` (commit after this session) |
+| **Active phase** | **Phase 7 optional** (marketplace foundations) — Phases 0–6 done |
+| **Branch** | `main` |
 | **Repos** | this repo + `../frame-addons` |
 
 ## Status board
@@ -19,7 +19,7 @@
 | 3 Live quick-setup | **done** | Schedule daily |
 | 4 Agenda as Live | **done** | skill + pin + migration |
 | 5 Retire widgets | **done** | install rejected; catalog clean |
-| 6 Catalog split | optional | art-only already (no widgets in index) |
+| 6 Dead-code purge | **done** | widget runtime + Tools UI removed |
 | 7 Marketplace | not started | Later |
 
 ## What shipped in Phases 4–5
@@ -41,10 +41,12 @@
 - `tests/python/setup/test_agenda_migration.py`
 - skills built-in seeding includes Daily Agenda
 
-## Phase 6 (optional polish)
-- Rename `ScenePackManager` → `ArtPackManager` (behavior-preserving)
-- Drop dead `_async_install_widget` / `async_run_widget` code bodies entirely if still present
-- Panel: remove widget modal if unused
+## Phase 6 done
+- Deleted `_async_install_widget` / `_schedule_widget` / `async_run_widget` from `scene_packs.py`
+- Catalog fetch filters `type=widget`
+- Panel: removed Tools section + widget modal/install path
+- Removed obsolete Playwright widget-form specs
 
-## Phase 7
+## Phase 7 (optional)
 - Versioned art catalog / community images only — see roadmap
+- Optional rename `ScenePackManager` → `ArtPackManager`

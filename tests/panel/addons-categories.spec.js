@@ -39,16 +39,6 @@ const SCENE_PACKS = [
     cover: 'scene_packs/space/preview_cover.jpg',
     images: [PACK_IMAGE],
   },
-  {
-    id: 'daily_agenda',
-    name: 'Daily Agenda',
-    description: 'Calendar and weather widget.',
-    category: 'productivity',
-    categories: ['productivity'],
-    type: 'widget',
-    cover: 'addons/daily_agenda/preview_cover.jpg',
-    config_schema: [],
-  },
 ];
 
 async function openAddons(page) {
@@ -61,14 +51,6 @@ function categoryTitles(page) {
   return page.evaluate(() => {
     const root = document.getElementById('panel').shadowRoot;
     return [...root.querySelectorAll('#art-categories-grid .category-tile-title')]
-      .map((el) => el.textContent.trim());
-  });
-}
-
-function productivityPackTitles(page) {
-  return page.evaluate(() => {
-    const root = document.getElementById('panel').shadowRoot;
-    return [...root.querySelectorAll('#productivity-grid .scene-card-title')]
       .map((el) => el.textContent.trim());
   });
 }
@@ -90,7 +72,7 @@ function visiblePackTitles(page) {
   });
 }
 
-test.describe('Add-ons category tags', () => {
+test.describe('Gallery category tags', () => {
   let mockServer;
   let baseUrl;
 
@@ -103,7 +85,7 @@ test.describe('Add-ons category tags', () => {
     await mockServer.stop();
   });
 
-  test('builds art categories from pack tags and keeps productivity packs separate', async ({ page }) => {
+  test('builds art categories from pack tags (Gallery is art-only)', async ({ page }) => {
     await gotoPanel(page, baseUrl);
     await openAddons(page);
 
@@ -113,7 +95,10 @@ test.describe('Add-ons category tags', () => {
       'Speed',
       'Space',
     ]);
-    await expect.poll(() => productivityPackTitles(page)).toEqual(['Daily Agenda']);
+    // No Tools / productivity section after Content Platform Phase 6.
+    await expect.poll(() => page.evaluate(() =>
+      !!document.getElementById('panel').shadowRoot.getElementById('productivity-grid')
+    )).toBe(false);
 
     await openCategory(page, 'Nature');
     await expect.poll(() => visiblePackTitles(page)).toEqual(['Fast Animals']);

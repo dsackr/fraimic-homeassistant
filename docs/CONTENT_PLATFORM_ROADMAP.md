@@ -1,6 +1,7 @@
 # Content platform workover (Gallery + Live Content)
 
-**Status:** Phases 0–5 done (see [CONTENT_PLATFORM_PROGRESS.md](CONTENT_PLATFORM_PROGRESS.md)); Phase 6+ optional  
+**Status:** Phases 0–6 done (see [CONTENT_PLATFORM_PROGRESS.md](CONTENT_PLATFORM_PROGRESS.md)); Phase 7 optional marketplace  
+
 
 
 **Repos:** [ha-digital-frames](https://github.com/dsackr/ha-digital-frames) + content catalog [frame-addons](https://github.com/dsackr/frame-addons)  

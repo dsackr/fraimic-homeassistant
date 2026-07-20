@@ -161,7 +161,7 @@ silent-failure risk than anything covered so far. Both are left for a
 dedicated Phase 5b pass.
 
 **Deferred from Phase 4**: scene-pack "widget" install/scheduling/subprocess
-execution (`_async_install_widget`, `_schedule_widget`, `async_run_widget`
+execution (retired widget path — Content Platform Phase 6; was `_async_install_widget`
 in `scene_packs.py`) needs heavier mocking (`asyncio.create_subprocess_exec`,
 filesystem writes under `fraimic_addons/`) than the rest of the phase and
 was left out to land the higher-value core pack CRUD first. Pick up
