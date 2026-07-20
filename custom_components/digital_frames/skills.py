@@ -207,6 +207,8 @@ class SkillManager:
         self._scene_packs = scene_packs
         self._store: Store = Store(hass, _STORAGE_VERSION, _STORAGE_KEY)
         self._skills: dict[str, Skill] = {}
+        # Built-in skill_ids the user deleted — never auto-seed again.
+        self._deleted_builtins: set[str] = set()
         self._script_cache: bytes | None = None
         self._script_cache_time: float = 0.0
         self._agenda_script_cache: bytes | None = None
@@ -216,8 +218,11 @@ class SkillManager:
         self._content_cache: dict[tuple[str, str], tuple[dict[str, Any], float]] = {}
 
     async def async_load(self) -> None:
-        stored = await self._store.async_load()
-        for data in (stored or {}).get("skills", []):
+        stored = await self._store.async_load() or {}
+        self._deleted_builtins = {
+            str(x) for x in (stored.get("deleted_builtins") or []) if x
+        }
+        for data in stored.get("skills", []):
             try:
                 skill = Skill.from_dict(data)
             except KeyError:
@@ -225,17 +230,23 @@ class SkillManager:
                 continue
             self._skills[skill.skill_id] = skill
 
-        # Fresh install: seed every built-in. Upgrades that already have
-        # skills only gain *new* built-in ids (e.g. daily_agenda in Phase 4)
-        # so a user-deleted Joke of the Day is not resurrected on restart.
+        # Fresh install: seed every built-in not tombstoned. Upgrades that
+        # already have skills only gain *new* built-in ids (e.g. daily_agenda)
+        # when the user has never deleted that id.
         seeded = False
         if not self._skills:
-            to_seed = list(_BUILTIN_SKILLS)
+            to_seed = [
+                b
+                for b in _BUILTIN_SKILLS
+                if b["skill_id"] not in self._deleted_builtins
+            ]
         else:
             to_seed = [
-                b for b in _BUILTIN_SKILLS
+                b
+                for b in _BUILTIN_SKILLS
                 if b["skill_id"] == "daily_agenda"
                 and b["skill_id"] not in self._skills
+                and b["skill_id"] not in self._deleted_builtins
             ]
         for builtin in to_seed:
             skill = Skill(
@@ -252,7 +263,10 @@ class SkillManager:
 
     async def _async_persist(self) -> None:
         await self._store.async_save(
-            {"skills": [skill.to_dict() for skill in self._skills.values()]}
+            {
+                "skills": [skill.to_dict() for skill in self._skills.values()],
+                "deleted_builtins": sorted(self._deleted_builtins),
+            }
         )
 
     def _signal(self) -> None:
@@ -337,16 +351,23 @@ class SkillManager:
         return skill.to_dict()
 
     async def async_delete_skill(self, skill_id: str) -> None:
-        if skill_id in self._skills:
-            del self._skills[skill_id]
-            await self._async_persist()
-            self._signal()
-            # Any schedule pointing at this skill is now broken -- disable
-            # it and mark it target_missing, same treatment
-            # SceneManager.async_delete_scene gives a deleted scene.
-            schedule_manager = self.hass.data.get(DOMAIN, {}).get("_schedules")
-            if schedule_manager is not None:
-                await schedule_manager.async_handle_skill_deleted(skill_id)
+        skill_id = (skill_id or "").strip()
+        if skill_id not in self._skills:
+            return
+        del self._skills[skill_id]
+        # Remember deleted built-ins so async_load does not resurrect them
+        # (especially daily_agenda, which was force-seeded on upgrades).
+        builtin_ids = {b["skill_id"] for b in _BUILTIN_SKILLS}
+        if skill_id in builtin_ids:
+            self._deleted_builtins.add(skill_id)
+        await self._async_persist()
+        self._signal()
+        # Any schedule pointing at this skill is now broken -- disable
+        # it and mark it target_missing, same treatment
+        # SceneManager.async_delete_scene gives a deleted scene.
+        schedule_manager = self.hass.data.get(DOMAIN, {}).get("_schedules")
+        if schedule_manager is not None:
+            await schedule_manager.async_handle_skill_deleted(skill_id)
 
     # ------------------------------------------------------------------
     # Rendering

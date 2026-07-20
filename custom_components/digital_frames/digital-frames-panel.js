@@ -8,7 +8,7 @@
   'use strict';
 
   // Bump when user-visible panel copy/layout changes (handoff / cache check).
-  const PANEL_VERSION = '0.13.0';
+  const PANEL_VERSION = '0.13.1';
 
   // Mirrors library.py's DEFAULT_ALBUM -- every photo belongs to this album
   // unless/until it's reorganized elsewhere; can't be renamed or deleted.
@@ -230,9 +230,27 @@
     }
 
     /* ---- buttons ---- */
-    .btns { display: flex; gap: 8px; }
+    .btns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    /* Live skill cards: keep secondary actions (Edit/Delete) on a second
+       row so they aren't clipped by .card { overflow: hidden }. */
+    .skill-card .btns-primary,
+    .skill-card .btns-secondary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .skill-card .btns-secondary { margin-top: 6px; }
+    .skill-card .btns-secondary button {
+      flex: 1 1 calc(50% - 4px);
+      min-width: 0;
+    }
     button {
       flex: 1;
+      min-width: 0;
       padding: 9px 12px;
       border: none;
       border-radius: 8px;
@@ -9089,7 +9107,7 @@
 
     _buildXotdCard(skill) {
       const el = document.createElement('div');
-      el.className = 'card pack-card';
+      el.className = 'card pack-card skill-card';
       const sid = this._sid(skill.skill_id);
       const modeLabel = this._esc(this._xotdContentModeLabel(skill.content_mode));
 
@@ -9114,11 +9132,13 @@
           <label style="font-size:11px;color:var(--secondary-text-color);white-space:nowrap">Daily at</label>
           <input type="time" id="xotd-schedule-time-${sid}" value="08:00" style="flex:1;min-width:0">
         </div>
-        <div class="btns" style="margin-top:6px">
+        <div class="btns-primary" style="margin-top:6px">
           <button class="btn-primary" id="xotd-run-${sid}" ${this._frames.length ? '' : 'disabled'}>▶ Send Now</button>
           <button class="btn-ghost" id="xotd-schedule-${sid}" ${this._frames.length ? '' : 'disabled'} title="Create a daily schedule for the selected frame">Schedule daily</button>
+        </div>
+        <div class="btns-secondary">
           <button class="btn-ghost" id="xotd-edit-${sid}">✎ Edit</button>
-          <button class="btn-ghost" id="xotd-delete-${sid}">🗑 Delete</button>
+          <button class="btn-ghost" id="xotd-delete-${sid}" title="Remove this live content preset">🗑 Delete</button>
         </div>
         <div class="feedback" id="xotd-card-fb-${sid}"></div>
       `;
@@ -9219,29 +9239,41 @@
     }
 
     async _deleteXotdInstance(skill, el, sid) {
-      if (!window.confirm(`Delete the "${skill.name}" skill? Any wall tile or schedule using it will stop working.`)) return;
+      if (!window.confirm(
+        `Delete "${skill.name}"?\n\nWall tiles and schedules that use this live content will stop working until you pick something else.`
+      )) return;
 
       const btn = el.querySelector(`#xotd-delete-${sid}`);
       const fb = el.querySelector(`#xotd-card-fb-${sid}`);
-      btn.disabled = true;
-      btn.textContent = '⏳ Deleting…';
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Deleting…';
+      }
 
       try {
-        const resp = await fetch(`/api/digital_frames/skills/${skill.skill_id}`, {
+        // Encode skill_id — built-in ids are safe, custom ids may not be.
+        const skillPath = encodeURIComponent(skill.skill_id);
+        const resp = await fetch(`/api/digital_frames/skills/${skillPath}`, {
           method: 'DELETE', headers: this._authHeaders(),
         });
         const result = await resp.json().catch(() => ({}));
         if (!resp.ok || !result.success) {
           throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
         }
+        // Optimistic remove so the card disappears even if list reload races.
+        this._skills = (this._skills || []).filter((s) => s.skill_id !== skill.skill_id);
         await this._loadXotdInstances();
         this._renderXotdInstances();
       } catch (err) {
-        fb.className = 'feedback err';
-        fb.textContent = `Delete failed: ${err.message}`;
-        fb.style.display = 'block';
-        btn.disabled = false;
-        btn.textContent = '🗑 Delete';
+        if (fb) {
+          fb.className = 'feedback err';
+          fb.textContent = `Delete failed: ${err.message}`;
+          fb.style.display = 'block';
+        }
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '🗑 Delete';
+        }
       }
     }
 

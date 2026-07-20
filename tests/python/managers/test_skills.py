@@ -148,16 +148,28 @@ async def test_built_ins_not_reseeded_after_user_deletes_one(hass, fake_library,
     first = SkillManager(hass, fake_library, fake_scene_packs)
     await first.async_load()
     skills = await first.async_list_skills()
-    # Delete a non-agenda built-in — only daily_agenda is force-seeded on upgrade.
     victim = next(s for s in skills if s["skill_id"] != "daily_agenda")
     await first.async_delete_skill(victim["skill_id"])
 
     second = SkillManager(hass, fake_library, fake_scene_packs)
     await second.async_load()
-    # 5 built-ins - 1 deleted; daily_agenda still present, joke/etc. not resurrected.
     remaining = await second.async_list_skills()
     assert len(remaining) == 4
     assert victim["skill_id"] not in {s["skill_id"] for s in remaining}
+
+
+async def test_deleted_daily_agenda_stays_deleted_on_reload(
+    hass, fake_library, fake_scene_packs
+):
+    first = SkillManager(hass, fake_library, fake_scene_packs)
+    await first.async_load()
+    assert any(s["skill_id"] == "daily_agenda" for s in await first.async_list_skills())
+    await first.async_delete_skill("daily_agenda")
+
+    second = SkillManager(hass, fake_library, fake_scene_packs)
+    await second.async_load()
+    ids = {s["skill_id"] for s in await second.async_list_skills()}
+    assert "daily_agenda" not in ids
 
 
 async def test_create_custom_skill(skill_manager):
