@@ -514,9 +514,9 @@ async def test_content_fields_cached_across_renders_same_day(
     hass, skill_manager, fake_scene_packs, make_frame_entry, monkeypatch,
     mock_script_download,
 ):
-    """A fan-out of a skill to multiple frames must reuse one fetched
-    content payload -- otherwise a non-date-seeded feed (joke/word) could
-    show different content on each frame in the same send."""
+    """A fan-out of a skill to multiple frames must reuse one content
+    payload -- otherwise a non-date-seeded feed (joke/word) could show
+    different content on each frame in the same send."""
     entry_a = make_frame_entry(entry_id="e1")
     entry_a.add_to_hass(hass)
     entry_b = make_frame_entry(entry_id="e2")
@@ -530,15 +530,34 @@ async def test_content_fields_cached_across_renders_same_day(
     )
 
     await skill_manager.async_render_for_entry(created["skill_id"], entry_a)
-    calls_after_first = fake_scene_packs.get_pack_calls
+    cache_size_after_first = len(skill_manager._content_cache)
     await skill_manager.async_render_for_entry(created["skill_id"], entry_b)
 
-    # Content fields are cached per (skill, day) -- the second render (same
-    # skill, same day) must not re-fetch the catalog pack for its
-    # config_schema again (script bytes caching is covered separately, see
-    # test_script_bytes_cached_across_calls -- that fetch no longer
-    # consults the catalog pack at all, see _async_script_bytes).
-    assert fake_scene_packs.get_pack_calls == calls_after_first
+    # Content fields are cached per (skill, day) -- second render same skill
+    # same day must not grow the content cache. Text modes no longer hit the
+    # Gallery catalog (xotd pack was removed).
+    assert len(skill_manager._content_cache) == cache_size_after_first
+    assert fake_scene_packs.get_pack_calls == 0
+
+
+async def test_text_skill_fields_come_from_config_not_catalog(
+    skill_manager, fake_scene_packs, make_frame_entry, monkeypatch, mock_script_download,
+):
+    """Regression: removing xotd from the Gallery catalog must not break
+    joke/quote/word/scripture renders (they used to call async_get_pack)."""
+    entry = make_frame_entry()
+    await skill_manager.async_load()
+    created = await skill_manager.async_save_skill(
+        "My Joke", "joke", {"joke_feed": "icanhazdadjoke", "theme": "classic"}
+    )
+    monkeypatch.setattr(
+        "custom_components.digital_frames.skills.asyncio.create_subprocess_exec",
+        _fake_subprocess_exec_writing_bin(),
+    )
+    result = await skill_manager.async_render_for_entry(created["skill_id"], entry)
+    assert result["kind"] == "bin"
+    assert result["bytes"]
+    assert fake_scene_packs.get_pack_calls == 0
 
 
 async def test_script_bytes_cached_across_calls(

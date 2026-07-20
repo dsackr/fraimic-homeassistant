@@ -400,30 +400,41 @@ class SkillManager:
         return script_content
 
     async def _async_fetch_content_fields(self, skill: Skill) -> dict[str, Any]:
-        """The mode_config fields the xotd catalog pack's schema declares
-        for this skill's content_mode, memoized per (skill, local day) so
-        every render of this skill within _CONTENT_CACHE_TTL gets the SAME
-        fetched content -- see module docstring (fan-out consistency)."""
+        """Build the renderer config payload from the skill's stored config.
+
+        Used to depend on the Gallery catalog pack id ``xotd`` for its
+        config_schema — that pack was removed (Live skills are not Gallery
+        installs), which broke every text-mode render. Fields now come
+        straight from ``skill.config`` plus ``content_mode``.
+
+        Memoized per (skill, local day) so fan-out to N frames reuses the
+        same of-the-day content within ``_CONTENT_CACHE_TTL``.
+        """
         cache_key = (skill.skill_id, dt_util.now().strftime("%Y-%m-%d"))
         cached = self._content_cache.get(cache_key)
         now = time.time()
         if cached is not None and now - cached[1] < _CONTENT_CACHE_TTL:
             return cached[0]
 
-        pack = await self._scene_packs.async_get_pack("xotd")
         fields: dict[str, Any] = {"content_mode": skill.content_mode}
-        for field_def in pack.get("config_schema", []):
-            field_name = field_def["name"]
-            if field_name == "content_mode":
+        # JSON-ish list fields the renderer accepts as Python lists when
+        # the panel stored them as text (custom_jokes / custom_quotes / …).
+        _json_list_keys = (
+            "custom_jokes",
+            "custom_quotes",
+            "custom_scriptures",
+            "custom_words",
+        )
+        for field_name, val in (skill.config or {}).items():
+            if field_name == "content_mode" or val is None:
                 continue
-            val = skill.config.get(field_name)
-            if field_def.get("type") == "json" and val:
+            if field_name in _json_list_keys and isinstance(val, str):
                 try:
                     val = json.loads(val)
                 except (TypeError, ValueError):
-                    val = None
-            if val is not None:
-                fields[field_name] = val
+                    # Keep the string; renderer may ignore empty/invalid lists.
+                    pass
+            fields[field_name] = val
 
         self._content_cache[cache_key] = (fields, now)
         return fields

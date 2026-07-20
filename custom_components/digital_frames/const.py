@@ -136,7 +136,7 @@ XOTD_RENDERER_SCRIPT_PATH = "addons/xotd/xotd_renderer.py"
 # policy as xOTD: bump only when the CLI contract changes.
 AGENDA_RENDERER_PINNED_BASE = (
     "https://raw.githubusercontent.com/dsackr/frame-addons/"
-    "779df8acbec36385c277df346e48ecf025ad5fb3"
+    "345294b8589124039210f3957357feb4a0b3e35a"
 )
 AGENDA_RENDERER_SCRIPT_PATH = "addons/daily_agenda/agenda_renderer.py"
 
