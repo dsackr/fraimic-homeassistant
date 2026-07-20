@@ -8,7 +8,7 @@
   'use strict';
 
   // Bump when user-visible panel copy/layout changes (handoff / cache check).
-  const PANEL_VERSION = '0.11.0';
+  const PANEL_VERSION = '0.12.0';
 
   // Mirrors library.py's DEFAULT_ALBUM -- every photo belongs to this album
   // unless/until it's reorganized elsewhere; can't be renamed or deleted.
@@ -2433,8 +2433,7 @@
         <p style="font-size:12px;color:var(--secondary-text-color);margin:0 0 14px">
           Curated public-domain art and seasonal collections for your frames.
           Install a collection to add it to your library (and optionally create
-          a scene). Tools such as Daily Agenda still appear here until they
-          move fully under Live.
+          a scene). Daily Agenda and other generators live under the <b>Live</b> tab.
         </p>
         <div class="feedback" id="pack-fb"></div>
         <div class="addons-crumb" id="addons-crumb"></div>
@@ -9231,6 +9230,7 @@
         word: 'Word of the Day',
         image_feed: 'Image Feed',
         image_album: 'Image Album',
+        agenda: 'Daily Agenda',
       }[mode] || mode;
     }
 
@@ -9245,6 +9245,7 @@
         word: '🔤',
         image_feed: '🖼',
         image_album: '🖼',
+        agenda: '📅',
       }[contentMode] || '◈';
     }
 
@@ -9259,6 +9260,7 @@
         { mode: 'quote', icon: this._skillIcon('quote'), desc: 'An inspirational quote, with author.' },
         { mode: 'scripture', icon: this._skillIcon('scripture'), desc: 'A daily Bible verse and reference.' },
         { mode: 'word', icon: this._skillIcon('word'), desc: 'A word, definition, and example.' },
+        { mode: 'agenda', icon: this._skillIcon('agenda'), desc: 'Today’s calendar + weather on the frame.' },
         { mode: 'image_feed', icon: this._skillIcon('image_feed'), desc: 'A daily web feed photo (NASA, Wikimedia, Bing).' },
         { mode: 'image_album', icon: this._skillIcon('image_album'), desc: 'A random pick from one of your albums.' },
       ];
@@ -9501,10 +9503,49 @@
           { value: 'quote', label: 'Quote of the Day' },
           { value: 'scripture', label: 'Scripture of the Day' },
           { value: 'word', label: 'Word of the Day' },
+          { value: 'agenda', label: 'Daily Agenda' },
           { value: 'image_feed', label: 'Image Feed' },
           { value: 'image_album', label: 'Image Album' },
         ],
       };
+    }
+
+    _xotdAgendaFields() {
+      const calEntities = (this._hass && this._hass.states)
+        ? Object.keys(this._hass.states).filter((id) => id.startsWith('calendar.')).sort()
+        : [];
+      const entityOptions = calEntities.map((id) => ({ value: id, label: id }));
+      return [
+        {
+          name: 'calendar_source', type: 'select', label: 'Calendar source', default: 'ha',
+          options: [
+            { value: 'ha', label: 'Home Assistant calendars' },
+            { value: 'ical', label: 'iCal URL' },
+          ],
+        },
+        {
+          name: 'ha_calendar_entities', type: 'entity', domain: 'calendar', multiple: true,
+          label: 'Calendars', required: false,
+          show_if: { field: 'calendar_source', equals: 'ha' },
+          options: entityOptions,
+        },
+        {
+          name: 'calendar_url', type: 'string', label: 'iCal URL', required: false,
+          placeholder: 'https://…/basic.ics',
+          show_if: { field: 'calendar_source', equals: 'ical' },
+        },
+        {
+          name: 'zip_code', type: 'string', label: 'Weather location (city or ZIP)', required: false,
+          placeholder: 'Leave blank to use HA home coordinates',
+        },
+        {
+          name: 'temp_unit', type: 'select', label: 'Temperature unit', default: 'fahrenheit',
+          options: [
+            { value: 'fahrenheit', label: 'Fahrenheit' },
+            { value: 'celsius', label: 'Celsius' },
+          ],
+        },
+      ];
     }
 
     _xotdImageFields() {
@@ -9551,7 +9592,8 @@
       const contentModeField = this._xotdContentModeField();
       if (!instance && presetMode) contentModeField.default = presetMode;
       const imageFields = this._xotdImageFields();
-      const allFields = [contentModeField, ...catalogSchema, ...imageFields];
+      const agendaFields = this._xotdAgendaFields();
+      const allFields = [contentModeField, ...catalogSchema, ...imageFields, ...agendaFields];
 
       let html = `
         <div class="modal-row">
@@ -9574,6 +9616,9 @@
       html += `</div>`;
       html += `<div id="xotd-image-fields-wrap">`;
       for (const field of imageFields) html += this._renderConfigField(field, 'xotd');
+      html += `</div>`;
+      html += `<div id="xotd-agenda-fields-wrap">`;
+      for (const field of agendaFields) html += this._renderConfigField(field, 'xotd');
       html += `</div>`;
 
       fieldsContainer.innerHTML = html;
@@ -9602,14 +9647,18 @@
 
       const textFieldsWrap = this.shadowRoot.getElementById('xotd-text-fields-wrap');
       const imageFieldsWrap = this.shadowRoot.getElementById('xotd-image-fields-wrap');
+      const agendaFieldsWrap = this.shadowRoot.getElementById('xotd-agenda-fields-wrap');
       const isImageMode = (mode) => mode === 'image_feed' || mode === 'image_album';
+      const isAgendaMode = (mode) => mode === 'agenda';
+      const isTextMode = (mode) => !isImageMode(mode) && !isAgendaMode(mode);
 
       const updateConditionalRows = () => {
         const values = {};
         for (const [name, el] of Object.entries(fieldEls)) values[name] = this._getFieldValue(fieldsByName[name], el);
-        const isImage = isImageMode(values.content_mode);
-        textFieldsWrap.style.display = isImage ? 'none' : 'block';
-        imageFieldsWrap.style.display = isImage ? 'block' : 'none';
+        const mode = values.content_mode;
+        textFieldsWrap.style.display = isTextMode(mode) ? 'block' : 'none';
+        imageFieldsWrap.style.display = isImageMode(mode) ? 'block' : 'none';
+        if (agendaFieldsWrap) agendaFieldsWrap.style.display = isAgendaMode(mode) ? 'block' : 'none';
         for (const field of allFields) {
           if (!field.show_if) continue;
           const row = this.shadowRoot.getElementById(`xotd-row-${field.name}`);
@@ -9684,6 +9733,13 @@
             fb.style.display = 'block';
             return;
           }
+        } else if (isAgendaMode(contentMode)) {
+          for (const field of agendaFields) {
+            const visible = !field.show_if || values[field.show_if.field] === field.show_if.equals;
+            if (!visible) continue;
+            config[field.name] = values[field.name];
+          }
+          config.weather_enabled = true;
         } else {
           for (const field of catalogSchema) {
             const visible = !field.show_if || values[field.show_if.field] === field.show_if.equals;

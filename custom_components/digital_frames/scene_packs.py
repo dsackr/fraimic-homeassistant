@@ -237,7 +237,14 @@ class ScenePackManager:
         pack = await self.async_get_pack(pack_id)
 
         if pack.get("type") == "widget":
-            return await self._async_install_widget(pack_id, pack, config_data)
+            # Content Platform Phase 5: widgets retired. Daily Agenda is a
+            # Live skill (content_mode=agenda); do not re-introduce frame-IP
+            # subprocess installs.
+            raise ScenePackError(
+                f"'{pack.get('name', pack_id)}' is no longer installed from "
+                "Gallery. Open the Live tab and use Daily Agenda (or create "
+                "an agenda preset), then schedule it like other live content."
+            )
 
         if pack_id in self._installed:
             raise ScenePackError(
@@ -350,8 +357,10 @@ class ScenePackManager:
         if installed is None:
             raise ScenePackError(f"Pack '{pack_id}' is not installed")
         if installed.get("type") == "widget":
-            await self.async_run_widget(pack_id)
-            return {"success": True, "pack_id": pack_id, "type": "widget"}
+            raise ScenePackError(
+                f"Pack '{pack_id}' is a legacy widget — remove it and use "
+                "Live → Daily Agenda instead"
+            )
         if pack_id in self._installing:
             raise ScenePackError(f"Pack '{pack_id}' is already being installed")
 

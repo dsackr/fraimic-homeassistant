@@ -127,6 +127,14 @@ XOTD_RENDERER_PINNED_BASE = (
 )
 XOTD_RENDERER_SCRIPT_PATH = "addons/xotd/xotd_renderer.py"
 
+# Daily Agenda Live skill renderer (Content Platform Phase 4). Same pin
+# policy as xOTD: bump only when the CLI contract changes.
+AGENDA_RENDERER_PINNED_BASE = (
+    "https://raw.githubusercontent.com/dsackr/frame-addons/"
+    "779df8acbec36385c277df346e48ecf025ad5fb3"
+)
+AGENDA_RENDERER_SCRIPT_PATH = "addons/daily_agenda/agenda_renderer.py"
+
 # Orientation config options.
 #
 # CONF_ORIENTATION is a render-time preference stored in entry.options (the

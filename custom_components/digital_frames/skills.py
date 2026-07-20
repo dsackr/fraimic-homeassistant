@@ -58,6 +58,8 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     ADDONS_DIRNAME,
+    AGENDA_RENDERER_PINNED_BASE,
+    AGENDA_RENDERER_SCRIPT_PATH,
     DOMAIN,
     SIGNAL_SKILLS_UPDATED,
     XOTD_RENDERER_PINNED_BASE,
@@ -83,12 +85,14 @@ _RENDER_TIMEOUT = 45  # seconds -- one hung subprocess fails just its own mappin
 
 _TEXT_CONTENT_MODES = ("joke", "quote", "scripture", "word")
 _IMAGE_SUB_MODES = ("image_feed", "image_album")
-_CONTENT_MODES = _TEXT_CONTENT_MODES + _IMAGE_SUB_MODES
+_AGENDA_MODE = "agenda"
+_CONTENT_MODES = _TEXT_CONTENT_MODES + _IMAGE_SUB_MODES + (_AGENDA_MODE,)
 _IMAGE_FEED_PROVIDERS = ("nasa_apod", "wikimedia_potd", "bing_wallpaper")
 _IMAGE_OTD_ALBUM = "Image of the Day"
 
 _SCRIPT_CACHE_TTL = 3600  # seconds -- the renderer script changes far less often than the pack catalog
 _CONTENT_CACHE_TTL = 1800  # seconds -- a fan-out to N frames within this window reuses one fetch
+_AGENDA_RENDER_TIMEOUT = 90  # calendar + weather + pillow pack can exceed text-mode budget
 
 # Seeded once, on first load, before any XotdInstance migration runs -- so a
 # migrated instance's name never collides silently with one of these (see
@@ -117,6 +121,17 @@ _BUILTIN_SKILLS: tuple[dict[str, Any], ...] = (
         "name": "Scripture of the Day",
         "content_mode": "scripture",
         "config": {"bible_translation": "niv", "scripture_source": "daily_api"},
+    },
+    {
+        "skill_id": "daily_agenda",
+        "name": "Daily Agenda",
+        "content_mode": _AGENDA_MODE,
+        "config": {
+            "calendar_source": "ha",
+            "ha_calendar_entities": "",
+            "temp_unit": "fahrenheit",
+            "weather_enabled": True,
+        },
     },
 )
 
@@ -194,6 +209,8 @@ class SkillManager:
         self._skills: dict[str, Skill] = {}
         self._script_cache: bytes | None = None
         self._script_cache_time: float = 0.0
+        self._agenda_script_cache: bytes | None = None
+        self._agenda_script_cache_time: float = 0.0
         # (skill_id, local_date) -> (fields, fetched_at); see
         # _async_fetch_content_fields.
         self._content_cache: dict[tuple[str, str], tuple[dict[str, Any], float]] = {}
@@ -208,16 +225,29 @@ class SkillManager:
                 continue
             self._skills[skill.skill_id] = skill
 
+        # Fresh install: seed every built-in. Upgrades that already have
+        # skills only gain *new* built-in ids (e.g. daily_agenda in Phase 4)
+        # so a user-deleted Joke of the Day is not resurrected on restart.
+        seeded = False
         if not self._skills:
-            for builtin in _BUILTIN_SKILLS:
-                skill = Skill(
-                    skill_id=builtin["skill_id"],
-                    name=builtin["name"],
-                    content_mode=builtin["content_mode"],
-                    config=dict(builtin["config"]),
-                    created_at=time.time(),
-                )
-                self._skills[skill.skill_id] = skill
+            to_seed = list(_BUILTIN_SKILLS)
+        else:
+            to_seed = [
+                b for b in _BUILTIN_SKILLS
+                if b["skill_id"] == "daily_agenda"
+                and b["skill_id"] not in self._skills
+            ]
+        for builtin in to_seed:
+            skill = Skill(
+                skill_id=builtin["skill_id"],
+                name=builtin["name"],
+                content_mode=builtin["content_mode"],
+                config=dict(builtin["config"]),
+                created_at=time.time(),
+            )
+            self._skills[skill.skill_id] = skill
+            seeded = True
+        if seeded:
             await self._async_persist()
 
     async def _async_persist(self) -> None:
@@ -322,6 +352,19 @@ class SkillManager:
     # Rendering
     # ------------------------------------------------------------------
 
+    async def _async_fetch_pinned_script(
+        self, pinned_base: str, script_path: str
+    ) -> bytes:
+        script_url = f"{pinned_base}/{script_path}"
+        session = async_get_clientsession(self.hass)
+        try:
+            async with session.get(script_url, timeout=_DOWNLOAD_TIMEOUT) as resp:
+                if resp.status != 200:
+                    raise SkillError(f"HTTP {resp.status} fetching renderer script")
+                return await resp.read()
+        except aiohttp.ClientError as err:
+            raise SkillError(f"Failed to fetch renderer script: {err}") from err
+
     async def _async_script_bytes(self) -> bytes:
         """Fetch the xOTD renderer script from its pinned commit (see
         XOTD_RENDERER_PINNED_BASE) -- NOT from the scene-pack catalog's own
@@ -335,18 +378,25 @@ class SkillManager:
         ):
             return self._script_cache
 
-        script_url = f"{XOTD_RENDERER_PINNED_BASE}/{XOTD_RENDERER_SCRIPT_PATH}"
-        session = async_get_clientsession(self.hass)
-        try:
-            async with session.get(script_url, timeout=_DOWNLOAD_TIMEOUT) as resp:
-                if resp.status != 200:
-                    raise SkillError(f"HTTP {resp.status} fetching renderer script")
-                script_content = await resp.read()
-        except aiohttp.ClientError as err:
-            raise SkillError(f"Failed to fetch renderer script: {err}") from err
-
+        script_content = await self._async_fetch_pinned_script(
+            XOTD_RENDERER_PINNED_BASE, XOTD_RENDERER_SCRIPT_PATH
+        )
         self._script_cache = script_content
         self._script_cache_time = now
+        return script_content
+
+    async def _async_agenda_script_bytes(self) -> bytes:
+        now = time.time()
+        if (
+            self._agenda_script_cache is not None
+            and now - self._agenda_script_cache_time < _SCRIPT_CACHE_TTL
+        ):
+            return self._agenda_script_cache
+        script_content = await self._async_fetch_pinned_script(
+            AGENDA_RENDERER_PINNED_BASE, AGENDA_RENDERER_SCRIPT_PATH
+        )
+        self._agenda_script_cache = script_content
+        self._agenda_script_cache_time = now
         return script_content
 
     async def _async_fetch_content_fields(self, skill: Skill) -> dict[str, Any]:
@@ -473,6 +523,198 @@ class SkillManager:
         finally:
             await self.hass.async_add_executor_job(shutil.rmtree, run_dir, True)
 
+    async def _async_prefetch_ha_calendar_events(
+        self, skill: Skill
+    ) -> list[dict[str, Any]]:
+        """Same shape as calendar.get_events so agenda_renderer can parse it."""
+        cfg = skill.config or {}
+        raw = cfg.get("ha_calendar_entities") or cfg.get("ha_calendar_entity") or ""
+        if isinstance(raw, str):
+            entity_ids = [e.strip() for e in raw.split(",") if e.strip()]
+        elif isinstance(raw, list):
+            entity_ids = [str(e).strip() for e in raw if str(e).strip()]
+        else:
+            entity_ids = []
+        if not entity_ids:
+            entity_ids = list(self.hass.states.async_entity_ids("calendar")[:1])
+        if not entity_ids:
+            return []
+
+        tz_name = self.hass.config.time_zone or "UTC"
+        now = dt_util.now()
+        start_dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_dt = now.replace(hour=23, minute=59, second=59, microsecond=0)
+        try:
+            response = await self.hass.services.async_call(
+                "calendar",
+                "get_events",
+                {
+                    "entity_id": entity_ids,
+                    "start_date_time": start_dt.isoformat(),
+                    "end_date_time": end_dt.isoformat(),
+                },
+                blocking=True,
+                return_response=True,
+            )
+        except Exception as err:  # noqa: BLE001
+            raise SkillError(f"Failed to fetch calendar events: {err}") from err
+
+        events: list[dict[str, Any]] = []
+        if isinstance(response, dict):
+            for entity_id in entity_ids:
+                events.extend(
+                    (response.get(entity_id) or {}).get("events") or []
+                )
+        events.sort(
+            key=lambda e: (e.get("start") or {}).get("dateTime")
+            or (e.get("start") or {}).get("date")
+            or ""
+        )
+        _LOGGER.debug(
+            "Agenda skill '%s': prefetched %d events from %s (tz=%s)",
+            skill.skill_id,
+            len(events),
+            entity_ids,
+            tz_name,
+        )
+        return events
+
+    def _agenda_script_config(
+        self, skill: Skill, entry: "ConfigEntry"
+    ) -> dict[str, Any]:
+        from .helpers import render_spec_for_hass_entry  # noqa: PLC0415
+
+        spec = render_spec_for_hass_entry(self.hass, entry)
+        try:
+            layout = panel_codec_for_resolution(spec.width, spec.height).byte_layout
+        except ValueError:
+            layout = "split_half"
+
+        cfg = dict(skill.config or {})
+        source = (cfg.get("calendar_source") or "ha").strip().lower()
+        if source not in ("ha", "ical"):
+            source = "ha"
+
+        calendar: dict[str, Any] = {"source_type": source}
+        if source == "ical":
+            calendar["ical_url"] = cfg.get("calendar_url") or cfg.get("ical_url") or ""
+        else:
+            raw = cfg.get("ha_calendar_entities") or cfg.get("ha_calendar_entity") or ""
+            if isinstance(raw, list):
+                entities = [str(e).strip() for e in raw if str(e).strip()]
+            else:
+                entities = [e.strip() for e in str(raw).split(",") if e.strip()]
+            calendar["ha_calendar_entities"] = entities
+
+        weather_enabled = cfg.get("weather_enabled", True)
+        if isinstance(weather_enabled, str):
+            weather_enabled = weather_enabled.strip().lower() not in (
+                "0",
+                "false",
+                "no",
+            )
+        weather: dict[str, Any] = {
+            "enabled": bool(weather_enabled),
+            "temp_unit": cfg.get("temp_unit") or "fahrenheit",
+        }
+        if cfg.get("zip_code"):
+            weather["zip_code"] = str(cfg["zip_code"]).strip()
+        elif (
+            self.hass.config.latitude is not None
+            and self.hass.config.longitude is not None
+        ):
+            weather["latitude"] = self.hass.config.latitude
+            weather["longitude"] = self.hass.config.longitude
+
+        return {
+            "frame": {
+                "resolution": [spec.width, spec.height],
+                "layout": layout,
+            },
+            "timezone": self.hass.config.time_zone or "UTC",
+            "calendar": calendar,
+            "weather": weather,
+        }
+
+    async def _async_render_agenda(
+        self, skill: Skill, entry: "ConfigEntry"
+    ) -> tuple[bytes, bytes | None]:
+        """Run pinned agenda_renderer --render-only; return (bin, rgb_png)."""
+        script_content = await self._async_agenda_script_bytes()
+        script_config = self._agenda_script_config(skill, entry)
+
+        ha_events: list[dict[str, Any]] = []
+        if script_config.get("calendar", {}).get("source_type") == "ha":
+            ha_events = await self._async_prefetch_ha_calendar_events(skill)
+
+        run_dir = self.hass.config.path(
+            ADDONS_DIRNAME, f"skill_{skill.skill_id}", f"run_{uuid.uuid4().hex[:8]}"
+        )
+
+        def _write_inputs() -> tuple[str, str]:
+            os.makedirs(run_dir, exist_ok=True)
+            script_path = os.path.join(run_dir, "renderer.py")
+            with open(script_path, "wb") as f:
+                f.write(script_content)
+            config_path = os.path.join(run_dir, "config.json")
+            with open(config_path, "w") as f:
+                json.dump(script_config, f)
+            if ha_events is not None:
+                with open(os.path.join(run_dir, "ha_events.json"), "w") as f:
+                    json.dump(ha_events, f)
+            return script_path, config_path
+
+        try:
+            script_path, config_path = await self.hass.async_add_executor_job(
+                _write_inputs
+            )
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    sys.executable,
+                    script_path,
+                    "--render-only",
+                    "--config",
+                    config_path,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=run_dir,
+                )
+            except Exception as err:  # noqa: BLE001
+                raise SkillError(f"Failed to start agenda renderer: {err}") from err
+
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=_AGENDA_RENDER_TIMEOUT
+                )
+            except asyncio.TimeoutError as err:
+                process.kill()
+                await process.communicate()
+                raise SkillError(f"Rendering '{skill.name}' timed out") from err
+
+            if process.returncode != 0:
+                raise SkillError(
+                    f"Rendering '{skill.name}' failed: {stderr.decode().strip()}"
+                )
+            _LOGGER.debug(
+                "Agenda skill '%s' rendered: %s", skill.name, stdout.decode().strip()
+            )
+
+            bin_path = os.path.join(run_dir, "agenda.bin")
+            rgb_path = os.path.join(run_dir, "agenda_preview.png")
+
+            def _read_outputs() -> tuple[bytes, bytes | None]:
+                with open(bin_path, "rb") as f:
+                    bin_bytes = f.read()
+                rgb_png: bytes | None = None
+                if os.path.isfile(rgb_path):
+                    with open(rgb_path, "rb") as f:
+                        rgb_png = f.read()
+                return bin_bytes, rgb_png
+
+            return await self.hass.async_add_executor_job(_read_outputs)
+        finally:
+            await self.hass.async_add_executor_job(shutil.rmtree, run_dir, True)
+
     async def _async_fetch_image_feed(self, skill: Skill) -> str:
         provider = skill.config.get("feed_provider")
         session = async_get_clientsession(self.hass)
@@ -574,8 +816,10 @@ class SkillManager:
         if skill.content_mode == "image_album":
             image_id = await self._async_pick_image_album(skill)
             return {"kind": "image_id", "image_id": image_id}
-
-        bin_bytes, rgb_png = await self._async_render_text(skill, entry)
+        if skill.content_mode == _AGENDA_MODE:
+            bin_bytes, rgb_png = await self._async_render_agenda(skill, entry)
+        else:
+            bin_bytes, rgb_png = await self._async_render_text(skill, entry)
 
         # Re-encode for the target panel codec: Spectra .bin as-is, or JPEG
         # from full RGB xotd_preview.png for Meural (not Spectra-unpack).

@@ -1,6 +1,7 @@
 # Content platform workover (Gallery + Live Content)
 
-**Status:** in progress — Phases 0–3 done (see [CONTENT_PLATFORM_PROGRESS.md](CONTENT_PLATFORM_PROGRESS.md))  
+**Status:** Phases 0–5 done (see [CONTENT_PLATFORM_PROGRESS.md](CONTENT_PLATFORM_PROGRESS.md)); Phase 6+ optional  
+
 
 **Repos:** [ha-digital-frames](https://github.com/dsackr/ha-digital-frames) + content catalog [frame-addons](https://github.com/dsackr/frame-addons)  
 **Related:** KPF 17 (art packs), KPF 18 (widgets), KPF 20 (schedules), KPF 28 (skills / Daily Content); design note [FRAME_PORT.md](FRAME_PORT.md)

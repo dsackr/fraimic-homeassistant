@@ -312,25 +312,21 @@ Library-only install is supported (`create_scene=false` / panel
   already-installed guard, uninstall scene+image cleanup and untag-vs-delete,
   sync recovery by filename, orientation-aware image-to-frame assignment).
 
-## 18. Scene-pack "widgets" (agenda tool — legacy)
-A pack type that downloads a Python renderer script + JSON config,
-schedules it, and runs it as a subprocess to generate/send a rendered
-image to one target frame. **Legacy path** — Daily Agenda still uses this
-until Content Platform Phase 4 migrates it to Live generators (see
-`docs/CONTENT_PLATFORM_ROADMAP.md`). Catalog no longer lists xOTD as a
-widget (renderer is pinned for skills only).
-- **Entry points**: `scene_packs.py` (`_async_install_widget`,
-  `_schedule_widget`, `async_run_widget`); the panel's generic
-  `config_schema` engine (`digital-frames-panel.js`) drives each widget's install
-  form, including the `multiple` (checkbox-group, comma-joined entity ids)
-  and `json` field types. Gallery **Tools** section.
-- **If it silently breaks**: a widget never runs (scheduler not armed), or
-  a crashed subprocess silently does nothing forever.
-- **Test status**: Panel-tested for config forms only
-  (`addon-config-schema.spec.js`, `addon-schema-gaps.spec.js`,
-  `agenda-calendar-source.spec.js`). Backend scheduling/execution: **Gap**
-  — deliberately out of scope for manager Phase 4; will be closed by Live
-  Agenda migration (Content Platform Phase 4), not expanded widget tests.
+## 18. Scene-pack "widgets" (RETIRED — use Live Agenda)
+**Retired in Content Platform Phase 5.** Widget install from Gallery is
+rejected. Daily Agenda is a Live skill (`content_mode=agenda`) that renders
+via pinned `agenda_renderer.py --render-only` and sends through FramePort
+(see **KPF 28**). One-time migration
+`_async_migrate_agenda_widget` converts installed `daily_agenda` widgets
+into the built-in Live skill + schedule.
+- **Entry points (legacy remnants)**: `scene_packs.py` still has uninstall
+  paths for leftover widget records; install/sync of `type=widget` raises
+  `ScenePackError` pointing users to Live.
+- **If it silently breaks**: upgraded users keep a silent dual Agenda
+  (widget + skill) or lose their morning agenda after upgrade.
+- **Test status**: **Backend-tested** —
+  `tests/python/setup/test_agenda_migration.py` (widget→skill migration,
+  widget install rejected). Panel widget-form specs remain historical.
 
 ## 19. Walls: virtual multi-frame layout (panel-local state)
 User arranges a subset of frames on a free-form canvas mirroring how
@@ -487,20 +483,22 @@ recurring schedule per selected frame (does not clone the skill).
 Text modes render through the pinned remote `xotd_renderer.py` subprocess
 at the target frame's composition size. The script writes Spectra
 `xotd.bin` **and** full RGB `xotd_preview.png` (before pack).
-`text_skill_payload_for_codec` then picks the wire format: Spectra frames
-get the `.bin`; Meural/`jpeg_q90` gets JPEG from the **RGB PNG** (not
-Spectra-unpack, so anti-aliased text is preserved). Image modes resolve to
-a library image_id (feeds upload the fetched photo into the library first)
-and use the normal library codec path. Previews prefer the RGB PNG so
-last-image thumbnails stay sharp.
+**Agenda mode (Phase 4):** pinned `agenda_renderer.py --render-only` writes
+`agenda.bin` + `agenda_preview.png`; HA calendar events are prefetched
+into `ha_events.json` before the subprocess. Both paths use
+`text_skill_payload_for_codec` for Spectra vs Meural JPEG.
+Image modes resolve to a library image_id (feeds upload the fetched photo
+into the library first) and use the normal library codec path.
 - **Entry points**: `skills.py` (`SkillManager.async_save_skill` /
-  `async_render_for_entry` / `_async_render_text` /
+  `async_render_for_entry` / `_async_render_text` / `_async_render_agenda` /
   `_async_fetch_image_feed` / `_async_pick_image_album`),
+  `const.py` (`AGENDA_RENDERER_PINNED_BASE`),
   `panel_codec.py` (`text_skill_payload_for_codec`),
   `skills_http.py` (CRUD + `DigitalFramesSkillSendView` +
   `DigitalFramesLiveQuickSetupView`), fan-out via
   `scenes.py` (`async_send_mappings`), panel Live tab
-  (`_quickScheduleLive`).
+  (`_quickScheduleLive`, agenda mode tile + fields),
+  `__init__.py` (`_async_migrate_agenda_widget`).
 - **If it silently breaks**: daily content stops arriving (schedules
   no-op), a skill renders blank/stale content, fan-out to several frames
   shows different content per frame, Meural receives Spectra `.bin` on

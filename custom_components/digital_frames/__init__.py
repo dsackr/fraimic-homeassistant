@@ -327,6 +327,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     # key directly (rather than importing the retired xotd.py) and clears
     # it once done, so this is a no-op on every subsequent restart.
     await _async_migrate_xotd_instances(hass, skill_manager, schedule_manager)
+    # Content Platform Phase 4: Daily Agenda widget → Live skill + schedule.
+    await _async_migrate_agenda_widget(
+        hass, skill_manager, schedule_manager, scene_pack_manager
+    )
 
     # Auto-create the device-less "scenes hub" entry (hosts scene.* entities
     # for voice control) if it doesn't exist yet -- self-heals on upgrade,
@@ -800,6 +804,97 @@ async def _async_migrate_xotd_instances(hass: HomeAssistant, skill_manager, sche
 
     await store.async_save({"enabled": False, "instances": []})
     _LOGGER.info("Migrated %d xOTD instance(s) to skills + schedules", len(instances))
+
+
+async def _async_migrate_agenda_widget(
+    hass: HomeAssistant,
+    skill_manager,
+    schedule_manager,
+    scene_pack_manager,
+) -> None:
+    """One-time: installed daily_agenda widget → Live skill + schedule.
+
+    Content Platform Phase 4. After this, Phase 5 removes the widget runtime.
+    """
+    from .schedules import ScheduleError  # noqa: PLC0415
+    from .skills import SkillError  # noqa: PLC0415
+
+    installed = getattr(scene_pack_manager, "_installed", {}) or {}
+    record = installed.get("daily_agenda")
+    if not record or record.get("type") != "widget":
+        return
+
+    frame_id = record.get("frame_id")
+    widget_cfg = dict(record.get("config") or {})
+    old_schedule = record.get("schedule") or {"type": "hourly"}
+
+    entities = (
+        widget_cfg.get("ha_calendar_entities")
+        or widget_cfg.get("ha_calendar_entity")
+        or ""
+    )
+    if isinstance(entities, list):
+        entities = ",".join(str(e) for e in entities if e)
+    cal_url = widget_cfg.get("calendar_url") or ""
+    source = (widget_cfg.get("calendar_source") or "").strip().lower()
+    if source not in ("ha", "ical"):
+        source = "ical" if cal_url and not entities else "ha"
+    skill_config: dict = {
+        "calendar_source": source,
+        "ha_calendar_entities": entities,
+        "calendar_url": cal_url,
+        "zip_code": widget_cfg.get("zip_code") or "",
+        "temp_unit": widget_cfg.get("temp_unit") or "fahrenheit",
+        "weather_enabled": True,
+    }
+
+    # Prefer the built-in daily_agenda skill id; update its config.
+    try:
+        skill = await skill_manager.async_save_skill(
+            "Daily Agenda",
+            "agenda",
+            skill_config,
+            skill_id="daily_agenda",
+        )
+    except SkillError as err:
+        _LOGGER.warning("Agenda widget migration: could not save skill: %s", err)
+        return
+
+    skill_id = skill["skill_id"] if isinstance(skill, dict) else skill.skill_id
+
+    if frame_id:
+        if old_schedule.get("type") == "daily":
+            time_str = str(old_schedule.get("time", "07:00:00"))[:5]
+            trigger = {"type": "recurring", "freq": "daily", "time": time_str}
+        else:
+            trigger = {"type": "recurring", "freq": "hourly"}
+        action = {"type": "skill", "entry_id": frame_id, "skill_id": skill_id}
+        try:
+            await schedule_manager.async_create_schedule(
+                "Daily Agenda (migrated)", action, trigger, enabled=True
+            )
+        except ScheduleError as err:
+            _LOGGER.warning(
+                "Agenda widget migration: skill saved but schedule failed: %s", err
+            )
+
+    try:
+        await scene_pack_manager.async_uninstall_pack("daily_agenda")
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning(
+            "Agenda widget migration: uninstall leftover widget failed: %s", err
+        )
+        # Force-drop tracking so we don't re-migrate forever.
+        if "daily_agenda" in scene_pack_manager._installed:
+            scene_pack_manager._cancel_scheduler("daily_agenda")
+            del scene_pack_manager._installed["daily_agenda"]
+            await scene_pack_manager._async_persist()
+
+    _LOGGER.info(
+        "Migrated Daily Agenda widget to Live skill '%s' (frame=%s)",
+        skill_id,
+        frame_id,
+    )
 
 
 def _register_services(hass: HomeAssistant) -> None:
