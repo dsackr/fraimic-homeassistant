@@ -1,0 +1,68 @@
+name: Bug report
+description: Report incorrect colors, display artifacts, API errors, or other unexpected behavior
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill out as much of this as you can — display and API issues are hard to diagnose without the frame model and firmware version.
+
+  - type: dropdown
+    id: frame-model
+    attributes:
+      label: Frame model
+      options:
+        - Fraimic Canvas 13.3"
+        - Fraimic Canvas 31.5"
+        - 13.1" Community Clone
+        - 7.3" Community Panel (ESP32-C6)
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: firmware-version
+    attributes:
+      label: Frame firmware version
+      description: Visible on the frame's device page in Home Assistant
+    validations:
+      required: true
+
+  - type: input
+    id: integration-version
+    attributes:
+      label: Digital Frames integration version
+      description: Visible in Settings → Integrations → Fraimic → device page, or HACS
+    validations:
+      required: true
+
+  - type: input
+    id: ha-version
+    attributes:
+      label: Home Assistant version
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Include what you expected to happen instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Home Assistant logs (Settings → System → Logs), and a photo of the frame if this is a display/color issue
+      render: text
+    validations:
+      required: false
