@@ -82,3 +82,4 @@ Notes on reading it:
 | 2026-07-20 | b97e382 | panel-playwright | success | 132 passed | — | CI |
 | 2026-07-20 | 63948d0 | backend-pytest | success | 371 passed in 75.97s (0:01:15) | 64% | CI |
 | 2026-07-21 | 4a58d08 | panel-playwright | success | 140 passed | — | CI |
+| 2026-07-21 | 4a58d08 | backend-pytest | success | 403 passed in 78.05s (0:01:18) | 64% | CI |
