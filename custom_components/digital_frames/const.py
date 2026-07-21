@@ -128,7 +128,7 @@ GALLERY_CATALOG_SCHEMA_VERSION = 1
 # frame-addons change adds a capability skills.py needs to start relying on.
 XOTD_RENDERER_PINNED_BASE = (
     "https://raw.githubusercontent.com/dsackr/frame-addons/"
-    "a9fa048b7aab3b6661bd1cf37bd94949b0e23f77"
+    "49f0af0700c0bc6d8d271ee7d7b9023fae0eb84c"
 )
 XOTD_RENDERER_SCRIPT_PATH = "addons/xotd/xotd_renderer.py"
 
