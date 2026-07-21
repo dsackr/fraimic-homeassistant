@@ -16,6 +16,7 @@ from custom_components.digital_frames.image_converter import (
     _quantize_to_spectra6,
     convert_image_bytes,
     convert_image_bytes_cropped,
+    convert_image_bytes_cropped_with_preview,
     default_cover_crop_box,
 )
 
@@ -112,6 +113,21 @@ def test_manual_crop_box_respected(sample_image_bytes):
     # crop lands is exercised on real hardware per CONTRIBUTING.md).
     out = convert_image_bytes_cropped(src, width, height, (0.25, 0.25, 0.75, 0.6))
     assert len(out) == (width * height) // 2
+
+
+def test_cropped_with_preview_matches_bytes_only_variant(sample_image_bytes):
+    """The preview-returning cropped variant (used by the wall-banner
+    message crop path) must pack identical bytes to the plain cropped
+    converter -- the preview is an added output, not a different pipeline."""
+    width, height = OFFICIAL_13_3
+    src = sample_image_bytes(2000, 2000)
+    crop_box = (0.25, 0.25, 0.75, 0.6)
+
+    bytes_only = convert_image_bytes_cropped(src, width, height, crop_box)
+    bin_bytes, preview = convert_image_bytes_cropped_with_preview(src, width, height, crop_box)
+
+    assert bin_bytes == bytes_only
+    assert preview[:8] == b"\x89PNG\r\n\x1a\n"
 
 
 def test_default_cover_crop_box_matches_target_aspect_ratio():

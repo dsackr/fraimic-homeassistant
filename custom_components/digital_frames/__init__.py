@@ -321,6 +321,14 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.http.register_view(DigitalFramesSkillSendView())
     hass.http.register_view(DigitalFramesLiveQuickSetupView())
 
+    # Compose & send a styled text message (frame / scene / wall banner) --
+    # depends on skills (message rendering), scenes (the fan-out executor),
+    # walls (banner geometry), and library (optional save-to-library), all
+    # already set up above.
+    from .messages_http import DigitalFramesMessageSendView  # noqa: PLC0415
+
+    hass.http.register_view(DigitalFramesMessageSendView())
+
     # One-time migration: xOTD's old per-instance (content_mode, frame,
     # schedule) model is retired in favour of frame-agnostic skills
     # scheduled through the general ScheduleManager. Reads the old storage

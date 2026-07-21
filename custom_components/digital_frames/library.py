@@ -1962,6 +1962,7 @@ class LibraryManager:
         spec: RenderSpec,
         pack_method: str | None = None,
         codec_id: str | None = None,
+        crop_box_override: tuple[float, ...] | list[float] | None = None,
     ) -> bytes:
         """Return a cached .bin for this render spec, generating + caching it
         on the fly if this render hasn't been seen for this image before
@@ -1982,7 +1983,19 @@ class LibraryManager:
         requested method definitely runs) and no write (so a test send never
         pollutes the cache) -- and the conversion packs with that method.
         None (the normal path) converts with the default packer and uses the
-        cache as usual."""
+        cache as usual.
+
+        crop_box_override, when given, wins outright over the image's saved
+        manual crop (record.crops) and -- like pack_method above -- bypasses
+        the .bin cache entirely, both read and write. This is required, not
+        an optimization: record.crops is keyed only by "WxH", one crop per
+        resolution, so it can't represent two same-resolution frames (e.g.
+        a wall-banner message split across two identical frames) wanting
+        different crops of the same saved image. Caching keyed on
+        image+resolution+codec alone would let the second frame's send
+        silently read back the first frame's crop. Used by the scene
+        mapping type {"type": "image_crop", ...} (see scenes.py); never set
+        by the ordinary manual-crop editor path."""
         width, height = spec.width, spec.height
         if not codec_id:
             from .frame_types import codec_id_for_resolution  # noqa: PLC0415
@@ -1995,7 +2008,7 @@ class LibraryManager:
                     f"(e.g. Meural JPEG frames)"
                 ) from err
 
-        if pack_method is None:
+        if pack_method is None and crop_box_override is None:
             cached = await self._backend.async_get_bin(
                 image_id, width, height, spec.variant, codec_id
             )
@@ -2003,11 +2016,14 @@ class LibraryManager:
                 return cached
 
         raw_bytes, _content_type = await self._backend.async_get_original(image_id)
-        record = await self._find_image(image_id)
-        crop_box = (record.crops if record else {}).get(f"{width}x{height}")
-        if not crop_box and record and record.crops:
-            fallback_key = "portrait" if width < height else "landscape"
-            crop_box = record.crops.get(fallback_key)
+        if crop_box_override is not None:
+            crop_box = tuple(crop_box_override)
+        else:
+            record = await self._find_image(image_id)
+            crop_box = (record.crops if record else {}).get(f"{width}x{height}")
+            if not crop_box and record and record.crops:
+                fallback_key = "portrait" if width < height else "landscape"
+                crop_box = record.crops.get(fallback_key)
         effective_method = pack_method or "fast"
 
         # PanelCodec seam: resolution selects split-half vs sequential (7.3")
@@ -2026,7 +2042,7 @@ class LibraryManager:
             tuple(crop_box) if crop_box else None,
             codec_id,
         )
-        if pack_method is None:
+        if pack_method is None and crop_box_override is None:
             await self._backend.async_save_bin(
                 image_id, width, height, bin_bytes, spec.variant, codec_id
             )

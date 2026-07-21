@@ -719,6 +719,99 @@ old bookmarks keep working, and logs a warning if leftover
   (domain, product name, stable `LIBRARY_DIRNAME`). Full entry migration
   is intentionally out of scope.
 
+## 35. Compose & send a styled text message (frame / scene / wall banner)
+User types a message, picks a visual style (plain / 1950s diner ad / movie
+poster), and sends it to a single frame, an existing scene, or a wall —
+composed from the Live tab's "Compose Message" button, not a persisted
+Skill: unlike Word/Joke/Quote/Scripture of the Day, a message never
+appears in the Live tab's own card grid, has no name, and can't be
+scheduled — it's an ephemeral, inline-config send, exactly like a
+`fraimic.send_skill` one-off mapping. Rendering reuses the pinned
+`xotd_renderer.py` subprocess (see KPF 28) with a new `"message"`
+content_mode and three hardcoded layout functions, one per style.
+
+**Wall target — one banner, cropped per frame:** v1 is scoped to a single
+row or column of frames that share the exact same effective resolution
+(`wall_geometry.compute_wall_canvas_geometry`) — text is seam-sensitive in
+a way photos aren't, so an uneven/2D wall layout is rejected outright
+rather than risking a headline silently bisecting a bezel gap. The shared
+canvas renders **once**, de-duplicated across every frame's concurrent
+`asyncio.gather` resolution via an in-flight `asyncio.Task` map (a plain
+check-then-set cache dict would race and re-render once per frame — see
+`SkillManager._wall_canvas_renders`), then each frame gets an exact `i/N`
+fractional crop of it via `panel_codec.encode_for_panel`'s existing
+`crop_box` param — no new compose/crop logic needed there.
+
+**Save to library** (frame/wall targets only — a scene target has no
+single canonical image, since each member frame independently re-renders
+the text at its own aspect ratio) persists the composed image as a normal
+library photo, tagged into a "Messages" album. Re-sending a saved wall
+banner from a persisted scene uses a new `{"type": "image_crop", "image_id",
+"crop_box"}` mapping rather than the library's per-resolution manual-crop
+mechanism (`record.crops["WxH"]`) — that mechanism can only hold one crop
+per resolution, which would silently collide when two frames of the
+*same* resolution share one saved banner but need different slices of it.
+`library.async_get_bin_for_send`'s new `crop_box_override` param bypasses
+both the manual-crop lookup and the `.bin` cache (read and write) so this
+never happens.
+- **Entry points**: `frame-addons/addons/xotd/xotd_renderer.py`
+  (`render_message_image`, `_layout_plain` / `_layout_ad_50s` /
+  `_layout_movie_poster`), `wall_geometry.py`
+  (`compute_wall_canvas_geometry`), `skills.py`
+  (`_async_run_renderer_script`, `_async_render_message`,
+  `async_render_message_for_entry`, `async_render_message_wall_crop_for_entry`,
+  `async_render_message_canvas`, `_wall_canvas_renders`), `scenes.py`
+  (`_prepare_one`'s `message` / `message_wall_crop` / `image_crop`
+  branches, `_validate_mapping_value`'s `image_crop` acceptance),
+  `panel_codec.py` (`encode_for_panel_with_preview`'s `crop_box` param),
+  `image_converter.py` (`convert_image_bytes_cropped_with_preview`),
+  `library.py` (`async_get_bin_for_send`'s `crop_box_override`),
+  `messages_http.py` (`DigitalFramesMessageSendView`), `__init__.py`
+  (view registration), panel `_openMessageComposeModal`.
+- **If it silently breaks**: a wall banner's frames show non-adjacent or
+  misaligned slices; a follow-device frame's crop drifts after it
+  physically flips orientation since the wall was last laid out (guarded
+  by resolving each member frame's size from the live
+  `render_spec_for_hass_entry`, never the wall canvas's static preview-scale
+  `tile_dims`); two frames sharing one saved banner image at the same
+  resolution collide and one silently shows the other's crop (the exact
+  cache-key collision `crop_box_override` exists to prevent); a wall send
+  with N frames re-renders the shared canvas N times instead of once,
+  defeating the entire "render once, crop many" premise (the in-flight
+  `asyncio.Task` de-dup exists to prevent this under `asyncio.gather`
+  concurrency); or "save to library" silently picks an arbitrary
+  resolution for a scene target instead of being rejected outright.
+- **Test status**: **Backend-tested** —
+  `tests/python/managers/test_wall_geometry.py` (single-frame degenerate
+  crop, row/column detection + sort, mismatched-resolution rejection,
+  non-colinear rejection, missing placement/entry rejection, live
+  follow-device orientation wins over a stale stored option),
+  `tests/python/managers/test_messages.py` (message render returns bin +
+  preview, script config carries text/style, nonzero-exit raises,
+  canvas-only render for save-to-library, wall-crop concurrent calls
+  collapse into exactly one subprocess invocation, distinct crop per
+  frame, unknown wall / invalid geometry raise),
+  `tests/python/managers/test_scenes.py` (`message` /
+  `message_wall_crop` / `image_crop` mapping dispatch and partial-failure
+  isolation, `image_crop` scene-save validation, two frames sharing one
+  image with different `crop_box_override`s never read back each other's
+  cached bytes),
+  `tests/python/unit/test_panel_codec.py`
+  (`encode_for_panel_with_preview`'s `crop_box` byte-exact against
+  `encode_for_panel` for both a Spectra and a JPEG codec),
+  `tests/python/unit/test_image_converter.py`
+  (`convert_image_bytes_cropped_with_preview` byte-exact against
+  `convert_image_bytes_cropped`),
+  `tests/python/library/test_library_crop_albums_backfill.py`
+  (`crop_box_override` wins over a saved manual crop and bypasses the
+  `.bin` cache read and write).
+  **Panel-tested** — `tests/panel/messages.spec.js` (compose modal
+  defaults, all three styles selectable, target-type toggle switches the
+  visible picker, save-to-library disabled + hinted for a scene target,
+  frame-target and wall-target-with-save-to-library send bodies, empty
+  text rejected client-side, backend failure surfaced in the feedback
+  div).
+
 ---
 
 ## Coverage summary
@@ -734,6 +827,7 @@ old bookmarks keep working, and logs a warning if leftover
 | 5b | Library: Dropbox/Google Drive cloud backends + OAuth, discovery (KPFs 9, 10), and the `*_http.py` view layer (KPFs 14, 15, 29's views + the rest) | Planned |
 | — | Panel init-load resilience, panel element lifecycle, Lovelace card (KPFs 26, 27, 29) | Done — frontend side; KPF 29's HTTP views fold into 5b |
 | — | Media Source & AI Auto-tagging (KPFs 30, 31) | Done |
+| — | Compose & send a styled text message (KPF 35) | Done |
 
 Phase 5b (plus KPF 18's widget scheduling) is scoped here but not yet
 implemented — see [TESTING_STRATEGY.md](../TESTING_STRATEGY.md) for the

@@ -237,6 +237,53 @@ async def test_get_bin_for_send_pack_method_override_bypasses_cache(
     assert cached == normal
 
 
+async def test_get_bin_for_send_crop_box_override_wins_and_bypasses_cache(
+    library_manager, sample_image_bytes
+):
+    """crop_box_override must win outright over any saved manual crop, and
+    -- critically -- must not read or write the .bin cache at all: two
+    frames of the *same* resolution sharing one saved image (a wall-banner
+    message) but different crop_box_override values would otherwise
+    silently swap crops via a shared cache slot keyed only on
+    image_id+resolution+codec (see the docstring on async_get_bin_for_send)."""
+    # Left half red, right half blue -- a uniform-color source would pack
+    # identically regardless of which half was cropped, masking the bug
+    # this test guards against.
+    from PIL import Image
+    import io
+
+    banner = Image.new("RGB", (2000, 1000), (0, 0, 0))
+    banner.paste(Image.new("RGB", (1000, 1000), (178, 19, 24)), (0, 0))
+    banner.paste(Image.new("RGB", (1000, 1000), (33, 87, 186)), (1000, 0))
+    buf = io.BytesIO()
+    banner.save(buf, format="PNG")
+
+    record = await library_manager.async_upload("banner.png", buf.getvalue())
+    image_id = record["image_id"]
+    spec = RenderSpec(width=1200, height=1600, rotation=0, locked=False)
+
+    # A manual crop is set too, to prove the override wins over it.
+    await library_manager.async_set_crop(image_id, 1200, 1600, [0.0, 0.0, 1.0, 1.0])
+
+    left_half = await library_manager.async_get_bin_for_send(
+        image_id, spec, crop_box_override=(0.0, 0.0, 0.5, 1.0)
+    )
+    right_half = await library_manager.async_get_bin_for_send(
+        image_id, spec, crop_box_override=(0.5, 0.0, 1.0, 1.0)
+    )
+    assert left_half != right_half  # distinct crops, not one clobbering the other
+
+    from custom_components.digital_frames.frame_types import CODEC_SPECTRA6_SPLIT_HALF
+
+    cached = await library_manager._backend.async_get_bin(
+        image_id, 1200, 1600, spec.variant, CODEC_SPECTRA6_SPLIT_HALF
+    )
+    # Neither override call polluted the cache -- it stays whatever the
+    # manual-crop path last wrote (None here, since async_set_crop
+    # invalidates it and nothing else has repopulated it).
+    assert cached is None
+
+
 # ---------------------------------------------------------------------------
 # FramePort Phase 2: codec_id in .bin cache keys
 # ---------------------------------------------------------------------------

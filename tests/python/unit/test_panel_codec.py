@@ -17,6 +17,7 @@ from custom_components.digital_frames.panel_codec import (
     CODECS,
     CODEC_JPEG_Q90,
     encode_for_panel,
+    encode_for_panel_with_preview,
     panel_codec_for_entry,
     panel_codec_for_frame_type_id,
     panel_codec_for_id,
@@ -81,6 +82,53 @@ def test_encode_for_panel_uses_registered_resolution(sample_image_bytes):
 def test_encode_for_panel_rejects_unknown_resolution(sample_image_bytes):
     with pytest.raises(ValueError, match="No registered frame type"):
         encode_for_panel(sample_image_bytes(10, 10), 9999, 9999)
+
+
+def test_encode_for_panel_with_preview_spectra_crop_box_matches_encode_for_panel(
+    sample_image_bytes,
+):
+    """A wall-banner message's per-frame slice must produce identical wire
+    bytes whether requested via encode_for_panel or the _with_preview
+    variant -- the preview path must not silently diverge from what's
+    actually sent."""
+    w, h = 1200, 1600
+    source = sample_image_bytes(400, 300, color=(200, 50, 50))
+    crop_box = (0.1, 0.1, 0.6, 0.9)
+
+    wire_only = encode_for_panel(source, w, h, crop_box=crop_box)
+    wire, preview = encode_for_panel_with_preview(
+        source, w, h, codec_id=None, crop_box=crop_box
+    )
+
+    assert wire == wire_only
+    assert preview[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_encode_for_panel_with_preview_jpeg_crop_box_matches_encode_for_panel(
+    sample_image_bytes,
+):
+    w, h = 1920, 1080
+    source = sample_image_bytes(400, 300, color=(20, 150, 90))
+    crop_box = (0.0, 0.0, 0.5, 1.0)
+
+    wire_only = encode_for_panel(source, w, h, crop_box=crop_box, codec_id=CODEC_JPEG_Q90)
+    wire, preview = encode_for_panel_with_preview(
+        source, w, h, codec_id=CODEC_JPEG_Q90, crop_box=crop_box
+    )
+
+    assert wire == wire_only
+    assert wire[:2] == b"\xff\xd8"
+    assert preview[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_encode_for_panel_with_preview_no_crop_box_unchanged(sample_image_bytes):
+    """Omitting crop_box (the default) must behave exactly as it did
+    before this param existed -- no perturbation of the ordinary path."""
+    w, h = 1200, 1600
+    source = sample_image_bytes(400, 300)
+    wire, preview = encode_for_panel_with_preview(source, w, h)
+    assert len(wire) == (w * h) // 2
+    assert preview[:8] == b"\x89PNG\r\n\x1a\n"
 
 
 def test_text_skill_payload_spectra_pass_through_with_preview(sample_image_bytes):

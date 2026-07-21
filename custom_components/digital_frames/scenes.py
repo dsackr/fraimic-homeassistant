@@ -41,13 +41,38 @@ class SceneError(Exception):
 
 
 def _validate_mapping_value(entry_id: str, value: Any) -> str | dict[str, Any]:
-    """A mapping value is either a library image_id (str) or a skill
-    assignment (`{"type": "skill", "skill_id": ...}`) -- anything else is
-    rejected up front rather than stored and only failing at send time."""
+    """A mapping value is a library image_id (str), a skill assignment
+    (`{"type": "skill", "skill_id": ...}`), or a saved-message crop
+    (`{"type": "image_crop", "image_id": ..., "crop_box": [...]}` -- a
+    library image_id with its own crop rectangle, used when a wall-banner
+    message was saved to the library and then persisted into a scene; see
+    skills.py's message rendering and library.py's async_get_bin_for_send
+    crop_box_override) -- anything else is rejected up front rather than
+    stored and only failing at send time.
+
+    Ephemeral send-only mapping kinds ("message", "message_wall_crop" --
+    see SceneManager.async_send_mappings) are deliberately NOT accepted
+    here: they're never persisted into Scene.mappings, only passed
+    directly to async_send_mappings for a one-off send, exactly like
+    fraimic.send_skill's one-off mappings today.
+    """
     if isinstance(value, str):
         return value
     if isinstance(value, dict) and value.get("type") == "skill" and value.get("skill_id"):
         return {"type": "skill", "skill_id": value["skill_id"]}
+    if isinstance(value, dict) and value.get("type") == "image_crop" and value.get("image_id"):
+        crop_box = value.get("crop_box")
+        if not (isinstance(crop_box, (list, tuple)) and len(crop_box) == 4):
+            raise SceneError(f"Invalid crop_box for '{entry_id}': {crop_box!r}")
+        try:
+            crop_box = [float(v) for v in crop_box]
+        except (TypeError, ValueError) as err:
+            raise SceneError(f"Invalid crop_box for '{entry_id}': {crop_box!r}") from err
+        return {
+            "type": "image_crop",
+            "image_id": value["image_id"],
+            "crop_box": crop_box,
+        }
     raise SceneError(f"Invalid mapping value for '{entry_id}': {value!r}")
 
 
@@ -266,41 +291,95 @@ class SceneManager:
                 }
 
             image_id: str
+            crop_box_override: tuple[float, ...] | None = None
             if isinstance(value, dict):
-                if value.get("type") != "skill" or not value.get("skill_id"):
+                value_type = value.get("type")
+
+                if value_type in ("skill", "message", "message_wall_crop"):
+                    skill_manager = hass.data.get(DOMAIN, {}).get("_skills")
+                    if skill_manager is None:
+                        return {
+                            "entry_id": entry_id,
+                            "success": False,
+                            "message": "Skill manager not initialised",
+                        }
+                    try:
+                        if value_type == "skill":
+                            if not value.get("skill_id"):
+                                return {
+                                    "entry_id": entry_id,
+                                    "success": False,
+                                    "message": f"Invalid mapping: {value!r}",
+                                }
+                            render_result = await asyncio.wait_for(
+                                skill_manager.async_render_for_entry(
+                                    value["skill_id"], entry
+                                ),
+                                timeout=_SKILL_RENDER_TIMEOUT,
+                            )
+                        elif value_type == "message":
+                            if not value.get("message_text"):
+                                return {
+                                    "entry_id": entry_id,
+                                    "success": False,
+                                    "message": f"Invalid mapping: {value!r}",
+                                }
+                            render_result = await asyncio.wait_for(
+                                skill_manager.async_render_message_for_entry(
+                                    value["message_text"],
+                                    value.get("style", "plain"),
+                                    entry,
+                                ),
+                                timeout=_SKILL_RENDER_TIMEOUT,
+                            )
+                        else:  # message_wall_crop
+                            if not value.get("message_text") or not value.get("wall_id"):
+                                return {
+                                    "entry_id": entry_id,
+                                    "success": False,
+                                    "message": f"Invalid mapping: {value!r}",
+                                }
+                            render_result = await asyncio.wait_for(
+                                skill_manager.async_render_message_wall_crop_for_entry(
+                                    value["message_text"],
+                                    value.get("style", "plain"),
+                                    value["wall_id"],
+                                    entry,
+                                ),
+                                timeout=_SKILL_RENDER_TIMEOUT,
+                            )
+                    except Exception as err:  # noqa: BLE001
+                        return {"entry_id": entry_id, "success": False, "message": str(err)}
+                    if render_result["kind"] == "bin":
+                        # Freshly generated, not stored -- no image_id to
+                        # pass (and nothing to cache), same as
+                        # generate_ai_image's pre-upload bytes. The
+                        # renderer's preview PNG rides along so the frame's
+                        # last-image thumbnail survives a text-skill/
+                        # message send instead of being wiped.
+                        prepared[entry_id] = (
+                            coordinator,
+                            render_result["bytes"],
+                            None,
+                            render_result.get("preview"),
+                        )
+                        return None
+                    image_id = render_result["image_id"]
+                elif value_type == "image_crop":
+                    if not value.get("image_id") or not value.get("crop_box"):
+                        return {
+                            "entry_id": entry_id,
+                            "success": False,
+                            "message": f"Invalid mapping: {value!r}",
+                        }
+                    image_id = value["image_id"]
+                    crop_box_override = tuple(value["crop_box"])
+                else:
                     return {
                         "entry_id": entry_id,
                         "success": False,
                         "message": f"Invalid mapping: {value!r}",
                     }
-                skill_manager = hass.data.get(DOMAIN, {}).get("_skills")
-                if skill_manager is None:
-                    return {
-                        "entry_id": entry_id,
-                        "success": False,
-                        "message": "Skill manager not initialised",
-                    }
-                try:
-                    render_result = await asyncio.wait_for(
-                        skill_manager.async_render_for_entry(value["skill_id"], entry),
-                        timeout=_SKILL_RENDER_TIMEOUT,
-                    )
-                except Exception as err:  # noqa: BLE001
-                    return {"entry_id": entry_id, "success": False, "message": str(err)}
-                if render_result["kind"] == "bin":
-                    # Freshly generated, not stored -- no image_id to pass
-                    # (and nothing to cache), same as generate_ai_image's
-                    # pre-upload bytes. The renderer's preview PNG rides
-                    # along so the frame's last-image thumbnail survives a
-                    # text-skill send instead of being wiped.
-                    prepared[entry_id] = (
-                        coordinator,
-                        render_result["bytes"],
-                        None,
-                        render_result.get("preview"),
-                    )
-                    return None
-                image_id = render_result["image_id"]
             else:
                 image_id = value
 
@@ -315,6 +394,7 @@ class SceneManager:
                     image_id,
                     render_spec_for_hass_entry(hass, entry),
                     codec_id=codec_id,
+                    crop_box_override=crop_box_override,
                 )
             except Exception as err:  # noqa: BLE001
                 return {"entry_id": entry_id, "success": False, "message": str(err)}

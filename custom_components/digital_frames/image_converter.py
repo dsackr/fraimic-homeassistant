@@ -740,7 +740,8 @@ def convert_image_cropped(
     :returns: Raw bytes in Spectra 6 ``.bin`` format.
     """
     image = _open_as_rgb(image_path)
-    return _process_cropped(image, width, height, crop_box, rotation)
+    bin_bytes, _quantized = _process_cropped(image, width, height, crop_box, rotation)
+    return bin_bytes
 
 
 def convert_image_bytes_cropped(
@@ -758,7 +759,34 @@ def convert_image_bytes_cropped(
     for *pack_method*.
     """
     image = _open_as_rgb(image_data)
-    return _process_cropped(image, width, height, crop_box, rotation, pack_method)
+    bin_bytes, _quantized = _process_cropped(
+        image, width, height, crop_box, rotation, pack_method
+    )
+    return bin_bytes
+
+
+def convert_image_bytes_cropped_with_preview(
+    image_data: bytes,
+    width: int,
+    height: int,
+    crop_box: "Tuple[float, float, float, float]",
+    rotation: int = 0,
+    pack_method: str = "fast",
+) -> "Tuple[bytes, bytes]":
+    """
+    Like :func:`convert_image_bytes_cropped`, but also returns a small PNG
+    preview of the final quantized image -- see
+    :func:`convert_image_bytes_with_preview` for why this exists (callers
+    with no Library image_id to hand, e.g. a wall-banner message crop, still
+    need a UI-viewable thumbnail of what actually went to the frame).
+
+    :returns: ``(bin_bytes, preview_png_bytes)``.
+    """
+    image = _open_as_rgb(image_data)
+    bin_bytes, quantized = _process_cropped(
+        image, width, height, crop_box, rotation, pack_method
+    )
+    return bin_bytes, _encode_preview_png(quantized)
 
 
 def _process_cropped(
@@ -768,7 +796,7 @@ def _process_cropped(
     crop_box: "Tuple[float, float, float, float]",
     rotation: int = 0,
     pack_method: str = "fast",
-) -> bytes:
+) -> "Tuple[bytes, Image.Image]":
     img_w, img_h = image.width, image.height
     x0, y0, x1, y1 = crop_box
     w = x1 - x0
@@ -800,6 +828,7 @@ def _process_cropped(
     if rotation:
         image = image.rotate(rotation, expand=True)
     if pack_method == "fast":
-        return _pack_p_image_fast(_quantize_to_spectra6_p(image))
+        p_image = _quantize_to_spectra6_p(image)
+        return _pack_p_image_fast(p_image), p_image.convert("RGB")
     image = _quantize_to_spectra6(image)
-    return _pack_to_spectra6_bin(image)
+    return _pack_to_spectra6_bin(image), image

@@ -108,9 +108,17 @@ class _FakeLibrary:
     (simulating a deleted/missing image) -- avoids pulling in the real
     LibraryManager just to test the fan-out/aggregation logic here."""
 
-    async def async_get_bin_for_send(self, image_id, spec, pack_method=None, codec_id=None):
+    def __init__(self):
+        self.crop_box_override_calls = []
+
+    async def async_get_bin_for_send(
+        self, image_id, spec, pack_method=None, codec_id=None, crop_box_override=None
+    ):
         if image_id == "missing-image":
             raise FileNotFoundError(f"no such image: {image_id}")
+        if crop_box_override is not None:
+            self.crop_box_override_calls.append((image_id, tuple(crop_box_override)))
+            return f"bin-for-{image_id}-crop-{tuple(crop_box_override)}".encode()
         return f"bin-for-{image_id}".encode()
 
 
@@ -226,6 +234,8 @@ async def test_save_scene_rejects_malformed_mapping_value(scene_manager):
 class _FakeSkillManager:
     def __init__(self):
         self.rendered_for = []
+        self.rendered_messages = []
+        self.rendered_wall_crops = []
 
     async def async_render_for_entry(self, skill_id, entry):
         self.rendered_for.append((skill_id, entry.entry_id))
@@ -237,6 +247,28 @@ class _FakeSkillManager:
             "kind": "bin",
             "bytes": f"bin-for-{skill_id}".encode(),
             "preview": f"preview-for-{skill_id}".encode(),
+        }
+
+    async def async_render_message_for_entry(self, message_text, style, entry):
+        self.rendered_messages.append((message_text, style, entry.entry_id))
+        if message_text == "boom":
+            raise Exception("message render blew up")
+        return {
+            "kind": "bin",
+            "bytes": f"bin-for-{message_text}-{style}".encode(),
+            "preview": f"preview-for-{message_text}".encode(),
+        }
+
+    async def async_render_message_wall_crop_for_entry(
+        self, message_text, style, wall_id, entry
+    ):
+        self.rendered_wall_crops.append((message_text, style, wall_id, entry.entry_id))
+        if wall_id == "broken-wall":
+            raise Exception("wall render blew up")
+        return {
+            "kind": "bin",
+            "bytes": f"bin-for-{wall_id}-{entry.entry_id}".encode(),
+            "preview": f"preview-for-{wall_id}".encode(),
         }
 
 
@@ -334,3 +366,218 @@ async def test_send_mappings_skill_without_skill_manager_fails_that_mapping_only
     assert results_by_entry[entries[0].entry_id]["success"] is False
     assert "Skill manager not initialised" in results_by_entry[entries[0].entry_id]["message"]
     assert results_by_entry[entries[1].entry_id]["success"] is True
+
+
+# ---------------------------------------------------------------------------
+# Message mappings: ephemeral "message"/"message_wall_crop" (never
+# persisted, see skills.py) and the persistable "image_crop" (a saved
+# message's library image with a per-mapping crop, sidestepping
+# library.py's per-resolution manual-crop collision -- see
+# library.async_get_bin_for_send's crop_box_override).
+# ---------------------------------------------------------------------------
+
+
+async def test_send_mappings_message_bin_kind_sent_without_image_id(
+    hass, scene_manager, library_and_coordinators, monkeypatch
+):
+    entries = library_and_coordinators(count=1)
+    hass.data[DOMAIN]["_skills"] = _FakeSkillManager()
+
+    async def _fake_send(self, image_bytes, *, image_id=None, thumbnail=None):
+        return {"success": True, "queued": False}
+
+    from custom_components.digital_frames.coordinator import DigitalFramesCoordinator
+
+    monkeypatch.setattr(DigitalFramesCoordinator, "async_send_image_or_queue", _fake_send)
+
+    mappings = {
+        entries[0].entry_id: {
+            "type": "message",
+            "message_text": "Happy Birthday!",
+            "style": "plain",
+        }
+    }
+    result = await scene_manager.async_send_mappings(hass, mappings)
+
+    assert result["results"] == [{"entry_id": entries[0].entry_id, "success": True}]
+
+
+async def test_send_mappings_message_render_failure_isolated(
+    hass, scene_manager, library_and_coordinators, monkeypatch
+):
+    entries = library_and_coordinators(count=2)
+    hass.data[DOMAIN]["_skills"] = _FakeSkillManager()
+
+    async def _fake_send(self, image_bytes, *, image_id=None, thumbnail=None):
+        return {"success": True, "queued": False}
+
+    from custom_components.digital_frames.coordinator import DigitalFramesCoordinator
+
+    monkeypatch.setattr(DigitalFramesCoordinator, "async_send_image_or_queue", _fake_send)
+
+    mappings = {
+        entries[0].entry_id: {"type": "message", "message_text": "boom", "style": "plain"},
+        entries[1].entry_id: "img-ok",
+    }
+    result = await scene_manager.async_send_mappings(hass, mappings)
+
+    results_by_entry = {r["entry_id"]: r for r in result["results"]}
+    assert results_by_entry[entries[0].entry_id]["success"] is False
+    assert "message render blew up" in results_by_entry[entries[0].entry_id]["message"]
+    assert results_by_entry[entries[1].entry_id]["success"] is True
+
+
+async def test_send_mappings_message_missing_text_rejected(
+    hass, scene_manager, library_and_coordinators
+):
+    entries = library_and_coordinators(count=1)
+    hass.data[DOMAIN]["_skills"] = _FakeSkillManager()
+
+    mappings = {entries[0].entry_id: {"type": "message", "style": "plain"}}
+    result = await scene_manager.async_send_mappings(hass, mappings)
+
+    assert result["results"][0]["success"] is False
+    assert "Invalid mapping" in result["results"][0]["message"]
+
+
+async def test_send_mappings_message_wall_crop_bin_kind(
+    hass, scene_manager, library_and_coordinators, monkeypatch
+):
+    entries = library_and_coordinators(count=1)
+    hass.data[DOMAIN]["_skills"] = _FakeSkillManager()
+
+    async def _fake_send(self, image_bytes, *, image_id=None, thumbnail=None):
+        return {"success": True, "queued": False}
+
+    from custom_components.digital_frames.coordinator import DigitalFramesCoordinator
+
+    monkeypatch.setattr(DigitalFramesCoordinator, "async_send_image_or_queue", _fake_send)
+
+    mappings = {
+        entries[0].entry_id: {
+            "type": "message_wall_crop",
+            "message_text": "Happy Birthday!",
+            "style": "plain",
+            "wall_id": "wall-1",
+        }
+    }
+    result = await scene_manager.async_send_mappings(hass, mappings)
+
+    assert result["results"] == [{"entry_id": entries[0].entry_id, "success": True}]
+
+
+async def test_send_mappings_message_wall_crop_render_failure_isolated(
+    hass, scene_manager, library_and_coordinators, monkeypatch
+):
+    entries = library_and_coordinators(count=2)
+    hass.data[DOMAIN]["_skills"] = _FakeSkillManager()
+
+    async def _fake_send(self, image_bytes, *, image_id=None, thumbnail=None):
+        return {"success": True, "queued": False}
+
+    from custom_components.digital_frames.coordinator import DigitalFramesCoordinator
+
+    monkeypatch.setattr(DigitalFramesCoordinator, "async_send_image_or_queue", _fake_send)
+
+    mappings = {
+        entries[0].entry_id: {
+            "type": "message_wall_crop",
+            "message_text": "Hi",
+            "style": "plain",
+            "wall_id": "broken-wall",
+        },
+        entries[1].entry_id: "img-ok",
+    }
+    result = await scene_manager.async_send_mappings(hass, mappings)
+
+    results_by_entry = {r["entry_id"]: r for r in result["results"]}
+    assert results_by_entry[entries[0].entry_id]["success"] is False
+    assert "wall render blew up" in results_by_entry[entries[0].entry_id]["message"]
+    assert results_by_entry[entries[1].entry_id]["success"] is True
+
+
+async def test_send_mappings_message_wall_crop_missing_wall_id_rejected(
+    hass, scene_manager, library_and_coordinators
+):
+    entries = library_and_coordinators(count=1)
+    hass.data[DOMAIN]["_skills"] = _FakeSkillManager()
+
+    mappings = {
+        entries[0].entry_id: {
+            "type": "message_wall_crop",
+            "message_text": "Hi",
+            "style": "plain",
+        }
+    }
+    result = await scene_manager.async_send_mappings(hass, mappings)
+
+    assert result["results"][0]["success"] is False
+    assert "Invalid mapping" in result["results"][0]["message"]
+
+
+async def test_save_scene_accepts_image_crop_mapping(scene_manager):
+    result = await scene_manager.async_save_scene(
+        "Saved Banner",
+        {"entry-1": {"type": "image_crop", "image_id": "img-1", "crop_box": [0.0, 0.0, 0.5, 1.0]}},
+    )
+    assert result["mappings"] == {
+        "entry-1": {"type": "image_crop", "image_id": "img-1", "crop_box": [0.0, 0.0, 0.5, 1.0]}
+    }
+
+
+async def test_save_scene_rejects_image_crop_with_bad_crop_box(scene_manager):
+    with pytest.raises(SceneError, match="Invalid crop_box"):
+        await scene_manager.async_save_scene(
+            "Bad", {"entry-1": {"type": "image_crop", "image_id": "img-1", "crop_box": [0.1, 0.2]}}
+        )
+
+
+async def test_send_mappings_image_crop_uses_override_and_bypasses_cache(
+    hass, scene_manager, library_and_coordinators, monkeypatch
+):
+    """Two frames sharing one saved banner image at the *same* resolution
+    but different crop_box_override values must never read back each
+    other's cached bytes -- the exact collision library.py's per-
+    resolution record.crops keying would otherwise cause (see
+    library.async_get_bin_for_send's crop_box_override docstring)."""
+    entries = library_and_coordinators(count=2)
+
+    async def _fake_send(self, image_bytes, *, image_id=None, thumbnail=None):
+        return {"success": True, "queued": False}
+
+    from custom_components.digital_frames.coordinator import DigitalFramesCoordinator
+
+    monkeypatch.setattr(DigitalFramesCoordinator, "async_send_image_or_queue", _fake_send)
+
+    mappings = {
+        entries[0].entry_id: {
+            "type": "image_crop",
+            "image_id": "banner-1",
+            "crop_box": [0.0, 0.0, 0.5, 1.0],
+        },
+        entries[1].entry_id: {
+            "type": "image_crop",
+            "image_id": "banner-1",
+            "crop_box": [0.5, 0.0, 1.0, 1.0],
+        },
+    }
+    result = await scene_manager.async_send_mappings(hass, mappings)
+
+    assert all(r["success"] for r in result["results"])
+    fake_library = hass.data[DOMAIN]["_library"]
+    calls = sorted(fake_library.crop_box_override_calls)
+    assert calls == [
+        ("banner-1", (0.0, 0.0, 0.5, 1.0)),
+        ("banner-1", (0.5, 0.0, 1.0, 1.0)),
+    ]
+
+
+async def test_send_mappings_image_crop_missing_fields_rejected(
+    hass, scene_manager, library_and_coordinators
+):
+    entries = library_and_coordinators(count=1)
+    mappings = {entries[0].entry_id: {"type": "image_crop", "image_id": "banner-1"}}
+    result = await scene_manager.async_send_mappings(hass, mappings)
+
+    assert result["results"][0]["success"] is False
+    assert "Invalid mapping" in result["results"][0]["message"]

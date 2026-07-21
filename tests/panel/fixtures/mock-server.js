@@ -94,6 +94,7 @@ function createMockServer({
   }));
   let nextSkillId = skillList.length + 1;
   const skillSendCalls = []; // { skill_id, entry_id } per /skills/:id/send POST
+  const messageSendCalls = []; // request body per /messages/send POST
   // The backend guarantees the default "All Frames" wall exists with a
   // placement for every configured frame -- mirror that here unless a test
   // seeds its own default wall record.
@@ -581,6 +582,23 @@ function createMockServer({
       }
     }
 
+    if (p === '/api/digital_frames/messages/send' && req.method === 'POST') {
+      const parsed = await readJsonBody(req);
+      if (!parsed.message_text) return json(res, 400, { message: 'message_text is required' });
+      if (!parsed.target || !['frame', 'scene', 'wall'].includes(parsed.target.type)) {
+        return json(res, 400, { message: 'target must be {type: frame|scene|wall, ...}' });
+      }
+      if (parsed.save_to_library && parsed.target.type === 'scene') {
+        return json(res, 400, { message: "save_to_library isn't supported for a scene target" });
+      }
+      messageSendCalls.push(parsed);
+      return json(res, 200, {
+        success: true,
+        results: [{ entry_id: 'entry_1', success: true }],
+        saved_image_id: parsed.save_to_library ? 'uploaded_1' : null,
+      });
+    }
+
     const skillSendMatch = p.match(/^\/api\/digital_frames\/skills\/([^/]+)\/send$/);
     if (skillSendMatch && req.method === 'POST') {
       const skillId = skillSendMatch[1];
@@ -688,6 +706,7 @@ function createMockServer({
     get schedules() { return scheduleList; },
     get skills() { return skillList; },
     skillSendCalls,
+    messageSendCalls,
     get walls() { return wallList; },
     setFailing(value) { failing = value; },
     get onboardingComplete() { return onboardingComplete; },

@@ -2349,6 +2349,8 @@
       }
       const libraryBtn = this.shadowRoot.getElementById('library-open-btn');
       if (libraryBtn) libraryBtn.addEventListener('click', () => this._openLibraryModal());
+      const composeMessageBtn = this.shadowRoot.getElementById('compose-message-btn');
+      if (composeMessageBtn) composeMessageBtn.addEventListener('click', () => this._openMessageComposeModal());
       this._renderXotdModeTiles();
       const gallerySearch = this.shadowRoot.getElementById('gallery-search');
       if (gallerySearch) {
@@ -2512,6 +2514,12 @@
           any frame, onto a wall tile, or on a schedule from the Schedules tab.
         </p>
         <div class="feedback" id="xotd-fb"></div>
+        <h3 style="margin:0 0 10px;font-size:14px">Compose a message</h3>
+        <p style="font-size:12px;color:var(--secondary-text-color);margin:0 0 10px">
+          Type a message, pick a style, and send it to a frame, a scene, or
+          a wall (composed as one banner and cropped per frame).
+        </p>
+        <button class="btn-primary" id="compose-message-btn" style="margin-bottom:20px">✉ Compose Message</button>
         <h3 style="margin:0 0 10px;font-size:14px">Add live content</h3>
         <div class="xotd-mode-grid" id="xotd-mode-grid"></div>
         <h3 style="margin:24px 0 10px;font-size:14px">Your live content</h3>
@@ -3036,6 +3044,60 @@
             <div class="modal-actions">
               <button class="btn-primary" id="xotd-modal-submit">Create</button>
               <button class="btn-ghost" id="xotd-modal-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-overlay" id="message-modal-overlay">
+          <div class="modal-box" style="max-width:520px">
+            <h3>Compose message</h3>
+            <div class="modal-row">
+              <label>Message</label>
+              <textarea id="message-text-input" rows="3" placeholder="Type your message…"></textarea>
+            </div>
+            <div class="modal-row">
+              <label>Style</label>
+              <select id="message-style-select">
+                <option value="plain">Plain</option>
+                <option value="ad_50s">1950s Diner Ad</option>
+                <option value="movie_poster">Movie Poster</option>
+              </select>
+            </div>
+            <div class="modal-row">
+              <label>Send to</label>
+              <select id="message-target-type-select">
+                <option value="frame">A single frame</option>
+                <option value="scene">A scene</option>
+                <option value="wall">A wall (banner)</option>
+              </select>
+            </div>
+            <div class="modal-row" id="message-target-frame-row">
+              <label>Frame</label>
+              <select id="message-target-frame-select"></select>
+            </div>
+            <div class="modal-row" id="message-target-scene-row" style="display:none">
+              <label>Scene</label>
+              <select id="message-target-scene-select"></select>
+            </div>
+            <div class="modal-row" id="message-target-wall-row" style="display:none">
+              <label>Wall</label>
+              <select id="message-target-wall-select"></select>
+            </div>
+            <div class="modal-row">
+              <label style="display:flex;align-items:center;gap:8px;font-weight:normal">
+                <input type="checkbox" id="message-save-to-library-checkbox">
+                Save to library
+              </label>
+              <p id="message-save-to-library-hint" style="font-size:11px;color:var(--secondary-text-color);margin:4px 0 0;display:none">
+                Not available for a scene target — each frame in a scene
+                independently re-renders the message, so there's no single
+                image to save.
+              </p>
+            </div>
+            <div class="feedback" id="message-modal-fb"></div>
+            <div class="modal-actions">
+              <button class="btn-primary" id="message-modal-submit">Send</button>
+              <button class="btn-ghost" id="message-modal-cancel">Cancel</button>
             </div>
           </div>
         </div>
@@ -9276,6 +9338,146 @@
         btn.disabled = false;
         btn.textContent = prevText;
       }
+    }
+
+    // -----------------------------------------------------------------------
+    // Compose message: its own modal (not the schema-driven _openXotdModal
+    // engine, which is built around a skill's content_mode/config_schema
+    // shape) -- a message is a fixed-shape, ephemeral send (text + style +
+    // target + optional save-to-library), never a persisted Skill.
+    // -----------------------------------------------------------------------
+    _openMessageComposeModal() {
+      const overlay = this.shadowRoot.getElementById('message-modal-overlay');
+      const textInput = this.shadowRoot.getElementById('message-text-input');
+      const styleSelect = this.shadowRoot.getElementById('message-style-select');
+      const targetTypeSelect = this.shadowRoot.getElementById('message-target-type-select');
+      const frameRow = this.shadowRoot.getElementById('message-target-frame-row');
+      const sceneRow = this.shadowRoot.getElementById('message-target-scene-row');
+      const wallRow = this.shadowRoot.getElementById('message-target-wall-row');
+      const frameSelect = this.shadowRoot.getElementById('message-target-frame-select');
+      const sceneSelect = this.shadowRoot.getElementById('message-target-scene-select');
+      const wallSelect = this.shadowRoot.getElementById('message-target-wall-select');
+      const saveCheckbox = this.shadowRoot.getElementById('message-save-to-library-checkbox');
+      const saveHint = this.shadowRoot.getElementById('message-save-to-library-hint');
+      const submitBtn = this.shadowRoot.getElementById('message-modal-submit');
+      const cancelBtn = this.shadowRoot.getElementById('message-modal-cancel');
+      const fb = this.shadowRoot.getElementById('message-modal-fb');
+
+      textInput.value = '';
+      styleSelect.value = 'plain';
+      targetTypeSelect.value = 'frame';
+      saveCheckbox.checked = false;
+      saveCheckbox.disabled = false;
+      saveHint.style.display = 'none';
+      fb.style.display = 'none';
+
+      frameSelect.innerHTML = this._frames
+        .map(f => `<option value="${f.entryId}">${f.title}</option>`).join('');
+      sceneSelect.innerHTML = this._scenes
+        .map(s => `<option value="${s.scene_id}">${s.name}</option>`).join('');
+      wallSelect.innerHTML = this._walls
+        .map(w => `<option value="${w.wall_id}">${w.name}</option>`).join('');
+
+      // Cloned+replaced before wiring, same idiom used elsewhere in this
+      // file (e.g. the xotd modal's submit/cancel), so repeat opens never
+      // stack duplicate listeners. Done before updateTargetRows is defined
+      // so its closure reads the live (post-clone) element, not a
+      // reference to the original node that's about to be detached.
+      const newTargetTypeSelect = targetTypeSelect.cloneNode(true);
+      targetTypeSelect.parentNode.replaceChild(newTargetTypeSelect, targetTypeSelect);
+      newTargetTypeSelect.value = 'frame';
+
+      const updateTargetRows = () => {
+        const targetType = newTargetTypeSelect.value;
+        frameRow.style.display = targetType === 'frame' ? '' : 'none';
+        sceneRow.style.display = targetType === 'scene' ? '' : 'none';
+        wallRow.style.display = targetType === 'wall' ? '' : 'none';
+        const isScene = targetType === 'scene';
+        saveCheckbox.disabled = isScene;
+        if (isScene) saveCheckbox.checked = false;
+        saveHint.style.display = isScene ? 'block' : 'none';
+      };
+      updateTargetRows();
+      newTargetTypeSelect.addEventListener('change', updateTargetRows);
+
+      const newSubmitBtn = submitBtn.cloneNode(true);
+      submitBtn.parentNode.replaceChild(newSubmitBtn, submitBtn);
+      const newCancelBtn = cancelBtn.cloneNode(true);
+      cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+
+      newCancelBtn.addEventListener('click', () => { overlay.style.display = 'none'; });
+
+      newSubmitBtn.addEventListener('click', async () => {
+        const messageText = textInput.value.trim();
+        if (!messageText) {
+          fb.className = 'feedback err';
+          fb.textContent = 'Type a message first.';
+          fb.style.display = 'block';
+          return;
+        }
+
+        const targetType = newTargetTypeSelect.value;
+        let target;
+        if (targetType === 'frame') {
+          if (!frameSelect.value) {
+            fb.className = 'feedback err';
+            fb.textContent = 'Choose a frame first.';
+            fb.style.display = 'block';
+            return;
+          }
+          target = { type: 'frame', entry_id: frameSelect.value };
+        } else if (targetType === 'scene') {
+          if (!sceneSelect.value) {
+            fb.className = 'feedback err';
+            fb.textContent = 'Choose a scene first.';
+            fb.style.display = 'block';
+            return;
+          }
+          target = { type: 'scene', scene_id: sceneSelect.value };
+        } else {
+          if (!wallSelect.value) {
+            fb.className = 'feedback err';
+            fb.textContent = 'Choose a wall first.';
+            fb.style.display = 'block';
+            return;
+          }
+          target = { type: 'wall', wall_id: wallSelect.value };
+        }
+
+        newSubmitBtn.disabled = true;
+        const prevText = newSubmitBtn.textContent;
+        newSubmitBtn.textContent = '⏳ Sending…';
+
+        try {
+          const resp = await fetch('/api/digital_frames/messages/send', {
+            method: 'POST',
+            headers: { ...this._authHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message_text: messageText,
+              style: styleSelect.value,
+              target,
+              save_to_library: saveCheckbox.checked && !saveCheckbox.disabled,
+            }),
+          });
+          const result = await resp.json().catch(() => ({}));
+          if (!resp.ok || !result.success) {
+            throw new Error(result.message || resp.statusText || `HTTP ${resp.status}`);
+          }
+          fb.className = 'feedback ok';
+          fb.textContent = result.saved_image_id ? 'Sent and saved to library!' : 'Sent!';
+          fb.style.display = 'block';
+          setTimeout(() => { overlay.style.display = 'none'; }, 1200);
+        } catch (err) {
+          fb.className = 'feedback err';
+          fb.textContent = `Send failed: ${err.message}`;
+          fb.style.display = 'block';
+        } finally {
+          newSubmitBtn.disabled = false;
+          newSubmitBtn.textContent = prevText;
+        }
+      });
+
+      overlay.style.display = 'flex';
     }
 
     async _deleteXotdInstance(skill, el, sid) {

@@ -283,8 +283,15 @@ def encode_for_panel_with_preview(
     rotation: int = 0,
     locked: bool = False,
     codec_id: str | None = None,
+    crop_box: tuple[float, float, float, float] | list[float] | None = None,
 ) -> tuple[bytes, bytes]:
-    """Like :func:`encode_for_panel`, plus a small PNG of the composed image."""
+    """Like :func:`encode_for_panel`, plus a small PNG of the composed image.
+
+    *crop_box* (normalized (x0, y0, x1, y1), same semantics as
+    :func:`encode_for_panel`) is used by wall-banner message sends, where
+    each frame's crop into the shared composed canvas is the only thing
+    that differs between otherwise-identical calls.
+    """
     if codec_id is None:
         _ = frame_type_for_resolution(width, height)
         codec_id = codec_id_for_resolution(width, height)
@@ -292,16 +299,25 @@ def encode_for_panel_with_preview(
     if codec_id in (CODEC_JPEG_Q90, CODEC_PNG):
         from .image_converter import _encode_preview_png  # noqa: PLC0415
 
-        image = _compose_rgb(source_bytes, width, height, rotation, locked, None)
+        image = _compose_rgb(source_bytes, width, height, rotation, locked, crop_box)
         if codec_id == CODEC_JPEG_Q90:
             wire = _encode_jpeg_bytes(
-                source_bytes, width, height, rotation, locked, None, 90
+                source_bytes, width, height, rotation, locked, crop_box, 90
             )
         else:
             wire = _encode_png_bytes(
-                source_bytes, width, height, rotation, locked, None
+                source_bytes, width, height, rotation, locked, crop_box
             )
         return wire, _encode_preview_png(image)
+
+    if crop_box is not None:
+        from .image_converter import (  # noqa: PLC0415
+            convert_image_bytes_cropped_with_preview,
+        )
+
+        return convert_image_bytes_cropped_with_preview(
+            source_bytes, width, height, tuple(crop_box), rotation
+        )
 
     from .image_converter import convert_image_bytes_with_preview  # noqa: PLC0415
 
@@ -317,12 +333,13 @@ def encode_path_for_panel_with_preview(
     rotation: int = 0,
     locked: bool = False,
     codec_id: str | None = None,
+    crop_box: tuple[float, float, float, float] | list[float] | None = None,
 ) -> tuple[bytes, bytes]:
     """Encode a filesystem path for the panel, with preview PNG."""
     with open(image_path, "rb") as f:
         raw = f.read()
     return encode_for_panel_with_preview(
-        raw, width, height, rotation, locked, codec_id
+        raw, width, height, rotation, locked, codec_id, crop_box
     )
 
 

@@ -216,6 +216,16 @@ class SkillManager:
         # (skill_id, local_date) -> (fields, fetched_at); see
         # _async_fetch_content_fields.
         self._content_cache: dict[tuple[str, str], tuple[dict[str, Any], float]] = {}
+        # (wall_id, message_text, style, canvas_w, canvas_h) -> in-flight
+        # render task. Scene sends resolve every mapping concurrently
+        # (asyncio.gather in scenes.py), so a wall message split across N
+        # frames enters async_render_message_wall_crop_for_entry N times at
+        # once; a plain check-then-set cache dict would let every one of
+        # them race past a cache-miss check before the first render
+        # finishes, spawning N redundant subprocess renders instead of one.
+        # Tracking the in-flight Task (not just its eventual result) lets
+        # every caller after the first await the same render.
+        self._wall_canvas_renders: dict[tuple[Any, ...], "asyncio.Task"] = {}
 
     async def async_load(self) -> None:
         stored = await self._store.async_load() or {}
@@ -460,38 +470,26 @@ class SkillManager:
         self._content_cache[cache_key] = (fields, now)
         return fields
 
-    async def _async_render_text(
-        self, skill: Skill, entry: "ConfigEntry"
+    async def _async_run_renderer_script(
+        self,
+        script_content: bytes,
+        script_config: dict[str, Any],
+        run_dir_parts: tuple[str, ...],
+        error_label: str,
     ) -> tuple[bytes, bytes | None]:
-        """Run the pinned xOTD renderer; return (spectra_bin, rgb_png|None).
+        """Shared subprocess-per-isolated-run-dir execution for any pinned
+        xOTD renderer invocation, skill-backed (Word/Joke/Quote/Scripture)
+        or ephemeral (a typed message, never a stored Skill) -- writes
+        renderer.py + config.json into a fresh directory, runs
+        --render-only, reads back xotd.bin + xotd_preview.png (if present),
+        and always cleans up the directory afterward.
 
-        The renderer writes ``xotd.bin`` (Spectra pack) and
-        ``xotd_preview.png`` (full RGB composition before pack). RGB is used
-        for Meural JPEG encode and sharper previews.
+        *run_dir_parts* are path segments under ADDONS_DIRNAME identifying
+        this run; callers must make each call's parts unique (e.g. include
+        a fresh uuid), never shared across concurrent renders, or
+        concurrent invocations clobber each other's config.json/xotd.bin.
         """
-        script_content = await self._async_script_bytes()
-        content_fields = await self._async_fetch_content_fields(skill)
-
-        from .helpers import render_spec_for_hass_entry  # noqa: PLC0415
-
-        spec = render_spec_for_hass_entry(self.hass, entry)
-        try:
-            layout = panel_codec_for_resolution(spec.width, spec.height).byte_layout
-        except ValueError:
-            layout = "split_half"
-
-        script_config: dict[str, Any] = {
-            "frame": {"resolution": [spec.width, spec.height], "layout": layout},
-            **content_fields,
-        }
-
-        # Fresh directory per render (not per skill_id): a skill fanned out
-        # to several frames at once (or two schedules firing near
-        # simultaneously) must never share a config.json/xotd.bin, or
-        # concurrent renders clobber each other's files.
-        run_dir = self.hass.config.path(
-            ADDONS_DIRNAME, f"skill_{skill.skill_id}", f"run_{uuid.uuid4().hex[:8]}"
-        )
+        run_dir = self.hass.config.path(ADDONS_DIRNAME, *run_dir_parts)
 
         def _write_inputs() -> tuple[str, str]:
             os.makedirs(run_dir, exist_ok=True)
@@ -529,14 +527,14 @@ class SkillManager:
             except asyncio.TimeoutError as err:
                 process.kill()
                 await process.communicate()
-                raise SkillError(f"Rendering '{skill.name}' timed out") from err
+                raise SkillError(f"Rendering '{error_label}' timed out") from err
 
             if process.returncode != 0:
                 raise SkillError(
-                    f"Rendering '{skill.name}' failed: {stderr.decode().strip()}"
+                    f"Rendering '{error_label}' failed: {stderr.decode().strip()}"
                 )
             _LOGGER.debug(
-                "Skill '%s' rendered: %s", skill.name, stdout.decode().strip()
+                "'%s' rendered: %s", error_label, stdout.decode().strip()
             )
 
             bin_path = os.path.join(run_dir, "xotd.bin")
@@ -554,6 +552,88 @@ class SkillManager:
             return await self.hass.async_add_executor_job(_read_outputs)
         finally:
             await self.hass.async_add_executor_job(shutil.rmtree, run_dir, True)
+
+    async def _async_render_text(
+        self, skill: Skill, entry: "ConfigEntry"
+    ) -> tuple[bytes, bytes | None]:
+        """Run the pinned xOTD renderer; return (spectra_bin, rgb_png|None).
+
+        The renderer writes ``xotd.bin`` (Spectra pack) and
+        ``xotd_preview.png`` (full RGB composition before pack). RGB is used
+        for Meural JPEG encode and sharper previews.
+        """
+        script_content = await self._async_script_bytes()
+        content_fields = await self._async_fetch_content_fields(skill)
+
+        from .helpers import render_spec_for_hass_entry  # noqa: PLC0415
+
+        spec = render_spec_for_hass_entry(self.hass, entry)
+        try:
+            layout = panel_codec_for_resolution(spec.width, spec.height).byte_layout
+        except ValueError:
+            layout = "split_half"
+
+        script_config: dict[str, Any] = {
+            "frame": {"resolution": [spec.width, spec.height], "layout": layout},
+            **content_fields,
+        }
+
+        # Fresh directory per render (not per skill_id): a skill fanned out
+        # to several frames at once (or two schedules firing near
+        # simultaneously) must never share a config.json/xotd.bin, or
+        # concurrent renders clobber each other's files.
+        return await self._async_run_renderer_script(
+            script_content,
+            script_config,
+            (f"skill_{skill.skill_id}", f"run_{uuid.uuid4().hex[:8]}"),
+            skill.name,
+        )
+
+    async def _async_render_message(
+        self, message_text: str, style: str, width: int, height: int
+    ) -> tuple[bytes, bytes | None]:
+        """Run the pinned xOTD renderer's "message" content_mode for a
+        user-typed message -- never a stored Skill, so no content cache and
+        no skill_id involved. *width*/*height* may be a real frame's own
+        resolution (single-frame/scene send) or a synthesized wall-banner
+        canvas size, in which case only the returned rgb_png matters to the
+        caller -- the .bin is packed for that canvas as a whole and is
+        never sent to any one frame as-is."""
+        script_content = await self._async_script_bytes()
+        try:
+            layout = panel_codec_for_resolution(width, height).byte_layout
+        except ValueError:
+            layout = "split_half"
+
+        script_config: dict[str, Any] = {
+            "frame": {"resolution": [width, height], "layout": layout},
+            "content_mode": "message",
+            "message_text": message_text,
+            "style": style,
+        }
+        return await self._async_run_renderer_script(
+            script_content,
+            script_config,
+            ("message", f"run_{uuid.uuid4().hex[:8]}"),
+            "message",
+        )
+
+    async def async_render_message_canvas(
+        self, message_text: str, style: str, width: int, height: int
+    ) -> bytes:
+        """Render a user-typed message at an arbitrary canvas size and
+        return just the RGB PNG bytes -- used by messages_http.py's
+        save-to-library path, which needs a normal Pillow-readable image to
+        hand to LibraryManager.async_upload (the library's own backfill
+        then re-encodes it per frame codec/crop), not a per-frame
+        codec-encoded wire payload like async_render_message_for_entry
+        returns."""
+        _bin_bytes, rgb_png = await self._async_render_message(
+            message_text, style, width, height
+        )
+        if rgb_png is None:
+            raise SkillError("Message renderer did not produce an RGB preview")
+        return rgb_png
 
     async def _async_prefetch_ha_calendar_events(
         self, skill: Skill
@@ -893,4 +973,141 @@ class SkillManager:
             )
             wire_bytes, preview = bin_bytes, None
 
+        return {"kind": "bin", "bytes": wire_bytes, "preview": preview}
+
+    async def async_render_message_for_entry(
+        self, message_text: str, style: str, entry: "ConfigEntry"
+    ) -> dict[str, Any]:
+        """Render a user-typed message for *entry*'s own resolution/layout
+        -- a single frame, or one member of a scene (each scene member
+        independently re-renders the same text at its own aspect ratio,
+        exactly like a Skill fanned out to several frames today).
+
+        Ephemeral: never touches self._skills/storage. Returns
+        {"kind": "bin", "bytes": ..., "preview": png_bytes|None}, the same
+        shape async_render_for_entry returns for text-mode skills, so
+        scenes.py's _prepare_one can share its existing "kind"=="bin"
+        handling for both.
+        """
+        from .helpers import render_spec_for_hass_entry  # noqa: PLC0415
+        from .panel_codec import (  # noqa: PLC0415
+            panel_codec_for_entry,
+            text_skill_payload_for_codec,
+        )
+
+        spec = render_spec_for_hass_entry(self.hass, entry)
+        bin_bytes, rgb_png = await self._async_render_message(
+            message_text, style, spec.width, spec.height
+        )
+
+        try:
+            codec_id = panel_codec_for_entry(entry).id
+        except ValueError:
+            codec_id = None
+
+        try:
+            wire_bytes, preview = await self.hass.async_add_executor_job(
+                text_skill_payload_for_codec,
+                bin_bytes,
+                spec.width,
+                spec.height,
+                spec.rotation,
+                codec_id,
+                rgb_png,
+            )
+        except Exception as err:  # noqa: BLE001
+            from .panel_codec import CODEC_JPEG_Q90, CODEC_PNG  # noqa: PLC0415
+
+            if codec_id in (CODEC_JPEG_Q90, CODEC_PNG):
+                raise SkillError(
+                    f"Could not encode message for "
+                    f"{'JPEG' if codec_id == CODEC_JPEG_Q90 else 'PNG'} panel: {err}"
+                ) from err
+            _LOGGER.debug("Could not build preview for message render: %s", err)
+            wire_bytes, preview = bin_bytes, None
+
+        return {"kind": "bin", "bytes": wire_bytes, "preview": preview}
+
+    async def async_render_message_wall_crop_for_entry(
+        self, message_text: str, style: str, wall_id: str, entry: "ConfigEntry"
+    ) -> dict[str, Any]:
+        """Render *entry*'s slice of a shared wall-banner canvas.
+
+        The canvas (the whole banner, at the synthesized size
+        wall_geometry.compute_wall_canvas_geometry computes) is rendered
+        once and shared across every frame in the wall via an in-flight
+        asyncio.Task keyed on the render's own inputs -- required, not an
+        optimization, since scenes.py resolves every mapping in a wall send
+        concurrently (asyncio.gather); without de-duping the in-flight
+        task, every frame's call would race past a plain cache-miss check
+        before the first render finishes and each would trigger its own
+        redundant subprocess render.
+        """
+        from .helpers import render_spec_for_hass_entry  # noqa: PLC0415
+        from .panel_codec import panel_codec_for_entry  # noqa: PLC0415
+        from .wall_geometry import compute_wall_canvas_geometry  # noqa: PLC0415
+
+        wall_manager = self.hass.data.get(DOMAIN, {}).get("_walls")
+        if wall_manager is None:
+            raise SkillError("Wall manager not initialised")
+        wall = await wall_manager.async_get_wall(wall_id)
+        if wall is None:
+            raise SkillError(f"Wall '{wall_id}' not found")
+
+        from .wall_geometry import WallGeometryError  # noqa: PLC0415
+
+        try:
+            geometry = compute_wall_canvas_geometry(
+                self.hass, wall, list(wall.placements)
+            )
+        except WallGeometryError as err:
+            raise SkillError(str(err)) from err
+
+        if entry.entry_id not in geometry.crop_boxes:
+            raise SkillError(
+                f"Frame '{entry.entry_id}' is not part of wall '{wall_id}'"
+            )
+
+        cache_key = (
+            wall_id,
+            message_text,
+            style,
+            geometry.canvas_width,
+            geometry.canvas_height,
+        )
+        task = self._wall_canvas_renders.get(cache_key)
+        if task is None:
+
+            async def _render() -> tuple[bytes, bytes | None]:
+                try:
+                    return await self._async_render_message(
+                        message_text, style, geometry.canvas_width, geometry.canvas_height
+                    )
+                finally:
+                    self._wall_canvas_renders.pop(cache_key, None)
+
+            task = self.hass.async_create_task(_render())
+            self._wall_canvas_renders[cache_key] = task
+        _canvas_bin, canvas_rgb_png = await task
+        if canvas_rgb_png is None:
+            raise SkillError("Message renderer did not produce an RGB preview")
+
+        spec = render_spec_for_hass_entry(self.hass, entry)
+        try:
+            codec_id = panel_codec_for_entry(entry).id
+        except ValueError:
+            codec_id = None
+
+        from .panel_codec import encode_for_panel_with_preview  # noqa: PLC0415
+
+        wire_bytes, preview = await self.hass.async_add_executor_job(
+            encode_for_panel_with_preview,
+            canvas_rgb_png,
+            spec.width,
+            spec.height,
+            spec.rotation,
+            spec.locked,
+            codec_id,
+            geometry.crop_boxes[entry.entry_id],
+        )
         return {"kind": "bin", "bytes": wire_bytes, "preview": preview}
