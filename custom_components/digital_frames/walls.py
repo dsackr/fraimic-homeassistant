@@ -158,20 +158,26 @@ class WallManager:
         canvas edges rather than flush in the corner. Deterministic and
         collision-free by construction; the user drags it wherever they
         want afterwards. This shape is specific to auto-populating the
-        default wall -- custom walls have no such row limit."""
-        row, col = divmod(len(wall.placements), _MAX_FRAMES_PER_ROW)
+        default wall -- custom walls have no such row limit.
+
+        The target row always scans for its *actual* current occupants
+        rather than trusting `len(wall.placements) % _MAX_FRAMES_PER_ROW ==
+        0` to mean "this row is empty" -- after a frame is removed from a
+        full row and a new one is added, that count can land back on a
+        multiple of _MAX_FRAMES_PER_ROW while the row still holds tiles,
+        which used to place the new tile directly on top of a survivor."""
+        row = len(wall.placements) // _MAX_FRAMES_PER_ROW
         y = _MARGIN_TOP + row * _CELL
-        if col == 0:
-            x = _MARGIN_LEFT
-        else:
-            right_edge = _MARGIN_LEFT
-            for entry_id, pos in wall.placements.items():
-                if pos["y"] != y:
-                    continue
-                placed = self.hass.config_entries.async_get_entry(entry_id)
-                width = tile_dims(placed)[0] if placed else _TILE_TARGET_LONGEST
-                right_edge = max(right_edge, pos["x"] + width)
-            x = math.ceil(right_edge / _GRID) * _GRID + _GRID
+        right_edge = _MARGIN_LEFT
+        occupied = False
+        for entry_id, pos in wall.placements.items():
+            if pos["y"] != y:
+                continue
+            occupied = True
+            placed = self.hass.config_entries.async_get_entry(entry_id)
+            width = tile_dims(placed)[0] if placed else _TILE_TARGET_LONGEST
+            right_edge = max(right_edge, pos["x"] + width)
+        x = _MARGIN_LEFT if not occupied else math.ceil(right_edge / _GRID) * _GRID + _GRID
         wall.placements[entry.entry_id] = {"x": float(x), "y": float(y)}
 
     async def async_ensure_default_wall(self) -> None:

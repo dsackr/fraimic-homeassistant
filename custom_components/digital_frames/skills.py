@@ -958,13 +958,21 @@ class SkillManager:
                 rgb_png,
             )
         except Exception as err:  # noqa: BLE001
-            # Spectra: unpack/preview failures are soft (return raw bin).
-            # JPEG: encode is required — surface as SkillError.
-            from .panel_codec import CODEC_JPEG_Q90  # noqa: PLC0415
+            # Spectra with no rotation needed: unpack/preview failures are
+            # soft (return raw bin -- still the right wire format for this
+            # driver, just missing a preview). JPEG/PNG, and Spectra WITH a
+            # required rotation, are hard failures -- for JPEG/PNG the raw
+            # bin fallback is Spectra-packed bytes, the wrong format
+            # entirely; for a rotation-locked Spectra frame, the raw bin is
+            # still packed at the un-rotated composition size, so sending it
+            # silently reintroduces the exact sideways/garbled render this
+            # rotation support exists to prevent (see KPF 28/22).
+            from .panel_codec import CODEC_JPEG_Q90, CODEC_PNG  # noqa: PLC0415
 
-            if codec_id == CODEC_JPEG_Q90:
+            if codec_id in (CODEC_JPEG_Q90, CODEC_PNG) or spec.rotation:
                 raise SkillError(
-                    f"Could not encode skill '{skill.name}' for JPEG panel: {err}"
+                    f"Could not encode skill '{skill.name}' for "
+                    f"{'JPEG' if codec_id == CODEC_JPEG_Q90 else 'PNG' if codec_id == CODEC_PNG else 'rotated Spectra'} panel: {err}"
                 ) from err
             _LOGGER.debug(
                 "Could not build preview for skill '%s' render: %s",
@@ -1016,12 +1024,16 @@ class SkillManager:
                 rgb_png,
             )
         except Exception as err:  # noqa: BLE001
+            # See async_render_for_entry's identical handler above: a
+            # rotation-locked Spectra frame's raw-bin fallback is still
+            # packed at the un-rotated composition size, so it must be a
+            # hard failure too, not just JPEG/PNG.
             from .panel_codec import CODEC_JPEG_Q90, CODEC_PNG  # noqa: PLC0415
 
-            if codec_id in (CODEC_JPEG_Q90, CODEC_PNG):
+            if codec_id in (CODEC_JPEG_Q90, CODEC_PNG) or spec.rotation:
                 raise SkillError(
                     f"Could not encode message for "
-                    f"{'JPEG' if codec_id == CODEC_JPEG_Q90 else 'PNG'} panel: {err}"
+                    f"{'JPEG' if codec_id == CODEC_JPEG_Q90 else 'PNG' if codec_id == CODEC_PNG else 'rotated Spectra'} panel: {err}"
                 ) from err
             _LOGGER.debug("Could not build preview for message render: %s", err)
             wire_bytes, preview = bin_bytes, None

@@ -209,3 +209,35 @@ async def test_auto_layout_wraps_to_new_row_after_max_per_row(
     fifth_pos = default_wall.placements[entries[4].entry_id]
     first_pos = default_wall.placements[entries[0].entry_id]
     assert fifth_pos["y"] > first_pos["y"]
+
+
+async def test_auto_layout_does_not_overlap_after_removing_and_readding_a_frame(
+    hass, wall_manager, make_frame_entry
+):
+    """Regression: removing one frame from a full row of _MAX_FRAMES_PER_ROW
+    (4) can land the placement count back on a multiple of 4, which used to
+    make _append_placement wrongly assume that row was empty and place the
+    next new frame directly on top of a tile that was never moved."""
+    entries = [
+        make_frame_entry(entry_id=f"entry-{i}", host=f"192.168.1.{50+i}")
+        for i in range(5)
+    ]
+    for entry in entries:
+        entry.add_to_hass(hass)
+    await wall_manager.async_ensure_default_wall()
+
+    # Remove one of the first 4 (row 0) frames -- placements count drops
+    # from 5 to 4, a multiple of _MAX_FRAMES_PER_ROW, while row 0 still
+    # holds 3 live tiles and row 1 still holds entries[4].
+    await wall_manager.async_prune_entry(entries[0].entry_id)
+
+    new_entry = make_frame_entry(entry_id="entry-new", host="192.168.1.99")
+    new_entry.add_to_hass(hass)
+    await wall_manager.async_ensure_placement(new_entry)
+
+    default_wall = await wall_manager.async_get_wall(DEFAULT_WALL_ID)
+    positions = list(default_wall.placements.values())
+    coords = [(p["x"], p["y"]) for p in positions]
+    assert len(coords) == len(set(coords)), (
+        f"two placements share the same (x, y): {coords}"
+    )

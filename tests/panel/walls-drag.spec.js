@@ -119,3 +119,116 @@ test('clicking the remove button on a placed tile removes it from the canvas', a
   );
   expect(paletteCount).toBe(2); // both frames back in palette
 });
+
+test('a second pointerdown before the first drag ends does not leak a ghost element', async ({ page }) => {
+  // Regression: _wallBeginDrag had no guard against a pre-existing
+  // this._wallDrag -- a second pointerdown (overlapping pointer input:
+  // multi-touch/stylus+mouse, common on the touchscreen tablets this
+  // dashboard is often wall-mounted on) before the first drag's pointerup
+  // overwrote it without removing the first drag's ghost element, leaking
+  // it permanently and corrupting which drag the eventual pointerup
+  // finalizes.
+  const { pageErrors } = await gotoPanel(page, baseUrl, { frames: FRAMES });
+  await openScenesTab(page);
+  await createWall(page, 'Living Room');
+
+  await page.evaluate(() => {
+    const item = document.getElementById('panel').shadowRoot.querySelector('.wall-palette-item');
+    const r = item.getBoundingClientRect();
+    const fire = (x, y) => item.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1,
+    }));
+    // Two overlapping presses with no pointerup in between.
+    fire(r.x + r.width / 2, r.y + r.height / 2);
+    fire(r.x + r.width / 2 + 5, r.y + r.height / 2 + 5);
+  });
+
+  const ghostCount = await page.evaluate(() =>
+    document.getElementById('panel').shadowRoot.querySelectorAll('.wall-drag-ghost').length
+  );
+  expect(ghostCount).toBe(1);
+
+  // Clean up the still-in-progress drag so it doesn't bleed into other tests.
+  await page.mouse.up();
+  expect(pageErrors, `unexpected browser errors: ${pageErrors.map((e) => e.message).join('; ')}`).toHaveLength(0);
+});
+
+test('a second marquee-select start before the first ends does not leak a marquee box', async ({ page }) => {
+  // Same overlapping-pointer-input hazard as the drag-ghost test above
+  // (multi-touch/stylus+mouse, common on the touchscreen tablets this
+  // dashboard is often wall-mounted on), but for the rubber-band
+  // multi-select path: a second pointerdown on empty canvas space before
+  // the first marquee's pointerup used to append a second .wall-marquee
+  // box without removing the first, leaking it permanently.
+  const { pageErrors } = await gotoPanel(page, baseUrl, { frames: FRAMES });
+  await openScenesTab(page);
+  await createWall(page, 'Living Room');
+
+  await page.evaluate(() => {
+    const canvas = document.getElementById('panel').shadowRoot.getElementById('wall-canvas');
+    const r = canvas.getBoundingClientRect();
+    const fire = (x, y) => canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1,
+    }));
+    // Two overlapping presses on empty canvas space, no pointerup in between.
+    fire(r.x + 10, r.y + 10);
+    fire(r.x + 20, r.y + 20);
+  });
+
+  const marqueeCount = await page.evaluate(() =>
+    document.getElementById('panel').shadowRoot.querySelectorAll('.wall-marquee').length
+  );
+  expect(marqueeCount).toBe(1);
+
+  // Clean up the still-in-progress marquee so it doesn't bleed into other tests.
+  await page.mouse.up();
+  expect(pageErrors, `unexpected browser errors: ${pageErrors.map((e) => e.message).join('; ')}`).toHaveLength(0);
+});
+
+test('a failed begin-drag with a stale entryId does not cancel an unrelated in-progress drag', async ({ page }) => {
+  // Regression: _wallBeginDrag called _wallCancelInProgressDrag() before
+  // checking whether entryId resolved to a real frame, so a begin-drag
+  // attempt that itself failed (e.g. a pointerdown handler closing over an
+  // entryId whose config entry was removed elsewhere before this client's
+  // wall view re-rendered) still tore down a different, legitimately
+  // in-progress drag as a side effect -- its ghost vanished and the tile
+  // reverted even though the interrupting press never started a
+  // replacement drag.
+  const { pageErrors } = await gotoPanel(page, baseUrl, { frames: FRAMES });
+  await openScenesTab(page);
+  await createWall(page, 'Living Room');
+
+  await page.evaluate(() => {
+    const item = document.getElementById('panel').shadowRoot.querySelector('.wall-palette-item');
+    const r = item.getBoundingClientRect();
+    item.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2, pointerId: 1,
+    }));
+  });
+
+  const dragEntryIdBefore = await page.evaluate(() => document.getElementById('panel')._wallDrag?.entryId);
+  expect(dragEntryIdBefore).toBe('entry_1');
+
+  // A second, unrelated begin-drag attempt whose entryId no longer
+  // resolves to a real frame -- must be a true no-op with respect to the
+  // drag already in progress.
+  await page.evaluate(() => {
+    const panel = document.getElementById('panel');
+    panel._wallBeginDrag(
+      { preventDefault: () => {}, clientX: 0, clientY: 0 },
+      'stale_entry_does_not_exist',
+      'tile'
+    );
+  });
+
+  const ghostCount = await page.evaluate(() =>
+    document.getElementById('panel').shadowRoot.querySelectorAll('.wall-drag-ghost').length
+  );
+  expect(ghostCount).toBe(1); // the first drag's ghost must survive
+
+  const dragEntryIdAfter = await page.evaluate(() => document.getElementById('panel')._wallDrag?.entryId);
+  expect(dragEntryIdAfter).toBe('entry_1'); // the first drag itself must still be in progress
+
+  await page.mouse.up();
+  expect(pageErrors, `unexpected browser errors: ${pageErrors.map((e) => e.message).join('; ')}`).toHaveLength(0);
+});

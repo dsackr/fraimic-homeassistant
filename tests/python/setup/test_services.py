@@ -145,12 +145,12 @@ async def test_send_image_missing_file_raises(hass, make_frame_entry, tmp_path):
     entry = await _setup_frame(hass, make_frame_entry)
     device_id = _device_id_for_entry(hass, entry)
 
-    missing = str(tmp_path / "does_not_exist.jpg")
+    hass.config.media_dirs["local"] = str(tmp_path)
     with pytest.raises(HomeAssistantError, match="Media file not found"):
         await hass.services.async_call(
             DOMAIN,
             "send_image",
-            {"device_id": device_id, "media_content_id": missing},
+            {"device_id": device_id, "media_content_id": "/media/local/does_not_exist.jpg"},
             blocking=True,
         )
 
@@ -162,7 +162,9 @@ async def test_send_image_success_converts_and_sends(
     device_id = _device_id_for_entry(hass, entry)
     coordinator = hass.data[DOMAIN][entry.entry_id]
 
-    img_path = tmp_path / "photo.jpg"
+    hass.config.media_dirs["local"] = str(tmp_path)
+    img_path = tmp_path / "local" / "photo.jpg"
+    img_path.parent.mkdir(parents=True, exist_ok=True)
     img_path.write_bytes(sample_image_bytes(200, 200))
 
     sent = []
@@ -176,13 +178,35 @@ async def test_send_image_success_converts_and_sends(
     await hass.services.async_call(
         DOMAIN,
         "send_image",
-        {"device_id": device_id, "media_content_id": str(img_path)},
+        {"device_id": device_id, "media_content_id": "/media/local/photo.jpg"},
         blocking=True,
     )
 
     assert len(sent) == 1
     assert isinstance(sent[0], bytes)
     assert len(sent[0]) > 0
+
+
+async def test_send_image_rejects_arbitrary_filesystem_path(
+    hass, make_frame_entry, tmp_path
+):
+    # The regression this guards: an unprefixed absolute path used to fall
+    # through _resolve_media_path unchanged, letting the service read any
+    # HA-process-readable file. It must now be rejected outright.
+    entry = await _setup_frame(hass, make_frame_entry)
+    device_id = _device_id_for_entry(hass, entry)
+
+    outside_path = tmp_path / "not_under_media" / "secret.jpg"
+    outside_path.parent.mkdir(parents=True, exist_ok=True)
+    outside_path.write_bytes(b"not-really-an-image")
+
+    with pytest.raises(HomeAssistantError, match="Unsupported media_content_id"):
+        await hass.services.async_call(
+            DOMAIN,
+            "send_image",
+            {"device_id": device_id, "media_content_id": str(outside_path)},
+            blocking=True,
+        )
 
 
 # ---------------------------------------------------------------------------

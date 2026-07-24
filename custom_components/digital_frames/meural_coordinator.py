@@ -238,10 +238,18 @@ class MeuralCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return data
 
     async def _async_maybe_follow_device_orientation(self, device_orientation: str) -> None:
-        """Mirror gsensor into options and re-postcard our last image.
+        """Mirror gsensor into options.
 
         Canvas firmware swaps to orientation-scoped Recents (often last official
-        app content) on physical rotate. Re-push HA content for the new hang.
+        app content) on physical rotate, so HA content needs re-pushing for the
+        new hang -- but not from here: async_update_entry schedules
+        __init__.py's _async_update_listener for every registered listener on
+        this entry regardless of who else also awaits a redisplay, and that
+        listener already redisplays on this exact option change. Calling
+        async_redisplay_last() directly here as well used to double-send the
+        postcard (two full re-encodes, two POSTs, a visible double-redraw
+        flash) every time the frame's orientation changed. Leave
+        _async_update_listener as the single trigger.
         """
         entry = self.config_entry
         follow = entry.options.get(CONF_ORIENTATION_FOLLOW_DEVICE, True)
@@ -257,7 +265,6 @@ class MeuralCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 CONF_ORIENTATION_FOLLOW_DEVICE: True,
             },
         )
-        await self.async_redisplay_last()
 
     async def async_redisplay_last(self) -> bool:
         """Re-send last HA content for the current render_spec orientation.

@@ -281,4 +281,192 @@ test.describe('Fraimic card', () => {
       { entity_id: 'sensor.entry_1_battery', image_id: 'image_beach', packer: undefined },
     ]);
   });
+
+  test('crop Save & Send on a staged pick unstages afterward instead of leaving the card stuck in preview', async ({ page }) => {
+    // Regression: _cropSaveSend never called _unstage() on success, unlike
+    // _send(). When crop targets a staged-but-unsent pick (_cropTargetImageId
+    // prefers _staged over the frame's last_image_id), the image was sent
+    // immediately but the actions bar/PREVIEW badge stayed stuck showing
+    // stale state until the user clicked Send again or Cancel.
+    const frames = [{ ...FRAMES[0], last_image_id: 'image_beach' }, FRAMES[1]];
+    await start({ frames, images: IMAGES, albums: ALBUMS });
+    await mountCard(page, baseUrl, { entry_id: 'entry_1' }, frames);
+    await page.waitForFunction(
+      () => document.getElementById('card').shadowRoot.getElementById('frameName').textContent === 'Living Room Frame'
+    );
+
+    // Stage a library pick (crop then targets this staged pick, not the
+    // frame's already-on-frame image).
+    await page.evaluate(() => document.getElementById('card').shadowRoot.getElementById('btnPhotos').click());
+    await page.waitForFunction(
+      () => document.getElementById('card').shadowRoot.querySelectorAll('#pickerGrid .picker-cell').length === 2
+    );
+    await page.evaluate(() => {
+      document.getElementById('card').shadowRoot.querySelector('#pickerGrid .picker-cell').click();
+    });
+    await page.waitForFunction(
+      () => document.getElementById('card').shadowRoot.getElementById('actions').style.display === 'flex'
+    );
+    expect((await cardQ(page, 'badge')).text).toBe('PREVIEW');
+
+    await page.evaluate(() => document.getElementById('card').shadowRoot.getElementById('btnCrop').click());
+    await page.waitForFunction(
+      () => document.getElementById('card').shadowRoot.getElementById('cropBox').style.display === 'block'
+    );
+    await page.evaluate(() => document.getElementById('card').shadowRoot.getElementById('cropSaveSend').click());
+    await page.waitForFunction(() =>
+      document.getElementById('card').shadowRoot.getElementById('cropFb').textContent.includes('sent')
+    );
+
+    // The success setTimeout (1400ms) closes the crop overlay, unstages,
+    // and refreshes -- wait past it.
+    await page.waitForFunction(
+      () => document.getElementById('card').shadowRoot.getElementById('actions').style.display === 'none',
+      { timeout: 3000 }
+    );
+    const badge = await cardQ(page, 'badge');
+    expect(badge.text).toBe('ON FRAME');
+  });
+
+  test('crop Save & Send does not clobber a pick staged after the crop overlay was closed mid-send', async ({ page }) => {
+    // Regression (issue #7): _cropSaveSend's delayed _unstage() had no
+    // staleness guard. cropClose isn't disabled during save/send, so a user
+    // could close the crop overlay while the send was still in flight,
+    // stage a different photo, and have the original crop-send's delayed
+    // callback silently wipe out that newer, unrelated pick.
+    const frames = [{ ...FRAMES[0], last_image_id: 'image_beach' }, FRAMES[1]];
+    await start({ frames, images: IMAGES, albums: ALBUMS, librarySendDelayMs: 800 });
+    await mountCard(page, baseUrl, { entry_id: 'entry_1' }, frames);
+    await page.waitForFunction(
+      () => document.getElementById('card').shadowRoot.getElementById('frameName').textContent === 'Living Room Frame'
+    );
+
+    // Stage the first library pick (crop then targets this staged pick).
+    await page.evaluate(() => document.getElementById('card').shadowRoot.getElementById('btnPhotos').click());
+    await page.waitForFunction(
+      () => document.getElementById('card').shadowRoot.querySelectorAll('#pickerGrid .picker-cell').length === 2
+    );
+    await page.evaluate(() => {
+      document.getElementById('card').shadowRoot.querySelectorAll('#pickerGrid .picker-cell')[0].click();
+    });
+    await page.waitForFunction(
+      () => document.getElementById('card').shadowRoot.getElementById('actions').style.display === 'flex'
+    );
+
+    await page.evaluate(() => document.getElementById('card').shadowRoot.getElementById('btnCrop').click());
+    await page.waitForFunction(
+      () => document.getElementById('card').shadowRoot.getElementById('cropBox').style.display === 'block'
+    );
+    // Kick off crop save+send (crop save resolves fast; the library/send
+    // response is delayed 800ms by librarySendDelayMs above).
+    await page.evaluate(() => document.getElementById('card').shadowRoot.getElementById('cropSaveSend').click());
+
+    // While the send is still in flight, close the crop overlay (not
+    // disabled during save/send) and stage a different photo.
+    await page.waitForFunction(
+      () => document.getElementById('card').shadowRoot.getElementById('cropSaveSend').textContent.includes('Sending')
+    );
+    await page.evaluate(() => document.getElementById('card').shadowRoot.getElementById('cropClose').click());
+    await page.evaluate(() => document.getElementById('card').shadowRoot.getElementById('btnPhotos').click());
+    await page.waitForFunction(
+      () => document.getElementById('card').shadowRoot.querySelectorAll('#pickerGrid .picker-cell').length === 2
+    );
+    await page.evaluate(() => {
+      document.getElementById('card').shadowRoot.querySelectorAll('#pickerGrid .picker-cell')[1].click();
+    });
+    await page.waitForFunction(
+      () => document.getElementById('card').shadowRoot.getElementById('actions').style.display === 'flex'
+    );
+    expect((await cardQ(page, 'badge')).text).toBe('PREVIEW');
+
+    // Let the original crop-send resolve and its 1400ms delayed
+    // unstage/refresh window fully elapse.
+    await page.waitForTimeout(2200);
+
+    // The newly staged pick (image_dog) must survive -- not silently
+    // cleared back to "ON FRAME"/nothing-sent-yet by the stale crop-send.
+    expect((await cardQ(page, 'actions')).display).toBe('flex');
+    expect((await cardQ(page, 'badge')).text).toBe('PREVIEW');
+    expect(mockServer.sends).toEqual([
+      { entity_id: 'sensor.entry_1_battery', image_id: 'image_beach', packer: undefined },
+    ]);
+  });
+
+  test('setConfig (as fired by editor live-preview) clears a staged pick instead of leaving stale state after rebuild', async ({ page }) => {
+    // Regression: setConfig()/_build() unconditionally rebuild the whole
+    // shadow DOM, but never reset _staged/_crop. HA's card-editor live
+    // preview calls setConfig() on every config change (e.g. every
+    // keystroke in the Name field, not just entry_id) -- staging a photo
+    // then editing the config elsewhere left the freshly rebuilt DOM's
+    // default-hidden actions bar out of sync with _staged staying truthy,
+    // with nothing left in the new DOM to reach _unstage() from.
+    await start({ frames: FRAMES, images: IMAGES, albums: ALBUMS });
+    await mountCard(page, baseUrl, { entry_id: 'entry_1' }, FRAMES);
+    await page.waitForFunction(
+      () => document.getElementById('card').shadowRoot.getElementById('frameName').textContent === 'Living Room Frame'
+    );
+
+    await page.evaluate(() => document.getElementById('card').shadowRoot.getElementById('btnPhotos').click());
+    await page.waitForFunction(
+      () => document.getElementById('card').shadowRoot.querySelectorAll('#pickerGrid .picker-cell').length === 2
+    );
+    await page.evaluate(() => {
+      document.getElementById('card').shadowRoot.querySelector('#pickerGrid .picker-cell').click();
+    });
+    await page.waitForFunction(
+      () => document.getElementById('card').shadowRoot.getElementById('actions').style.display === 'flex'
+    );
+    expect(await page.evaluate(() => !!document.getElementById('card')._staged)).toBe(true);
+
+    // Simulate the editor's live preview re-calling setConfig on an
+    // unrelated field change (entry_id unchanged).
+    await page.evaluate(() => document.getElementById('card').setConfig({ entry_id: 'entry_1', name: 'x' }));
+
+    const stateAfter = await page.evaluate(() => ({
+      staged: document.getElementById('card')._staged,
+      crop: document.getElementById('card')._crop,
+      actionsDisplay: document.getElementById('card').shadowRoot.getElementById('actions').style.display,
+    }));
+    expect(stateAfter.staged).toBeNull();
+    expect(stateAfter.crop).toBeNull();
+    expect(stateAfter.actionsDisplay).not.toBe('flex');
+  });
+
+  test('removing the card revokes a staged pick\'s blob URL', async ({ page }) => {
+    // Regression: the card had no disconnectedCallback at all, so a staged
+    // preview's blob URL (or an open crop session's, or window listeners
+    // registered while a crop drag was active) leaked until page reload --
+    // HA recreates Lovelace cards on dashboard/view changes, never reuses
+    // one, so nothing else would ever revoke it.
+    await start({ frames: FRAMES });
+    await mountCard(page, baseUrl, { entry_id: 'entry_1' }, FRAMES);
+    await page.waitForFunction(
+      () => document.getElementById('card').shadowRoot.getElementById('frameName').textContent === 'Living Room Frame'
+    );
+
+    await page.setInputFiles('#card input[type="file"]', {
+      name: 'holiday.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    });
+    await page.waitForFunction(
+      () => document.getElementById('card').shadowRoot.getElementById('actions').style.display === 'flex'
+    );
+    const stagedUrl = await page.evaluate(() => document.getElementById('card')._stagedPreviewUrl);
+    expect(stagedUrl).toMatch(/^blob:/);
+
+    await page.evaluate(() => {
+      window.__revokedUrls = [];
+      const orig = URL.revokeObjectURL.bind(URL);
+      URL.revokeObjectURL = (url) => {
+        window.__revokedUrls.push(url);
+        return orig(url);
+      };
+    });
+
+    await page.evaluate(() => document.getElementById('card').remove());
+
+    const revoked = await page.evaluate(() => window.__revokedUrls);
+    expect(revoked).toContain(stagedUrl);
+  });
 });

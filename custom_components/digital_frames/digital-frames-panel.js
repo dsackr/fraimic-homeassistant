@@ -1998,6 +1998,8 @@
 
       this._albums        = [];       // [{ name, count, cover_image_id }]
       this._currentAlbum  = null;     // null = album folder view; a name = viewing that album
+      this._libraryLoadToken = 0;     // incremented per _loadLibrary call -- lets a stale
+                                       // (superseded) fetch detect it and skip committing its result
       this._albumPickerImage = null;  // image currently open in the "Add to Album" picker
       this._albumCreateSelected = new Set();  // image_ids selected in the "Create Album" picker
 
@@ -4970,16 +4972,26 @@
     // Library: list + render
     // -----------------------------------------------------------------------
 
-    async _loadLibrary(album) {
+    async _loadLibrary(album, token) {
+      // token lets a caller (e.g. _openAlbum) share one staleness token
+      // across its own await sequence; a plain refresh call mints its own.
+      // Whichever call is *most recent* against this._libraryLoadToken wins
+      // and commits its result -- an older, slower call silently no-ops
+      // instead of overwriting newer data with stale data (or vice versa),
+      // which used to let _currentAlbum end up naming a different album
+      // than this._library actually contains after two quick album switches.
+      const myToken = token !== undefined ? token : (this._libraryLoadToken = (this._libraryLoadToken || 0) + 1);
       try {
         const url = album
           ? `/api/digital_frames/library/list?album=${encodeURIComponent(album)}`
           : '/api/digital_frames/library/list';
         const resp = await fetch(url, { headers: this._authHeaders() });
         const result = await resp.json();
+        if (myToken !== this._libraryLoadToken) return;
         this._library = result.images || [];
         if (result.backend) this._backend = result.backend;
       } catch (err) {
+        if (myToken !== this._libraryLoadToken) return;
         console.error('[fraimic-panel] library load failed:', err);
         this._library = [];
       }
@@ -5005,8 +5017,10 @@
     }
 
     async _openAlbum(name) {
+      const token = (this._libraryLoadToken = (this._libraryLoadToken || 0) + 1);
+      await this._loadLibrary(name, token);
+      if (token !== this._libraryLoadToken) return; // superseded by a newer open/refresh
       this._currentAlbum = name;
-      await this._loadLibrary(name);
       this._renderLibrary();
     }
 
@@ -5317,15 +5331,26 @@
         }
         if (!this._thumbFetches[imageId]) {
           this._thumbFetches[imageId] = (async () => {
-            const resp = await fetch(`/api/digital_frames/library/image/${imageId}?thumb=480`, { headers: this._authHeaders() });
+            const resp = await fetch(`/api/digital_frames/library/image/${imageId}?thumb=480`, {
+              headers: this._authHeaders(),
+              signal: this._abort.signal,
+            });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const blob = await resp.blob();
+            // The panel may have been disposed (navigated away) while the
+            // network round trip was in flight -- the abort signal above
+            // only catches that during fetch() itself; this closes the
+            // remaining gap between the response landing and creating the
+            // blob URL, so a leaked, never-revocable URL isn't created on
+            // an object _dispose() already cleaned up.
+            if (this._disposed) return null;
             const url  = URL.createObjectURL(blob);
             this._thumbUrls[imageId] = url;
             return url;
           })();
         }
         const url = await this._thumbFetches[imageId];
+        if (!url || this._disposed) return;
         container.innerHTML = `<img src="${url}" alt="">`;
       } catch (err) {
         delete this._thumbFetches[imageId]; // allow a later retry
@@ -5862,7 +5887,7 @@
         initialVal = presetFrameEntityId;
       }
 
-      this._editorState = {
+      const editorState = {
         image,
         frameEntityId: initialVal,
         targetWidth: 0,
@@ -5872,10 +5897,17 @@
         cropBox: null,
         cropIsSaved: false,
       };
+      this._editorState = editorState;
 
       const select = this.shadowRoot.getElementById('editor-frame-select');
       this.shadowRoot.getElementById('editor-reset').disabled = false;
       this.shadowRoot.getElementById('editor-add-album').disabled = false;
+      // Disabled until the image actually finishes loading below -- clicking
+      // either while targetWidth/targetHeight/cropBox are still placeholder
+      // zeros/null used to be able to submit {width:0, height:0, crop_box:
+      // null} to the crop-save endpoint.
+      this.shadowRoot.getElementById('editor-save-crop').disabled = true;
+      this.shadowRoot.getElementById('editor-send').disabled = true;
 
       let optionsHtml = '';
       optionsHtml += `<optgroup label="Generic Orientations">`;
@@ -5908,10 +5940,20 @@
       const img = this.shadowRoot.getElementById('editor-img');
       img.removeAttribute('src');
 
+      // Identity of this specific open, not just this.image_id: if the
+      // editor is closed and reopened for a different image while this
+      // fetch/decode is still in flight, this._editorState is reassigned
+      // to a new object, so `this._editorState !== editorState` reliably
+      // detects supersession even across a close+reopen of the *same*
+      // image_id (a fresh object each time, per _openEditor above).
       try {
-        const resp = await fetch(`/api/digital_frames/library/image/${image.image_id}`, { headers: this._authHeaders() });
+        const resp = await fetch(`/api/digital_frames/library/image/${image.image_id}`, {
+          headers: this._authHeaders(),
+          signal: this._abort.signal,
+        });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const blob = await resp.blob();
+        if (this._disposed || this._editorState !== editorState) return;
         if (this._editorImgUrl) URL.revokeObjectURL(this._editorImgUrl);
         this._editorImgUrl = URL.createObjectURL(blob);
         img.src = this._editorImgUrl;
@@ -5919,14 +5961,18 @@
           img.onload = resolve;
           img.onerror = () => reject(new Error('image decode failed'));
         });
-        this._editorState.naturalW = img.naturalWidth;
-        this._editorState.naturalH = img.naturalHeight;
+        if (this._disposed || this._editorState !== editorState) return;
+        editorState.naturalW = img.naturalWidth;
+        editorState.naturalH = img.naturalHeight;
       } catch (err) {
+        if (this._disposed || this._editorState !== editorState) return;
         this._editorShowFb('err', `Couldn't load image: ${err.message}`);
         return;
       }
 
-      this._editorSetFrame(this._editorState.frameEntityId);
+      this.shadowRoot.getElementById('editor-save-crop').disabled = false;
+      this.shadowRoot.getElementById('editor-send').disabled = false;
+      this._editorSetFrame(editorState.frameEntityId);
     }
 
     _closeEditor() {
@@ -6743,6 +6789,13 @@
     _wallBeginMarquee(e) {
       if (e.target !== e.currentTarget) return; // a tile's own drag, not empty space
       e.preventDefault();
+      // Same overlapping-pointer-input hazard as _wallBeginDrag: a second
+      // marquee start before the first's pointerup used to append a second
+      // .wall-marquee box without removing the first, leaking it identically.
+      if (this._wallMarquee) {
+        this._wallMarquee.box.remove();
+        this._wallMarquee = null;
+      }
       const canvas = e.currentTarget;
       const additive = e.shiftKey || e.ctrlKey || e.metaKey;
       const box = document.createElement('div');
@@ -7748,11 +7801,37 @@
       return candidates;
     }
 
+    // A second pointerdown before the first drag's pointerup (overlapping
+    // pointer inputs -- multi-touch/stylus+mouse, common on the touchscreen
+    // tablets this dashboard is often wall-mounted on) used to overwrite
+    // this._wallDrag without cleaning up the first drag's ghost element(s)
+    // or "dragging" tile class -- a permanent floating ghost stuck on
+    // screen, and _onWallPointerUp later finalizing/cancelling the WRONG
+    // (second) drag when the first pointer's pointerup eventually fires.
+    // Cancel whatever's in flight before starting a new one.
+    _wallCancelInProgressDrag() {
+      const drag = this._wallDrag;
+      if (!drag) return;
+      if (drag.ghost) drag.ghost.remove();
+      if (drag.group) for (const member of drag.group) member.ghost.remove();
+      this._wallDrag = null;
+      const canvas = this.shadowRoot.getElementById('wall-canvas');
+      const tileEl = this._wallTileEl(canvas, drag.entryId);
+      if (tileEl) tileEl.classList.remove('dragging');
+      if (drag.group) {
+        for (const member of drag.group) {
+          const el = this._wallTileEl(canvas, member.entryId);
+          if (el) el.classList.remove('dragging');
+        }
+      }
+    }
+
     _wallBeginDrag(e, entryId, kind) {
       e.preventDefault();
       const canvas = this.shadowRoot.getElementById('wall-canvas');
       const frame  = this._frames.find(f => f.entryId === entryId);
       if (!frame) return;
+      this._wallCancelInProgressDrag();
       const dims = this._wallTileDims(frame);
 
       // Pressing a member of a multi-selection drags the whole group; one
@@ -7837,19 +7916,14 @@
       if (!drag) return;
       window.removeEventListener('pointermove', this._onWallPointerMove);
       window.removeEventListener('pointerup', this._onWallPointerUp);
-      if (drag.ghost) drag.ghost.remove();
-      if (drag.group) for (const member of drag.group) member.ghost.remove();
-      this._wallDrag = null;
+      // Same ghost/class teardown _wallBeginDrag needs before starting a
+      // replacement drag -- reuse it here instead of duplicating it, so a
+      // future change to what a drag/group entry needs torn down can't be
+      // applied to one copy and missed on the other.
+      this._wallCancelInProgressDrag();
 
       const canvas = this.shadowRoot.getElementById('wall-canvas');
       const tileEl = this._wallTileEl(canvas, drag.entryId);
-      if (tileEl) tileEl.classList.remove('dragging');
-      if (drag.group) {
-        for (const member of drag.group) {
-          const el = this._wallTileEl(canvas, member.entryId);
-          if (el) el.classList.remove('dragging');
-        }
-      }
 
       if (!drag.moved) {
         // A modifier-click (shift/ctrl/cmd) on a placed tile toggles it in

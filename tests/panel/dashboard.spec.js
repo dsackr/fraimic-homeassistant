@@ -392,5 +392,138 @@ test.describe('Consolidated dashboard', () => {
       await customMock.stop();
     }
   });
+
+  test('switching albums quickly renders the last-picked album, not a slower stale one', async ({ page }) => {
+    // Regression: _openAlbum/_loadLibrary had no staleness guard, so two
+    // concurrent album loads could resolve out of order -- a slow first
+    // click's response landing after a fast second click used to leave
+    // the title and grid mismatched (or showing the wrong album entirely).
+    await mockServer.stop();
+    const customImages = [
+      { image_id: 'image_a', filename: 'from-album-a.png', albums: ['Album A'] },
+      { image_id: 'image_b', filename: 'from-album-b.png', albums: ['Album B'] },
+    ];
+    const customMock = createMockServer({
+      frames: FRAMES,
+      images: customImages,
+      scenes: [],
+      albums: [
+        { name: 'Album A', count: 1, cover_image_id: 'image_a' },
+        { name: 'Album B', count: 1, cover_image_id: 'image_b' },
+      ],
+    });
+    const customUrl = await customMock.start();
+    try {
+      await gotoPanel(page, customUrl, { frames: FRAMES });
+      await page.locator('#panel #library-open-btn').click();
+
+      // Album A's list request resolves slowly; Album B's resolves
+      // immediately -- exactly the race: A clicked first, B clicked right
+      // after, but A's response lands last.
+      await page.route('**/api/digital_frames/library/list?album=Album%20A', async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        await route.continue();
+      });
+
+      await page.locator('#panel .album-tile').filter({ hasText: 'Album A' }).click();
+      await page.locator('#panel .album-tile').filter({ hasText: 'Album B' }).click();
+
+      // Give Album A's delayed response time to land, if it were going to
+      // wrongly clobber the view opened after it.
+      await page.waitForTimeout(600);
+
+      await expect(page.locator('#panel #lib-breadcrumb-title')).toContainText('Album B');
+      const cards = page.locator('#panel .lib-card .preview-name');
+      await expect(cards).toHaveCount(1);
+      await expect(cards).toHaveText('from-album-b.png');
+    } finally {
+      await customMock.stop();
+    }
+  });
+
+  test('crop editor stale fetch cannot swap the picture back after closing and reopening for a different image', async ({ page }) => {
+    // Regression: _openEditor had no staleness guard, so closing the editor
+    // and reopening it for a different image while the first image's fetch
+    // was still in flight let that stale fetch's continuation overwrite the
+    // current editor's blob URL and dimensions after the fact -- visibly
+    // swapping the picture back to the wrong image while the save target
+    // stayed the new one, corrupting which image a saved crop applied to.
+    await mockServer.stop();
+    const customImages = [
+      { image_id: 'image_a', filename: 'first.png', albums: [] },
+      { image_id: 'image_b', filename: 'second.png', albums: [] },
+    ];
+    const customMock = createMockServer({
+      frames: FRAMES,
+      images: customImages,
+      scenes: [],
+      albums: [{ name: 'Images', count: 2, cover_image_id: 'image_a' }],
+    });
+    const customUrl = await customMock.start();
+    try {
+      await gotoPanel(page, customUrl, { frames: FRAMES });
+      await page.locator('#panel #library-open-btn').click();
+      await page.locator('#panel .album-tile').filter({ hasText: 'Images' }).click();
+
+      // image_a's full-size fetch (opened by the crop editor) resolves
+      // slowly; image_b's resolves immediately.
+      await page.route('**/api/digital_frames/library/image/image_a', async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        await route.continue();
+      });
+
+      await page.locator('#panel #thumb-image_a').click(); // opens editor for A, slow fetch starts
+      await expect(page.locator('#panel #editor-title')).toContainText('first.png');
+      await page.locator('#panel #editor-cancel').click(); // close before A's fetch resolves
+      await page.locator('#panel #thumb-image_b').click(); // opens editor for B, fast fetch
+      await expect(page.locator('#panel #editor-title')).toContainText('second.png');
+
+      // Give image_a's delayed response time to land, if it were going to
+      // wrongly overwrite the now-current editor state for image_b.
+      await page.waitForTimeout(700);
+
+      await expect(page.locator('#panel #editor-title')).toContainText('second.png');
+      await expect(page.locator('#panel #editor-title')).not.toContainText('first.png');
+    } finally {
+      await customMock.stop();
+    }
+  });
+
+  test('crop editor disables Save/Send until the image finishes loading', async ({ page }) => {
+    // Regression: editor-save-crop/editor-send were never disabled during
+    // the load window right after _openEditor opens, so clicking either
+    // immediately could submit {width: 0, height: 0, crop_box: null}.
+    await mockServer.stop();
+    const customImages = [{ image_id: 'image_a', filename: 'first.png', albums: [] }];
+    const customMock = createMockServer({
+      frames: FRAMES,
+      images: customImages,
+      scenes: [],
+      albums: [{ name: 'Images', count: 1, cover_image_id: 'image_a' }],
+    });
+    const customUrl = await customMock.start();
+    try {
+      await gotoPanel(page, customUrl, { frames: FRAMES });
+      await page.locator('#panel #library-open-btn').click();
+      await page.locator('#panel .album-tile').filter({ hasText: 'Images' }).click();
+
+      await page.route('**/api/digital_frames/library/image/image_a', async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        await route.continue();
+      });
+
+      await page.locator('#panel #thumb-image_a').click();
+      await expect(page.locator('#panel #editor-save-crop')).toBeDisabled();
+      await expect(page.locator('#panel #editor-send')).toBeDisabled();
+
+      // editor-send stays disabled afterward too in this fixture (it also
+      // requires picking an actual physical frame, not the generic
+      // orientation default -- unrelated to this fix), but editor-save-crop
+      // only needs the image to have finished loading.
+      await expect(page.locator('#panel #editor-save-crop')).toBeEnabled({ timeout: 5000 });
+    } finally {
+      await customMock.stop();
+    }
+  });
 });
 

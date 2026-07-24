@@ -131,4 +131,55 @@ test.describe('Panel element lifecycle', () => {
 
     expect(pageErrors).toEqual([]);
   });
+
+  test('a thumbnail fetch still in flight when the panel disposes must not leak a blob URL', async ({ page }) => {
+    // Regression: _fetchThumb's fetch wasn't tied to the abort signal and
+    // had no disposed check before URL.createObjectURL -- a thumbnail still
+    // loading when the panel is torn down (HA recreates this panel element
+    // per navigation, never reuses it) used to still create a blob URL
+    // after dispose, which is then never revoked since _dispose() had
+    // already reset the tracking dict it would have been recorded in.
+    const { pageErrors } = await gotoPanel(page, baseUrl, { frames: FRAMES });
+
+    await page.evaluate(() => {
+      window.__createObjectURLCalls = 0;
+      const orig = URL.createObjectURL.bind(URL);
+      URL.createObjectURL = (blob) => {
+        window.__createObjectURLCalls++;
+        return orig(blob);
+      };
+    });
+
+    await page.route('**/api/digital_frames/library/image/image_1?thumb=*', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await route.continue();
+    });
+
+    // Trigger the wall-tile cover thumbnail fetch (same _loadThumbnail /
+    // _fetchThumb path every thumbnail in the panel uses).
+    await page.evaluate(() => {
+      document.getElementById('panel').shadowRoot.querySelector('.tab-btn[data-tab="dashboard"]').click();
+    });
+    await page.waitForFunction(() => {
+      const sel = document.getElementById('panel').shadowRoot.getElementById('wall-scene-select');
+      return sel && [...sel.options].some((o) => o.value === 'scene_1');
+    }, { timeout: 5000 });
+    await page.evaluate(() => {
+      const sel = document.getElementById('panel').shadowRoot.getElementById('wall-scene-select');
+      sel.value = 'scene_1';
+      sel.dispatchEvent(new Event('change'));
+    });
+
+    // The (route-delayed) thumbnail fetch is now in flight -- detach before
+    // it can resolve.
+    await page.waitForTimeout(100);
+    await page.evaluate(() => document.getElementById('panel').remove());
+
+    // Let the delayed response land.
+    await page.waitForTimeout(700);
+
+    const calls = await page.evaluate(() => window.__createObjectURLCalls);
+    expect(calls).toBe(0);
+    expect(pageErrors).toEqual([]);
+  });
 });

@@ -364,17 +364,31 @@ def text_skill_payload_for_codec(
 
     - **JPEG panels (Meural):** encode JPEG from the RGB PNG (not unpack of
       ``.bin``), so anti-aliased text is not posterized through Spectra 6.
+    - **PNG panels (Samsung):** encode PNG from the RGB PNG the same way.
     - **Spectra panels:** wire stays ``.bin``; preview prefers RGB PNG for a
       sharper last-image thumbnail.
 
     Fallback when *rgb_png* is missing: Spectra pass-through + unpack-based
-    preview; JPEG unpacks ``.bin`` (6-color posterized).
+    preview; JPEG/PNG unpack ``.bin`` (6-color posterized).
+
+    *width*/*height* are the renderer's *composition* canvas -- the frame's
+    effective (possibly orientation-swapped) size, per
+    ``helpers.render_spec_for_entry``. When *rotation* is nonzero (the
+    frame's orientation lock disagrees with its native buffer), the Spectra
+    branch below must rotate + repack before returning, exactly like
+    ``image_converter._process`` does for ordinary photo sends -- otherwise
+    the wire bytes stay packed at the composition size while the panel's
+    raster expects its native (post-rotation) size, producing a silently
+    sideways/garbled render with no exception (see KEY_PRODUCT_FLOWS.md
+    KPF 28/22).
 
     Positional-friendly for ``async_add_executor_job``.
     """
     from .image_converter import (  # noqa: PLC0415
         _encode_preview_png,
         _open_as_rgb,
+        _pack_p_image_fast,
+        _quantize_to_spectra6_p,
         preview_png_from_bin,
         unpack_spectra6_bin,
     )
@@ -385,19 +399,47 @@ def text_skill_payload_for_codec(
             image = image.rotate(rotation, expand=True)
         return image
 
-    if codec_id == CODEC_JPEG_Q90:
+    def _decode_and_rotate() -> Any:
+        """Decode the source image and apply *rotation*, preferring
+        *rgb_png* when present -- the shared "unpack, then conditionally
+        rotate" step both the JPEG/PNG branch and the Spectra rotate branch
+        below need."""
         if rgb_png:
-            image = _image_from_rgb_png()
-        else:
-            image = unpack_spectra6_bin(spectra_bin, width, height)
-            if rotation:
-                image = image.rotate(rotation, expand=True)
+            return _image_from_rgb_png()
+        image = unpack_spectra6_bin(spectra_bin, width, height)
+        if rotation:
+            image = image.rotate(rotation, expand=True)
+        return image
+
+    if codec_id in (CODEC_JPEG_Q90, CODEC_PNG):
+        image = _decode_and_rotate()
         buf = io.BytesIO()
-        image.save(buf, format="JPEG", quality=90, optimize=True)
+        if codec_id == CODEC_JPEG_Q90:
+            image.save(buf, format="JPEG", quality=90, optimize=True)
+        else:
+            image.save(buf, format="PNG")
         return buf.getvalue(), _encode_preview_png(image)
 
-    # Spectra wire payload
+    # Spectra wire payload. If the panel's native buffer disagrees with the
+    # composition canvas, rotate to native orientation and repack -- reusing
+    # whichever source image we already decoded for both the repack and the
+    # preview so a rotated frame's preview always matches what was sent.
+    rotated_image: Any | None = None
+    if rotation:
+        rotated_image = _decode_and_rotate()
+        p_image = _quantize_to_spectra6_p(rotated_image)
+        spectra_bin = _pack_p_image_fast(p_image)
+
     preview: bytes | None = None
+    if rotated_image is not None:
+        # spectra_bin is now packed at the rotated (native) size, not
+        # width x height -- the preview_png_from_bin fallback below assumes
+        # its bin matches width x height, so it must not be used here.
+        try:
+            preview = _encode_preview_png(rotated_image)
+        except Exception:  # noqa: BLE001
+            preview = None
+        return spectra_bin, preview
     if rgb_png:
         try:
             preview = _encode_preview_png(_image_from_rgb_png())

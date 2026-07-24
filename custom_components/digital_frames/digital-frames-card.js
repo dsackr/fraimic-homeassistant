@@ -307,7 +307,50 @@
 
     setConfig(config) {
       this._config = config || {};
+      // _build() unconditionally replaces the whole shadow DOM below, and
+      // HA's card-editor live preview calls setConfig() on every config
+      // change (e.g. every keystroke in the editor's Name field, not just
+      // entry_id/entity) -- any staged-but-unsent pick or open crop session
+      // must be torn down here too, or the freshly rebuilt DOM's
+      // default-hidden state (actions bar, crop overlay) desyncs from
+      // _staged/_crop staying truthy, with nothing left in the new DOM to
+      // reach _unstage()/_closeCrop() from and the card stuck until reload.
+      this._teardownVolatileState();
       this._build();
+    }
+
+    // Revokes every blob URL this card can be holding and removes the
+    // window-level listeners the crop-drag session registers. Shared by
+    // setConfig() (about to blow away the DOM that referenced them) and
+    // disconnectedCallback() (the element itself is being removed --
+    // HA recreates Lovelace cards on dashboard/view changes, never reuses
+    // one, so anything left here leaks for the life of the browser tab).
+    _teardownVolatileState() {
+      if (this._stagedPreviewUrl) {
+        URL.revokeObjectURL(this._stagedPreviewUrl);
+        this._stagedPreviewUrl = null;
+      }
+      if (this._cropImgUrl) {
+        URL.revokeObjectURL(this._cropImgUrl);
+        this._cropImgUrl = null;
+      }
+      if (this._mediaBlobUrl) {
+        URL.revokeObjectURL(this._mediaBlobUrl);
+        this._mediaBlobUrl = null;
+      }
+      this._staged = null;
+      this._crop = null;
+      this._cropDrag = null;
+      this._pickerMode = null;
+      this._mediaSourceUrl = null;
+      this._frameThumbEtag = null;
+      window.removeEventListener('pointermove', this._onCropMove);
+      window.removeEventListener('pointerup', this._onCropUp);
+      if (this._onCropResize) window.removeEventListener('resize', this._onCropResize);
+    }
+
+    disconnectedCallback() {
+      this._teardownVolatileState();
     }
 
     getCardSize() {
@@ -1282,14 +1325,20 @@
         if (result._httpOk && result.success) {
           this._showFeedback('success', '✓ Sent to frame!');
           setTimeout(() => {
-            this._unstage();
-            this._refreshFrames(true);
+            // Same staleness guard as _cropSaveSend() below: don't clobber
+            // a pick staged after this send started.
+            if (this._staged === staged) {
+              this._unstage();
+              this._refreshFrames(true);
+            }
           }, 1200);
         } else if (result.queued) {
           this._showFeedback('success', '⏳ Frame is asleep — queued, will send on wake.');
           setTimeout(() => {
-            this._unstage();
-            this._refreshFrames(true);
+            if (this._staged === staged) {
+              this._unstage();
+              this._refreshFrames(true);
+            }
           }, 1500);
         } else {
           throw new Error(result.message || `HTTP error`);
@@ -1491,6 +1540,7 @@
     async _cropSaveSend() {
       const crop = this._crop;
       const frame = this._frame;
+      const staged = this._staged;
       if (!crop || !crop.cropBox || !frame) return;
       const btn = this._q('cropSaveSend');
       const prev = btn.textContent;
@@ -1529,7 +1579,20 @@
         }
         setTimeout(() => {
           this._closeCrop();
-          this._refreshFrames(true);
+          // Crop can target a staged-but-unsent pick (_cropTargetImageId);
+          // this send just confirmed it on the frame, so leaving _staged
+          // set afterward left the Send/Cancel bar and PREVIEW badge stuck
+          // showing stale state indefinitely -- mirrors the same
+          // unstage-after-confirmed-send done in _send() above. But only
+          // if _staged is still the same pick this crop session started
+          // with -- the user may have closed the crop overlay (cropClose
+          // isn't disabled during save/send) and staged something else
+          // while this was in flight, and that newer pick must not be
+          // silently discarded.
+          if (this._staged === staged) {
+            this._unstage();
+            this._refreshFrames(true);
+          }
         }, 1400);
       } catch (err) {
         this._showCropFb('error', `Failed: ${err.message}`);

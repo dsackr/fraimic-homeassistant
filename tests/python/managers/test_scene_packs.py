@@ -313,6 +313,34 @@ async def test_uninstall_removes_scene_and_images(
         await scene_pack_manager.async_uninstall_pack("monet")
 
 
+async def test_uninstall_succeeds_when_remote_catalog_is_unreachable(
+    hass, scene_pack_manager, fake_library, aioclient_mock, sample_image_bytes
+):
+    """Regression: uninstall used to fetch the pack from the remote catalog
+    (async_get_pack) AFTER already deleting the scene, purely to read
+    installed.get("album", pack["name"]) -- installed["album"] is always
+    recorded at install time, so that fetch was both unnecessary and, if the
+    catalog was unreachable or no longer listed this pack_id, left the scene
+    gone and the pack stuck "installed" forever with every retry failing
+    identically. Uninstall must not depend on the network at all."""
+    images = [{"filename": "a.jpg", "path": "scene_packs/monet/a.jpg"}]
+    url, body = _catalog_url_and_body(images)
+    aioclient_mock.get(url, json=body)
+    aioclient_mock.get(_image_url(images[0]), content=sample_image_bytes(800, 600))
+
+    await scene_pack_manager.async_install_pack("monet")
+
+    # The catalog is now unreachable -- uninstall must still succeed.
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(url, status=500)
+
+    await scene_pack_manager.async_uninstall_pack("monet")
+
+    assert await fake_library.async_list_images() == []
+    with pytest.raises(ScenePackError, match="not installed"):
+        await scene_pack_manager.async_uninstall_pack("monet")
+
+
 async def test_uninstall_untags_image_shared_with_another_album_instead_of_deleting(
     hass, scene_pack_manager, fake_library, aioclient_mock, sample_image_bytes
 ):

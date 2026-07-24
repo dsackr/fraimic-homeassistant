@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 import aiohttp
 
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -296,6 +297,21 @@ class DigitalFramesCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Genuinely unreachable -- leave it queued, the poll loop will
             # deliver it once the frame answers again.
             return {"success": False, "queued": True}
+        except aiohttp.ClientError as err:
+            # The frame was reached and definitively rejected the request
+            # (e.g. a malformed upload or an on-device error) -- unlike a
+            # connection drop or timeout, retrying the identical payload
+            # from the queue would only fail again identically, so clear it
+            # rather than leaving it stuck forever pinning the fast-poll
+            # interval. Convert to a clean HomeAssistantError -- otherwise
+            # this raw aiohttp exception propagates uncaught out of every
+            # caller of this method, including the send_image and
+            # generate_ai_image service handlers, as a scary traceback
+            # instead of a clean service-call error.
+            await self._clear_pending_if_current(token)
+            raise HomeAssistantError(
+                f"Failed to send image to {self.host}: {err}"
+            ) from err
         finally:
             self._flushing = False
 

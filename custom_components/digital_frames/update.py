@@ -551,9 +551,19 @@ async def install_update(hass: HomeAssistant, *, version: str | None = None) -> 
     await _install_from_zipball(hass, zip_url, expected_version=target)
     hacs_sync = await _sync_hacs_after_install(hass, tag=tag, version=target)
     _mark_needs_restart(hass)
-    disk = await get_disk_version(hass) or target
+    disk = await get_disk_version(hass)
+    if not disk:
+        # The extraction reported success but manifest.json is now
+        # missing/unreadable -- don't mask this as a match against
+        # `target` (that would defeat the very check below); this is a
+        # broken install, not a version mismatch.
+        raise UpdateError(
+            "Update extracted but the on-disk manifest is missing or unreadable "
+            f"afterward at {hass.config.path('custom_components', _COMPONENT)} -- "
+            "the install did not complete cleanly."
+        )
     running = await get_running_version(hass)
-    if disk and _norm_version(disk) != _norm_version(target):
+    if _norm_version(disk) != _norm_version(target):
         _LOGGER.warning(
             "Post-install disk version %s does not match target %s",
             disk,
@@ -642,7 +652,13 @@ async def _try_hacs_install(
             repo.pending_restart = True
 
         _mark_needs_restart(hass)
-        disk = await get_disk_version(hass) or target
+        disk = await get_disk_version(hass)
+        if not disk:
+            raise UpdateError(
+                "HACS reported the download complete but the on-disk manifest "
+                "is missing or unreadable afterward -- the install did not "
+                "complete cleanly."
+            )
         running = await get_running_version(hass)
         return {
             "success": True,
@@ -662,6 +678,13 @@ async def _try_hacs_install(
                 + ". Restart Home Assistant to load it."
             ),
         }
+    except UpdateError:
+        # A verified, specific failure (HACS reported success but the
+        # on-disk manifest is missing/unreadable) -- this is a broken
+        # install, not "HACS doesn't support this path". Let it propagate
+        # instead of masking it as a silent fallback to a from-scratch
+        # GitHub zipball install.
+        raise
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("HACS install path failed, falling back to GitHub: %s", err)
         return None
@@ -705,6 +728,7 @@ async def _install_from_zipball(
 
             backup_root = hass.config.path(".storage", "fraimic_update_backup")
             os.makedirs(backup_root, exist_ok=True)
+            bak = None
             if os.path.isdir(dest):
                 bak = os.path.join(
                     backup_root, f"{_COMPONENT}.bak.{expected_version or 'prev'}"
@@ -713,22 +737,39 @@ async def _install_from_zipball(
                     shutil.rmtree(bak)
                 shutil.move(dest, bak)
 
-            os.makedirs(dest, exist_ok=True)
-            for info in zf.infolist():
-                if info.is_dir():
-                    continue
-                if not info.filename.startswith(prefix):
-                    continue
-                rel = info.filename[len(prefix) :]
-                if not rel or rel.endswith("/"):
-                    continue
-                # Path-traversal guard
-                out_path = os.path.normpath(os.path.join(dest, rel))
-                if not out_path.startswith(os.path.normpath(dest) + os.sep) and out_path != os.path.normpath(dest):
-                    continue
-                os.makedirs(os.path.dirname(out_path), exist_ok=True)
-                with zf.open(info) as src, open(out_path, "wb") as out:
-                    shutil.copyfileobj(src, out)
+            try:
+                os.makedirs(dest, exist_ok=True)
+                for info in zf.infolist():
+                    if info.is_dir():
+                        continue
+                    if not info.filename.startswith(prefix):
+                        continue
+                    rel = info.filename[len(prefix) :]
+                    if not rel or rel.endswith("/"):
+                        continue
+                    # Path-traversal guard
+                    out_path = os.path.normpath(os.path.join(dest, rel))
+                    if not out_path.startswith(os.path.normpath(dest) + os.sep) and out_path != os.path.normpath(dest):
+                        continue
+                    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                    with zf.open(info) as src, open(out_path, "wb") as out:
+                        shutil.copyfileobj(src, out)
+            except Exception:
+                # A partial write (disk full, permission error, a corrupt
+                # download) must not leave a half-written install with no
+                # way back -- restore the prior good copy before re-raising.
+                if bak is not None:
+                    if os.path.isdir(dest):
+                        shutil.rmtree(dest)
+                    shutil.move(bak, dest)
+                elif os.path.isdir(dest):
+                    # No prior copy existed to restore (first-time install,
+                    # or a retry after an earlier attempt never got this
+                    # far) -- remove the half-extracted directory instead
+                    # of leaving it behind with a missing/partial
+                    # manifest.json.
+                    shutil.rmtree(dest)
+                raise
 
     try:
         await hass.async_add_executor_job(_extract)

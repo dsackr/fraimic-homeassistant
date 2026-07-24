@@ -448,6 +448,121 @@ async def test_text_render_meural_returns_jpeg_not_spectra_bin(
     assert result["preview"][:8] == b"\x89PNG\r\n\x1a\n"
 
 
+async def test_text_render_samsung_returns_png_not_spectra_bin(
+    hass, skill_manager, monkeypatch, mock_script_download,
+):
+    """Regression: Samsung (CODEC_PNG) skill sends used to fall through to
+    the Spectra branch of text_skill_payload_for_codec and silently return
+    raw Spectra6-packed bytes mislabeled as PNG."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.digital_frames.const import (
+        CONF_DRIVER,
+        CONF_HEIGHT,
+        CONF_HOST,
+        CONF_MDC_PIN,
+        CONF_NAME,
+        CONF_SIZE,
+        CONF_WIDTH,
+        DEFAULT_MDC_PIN,
+        DOMAIN,
+        DRIVER_SAMSUNG,
+        SAMSUNG_SIZE_LABEL,
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Living Room Samsung",
+        data={
+            CONF_HOST: "192.168.1.40",
+            CONF_NAME: "Living Room Samsung",
+            CONF_WIDTH: 2560,
+            CONF_HEIGHT: 1440,
+            CONF_SIZE: SAMSUNG_SIZE_LABEL,
+            CONF_MDC_PIN: DEFAULT_MDC_PIN,
+            CONF_DRIVER: DRIVER_SAMSUNG,
+        },
+        entry_id="samsung_e1",
+    )
+    entry.add_to_hass(hass)
+    await skill_manager.async_load()
+    created = await skill_manager.async_save_skill(
+        "Custom Word", "word", {"word_feed": "custom"}
+    )
+
+    # Renderer writes Spectra bin + full RGB preview (like real xotd_renderer).
+    from PIL import Image
+    import io
+
+    packed = bytes((2560 * 1440) // 2)
+    rgb = Image.new("RGB", (2560, 1440), color=(18, 44, 190))
+    rgb_buf = io.BytesIO()
+    rgb.save(rgb_buf, format="PNG")
+    rgb_png = rgb_buf.getvalue()
+
+    async def _fake_exec(*args, **kwargs):
+        config_path = args[4]
+        run_dir = os.path.dirname(config_path)
+        with open(os.path.join(run_dir, "xotd.bin"), "wb") as f:
+            f.write(packed)
+        with open(os.path.join(run_dir, "xotd_preview.png"), "wb") as f:
+            f.write(rgb_png)
+        return _FakeProcess(returncode=0)
+
+    monkeypatch.setattr(
+        "custom_components.digital_frames.skills.asyncio.create_subprocess_exec", _fake_exec
+    )
+
+    result = await skill_manager.async_render_for_entry(created["skill_id"], entry)
+    assert result["kind"] == "bin"
+    # Must be a real PNG, never the raw Spectra .bin bytes mislabeled.
+    assert result["bytes"][:8] == b"\x89PNG\r\n\x1a\n"
+    assert result["bytes"] != packed
+    assert result["preview"] is not None
+    assert result["preview"][:8] == b"\x89PNG\r\n\x1a\n"
+
+
+async def test_text_render_rotated_spectra_bad_bin_raises_instead_of_soft_fallback(
+    hass, skill_manager, make_frame_entry, monkeypatch, mock_script_download,
+):
+    """Regression (issue #6): a rotation-locked Spectra frame whose renderer
+    output can't be unpacked/rotated must raise SkillError, not silently
+    fall back to the un-rotated bin -- that fallback is packed at the wrong
+    (composition, not native) size and would reintroduce the exact
+    sideways/garbled render this rotation support exists to prevent."""
+    from custom_components.digital_frames.const import (
+        CONF_ORIENTATION,
+        ORIENTATION_LANDSCAPE,
+    )
+
+    # Native 1200x1600 (portrait) locked to landscape -> rotation=90.
+    entry = make_frame_entry(
+        entry_id="e1", options={CONF_ORIENTATION: ORIENTATION_LANDSCAPE}
+    )
+    entry.add_to_hass(hass)
+    await skill_manager.async_load()
+    created = await skill_manager.async_save_skill(
+        "Custom Word", "word", {"word_feed": "custom"}
+    )
+
+    async def _fake_exec(*args, **kwargs):
+        config_path = args[4]
+        run_dir = os.path.dirname(config_path)
+        # Malformed .bin, no preview PNG -- forces the Spectra branch to
+        # actually decode+rotate spectra_bin itself rather than taking the
+        # rgb_png shortcut.
+        with open(os.path.join(run_dir, "xotd.bin"), "wb") as f:
+            f.write(b"not-a-bin")
+        return _FakeProcess(returncode=0)
+
+    monkeypatch.setattr(
+        "custom_components.digital_frames.skills.asyncio.create_subprocess_exec", _fake_exec
+    )
+
+    with pytest.raises(SkillError, match="rotated Spectra"):
+        await skill_manager.async_render_for_entry(created["skill_id"], entry)
+
+
 async def test_text_render_nonzero_exit_raises_skill_error(
     hass, skill_manager, make_frame_entry, monkeypatch,
     mock_script_download,

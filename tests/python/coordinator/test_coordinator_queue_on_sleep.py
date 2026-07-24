@@ -14,6 +14,7 @@ import base64
 
 import aiohttp
 import pytest
+from homeassistant.exceptions import HomeAssistantError
 
 
 @pytest.fixture
@@ -73,6 +74,29 @@ async def test_timeout_but_frame_answers_probe_is_not_queued(coordinator, aiocli
     assert result == {"success": True, "queued": False, "unconfirmed": True}
     assert coordinator.pending_send is None
     assert coordinator.last_image_id == "img1"
+    from custom_components.digital_frames.coordinator import _FAST_POLL_INTERVAL
+
+    assert coordinator.update_interval != _FAST_POLL_INTERVAL
+
+
+async def test_rejected_response_raises_clean_error_and_clears_pending(
+    coordinator, aioclient_mock
+):
+    """The frame was reached and definitively rejected the request (e.g. a
+    malformed upload). Unlike a connection drop or timeout, retrying the
+    identical payload from the queue would only fail again identically --
+    this must not stay queued forever, and must surface as a clean
+    HomeAssistantError rather than propagate the raw aiohttp exception
+    (which used to reach the send_image/generate_ai_image services
+    uncaught)."""
+    aioclient_mock.post(f"http://{coordinator.host}/api/image", status=500)
+
+    with pytest.raises(HomeAssistantError):
+        await coordinator.async_send_image_or_queue(b"data", image_id="img1")
+
+    assert coordinator.pending_send is None
+    # Must not be left pinned to the fast-poll interval for a payload that
+    # will never successfully flush.
     from custom_components.digital_frames.coordinator import _FAST_POLL_INTERVAL
 
     assert coordinator.update_interval != _FAST_POLL_INTERVAL

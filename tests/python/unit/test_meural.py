@@ -401,8 +401,14 @@ async def test_meural_unreachable_returns_offline_data_not_raise():
 
 
 @pytest.mark.asyncio
-async def test_orientation_change_redisplays_last_wire():
-    """Physical rotate must re-postcard HA content, not leave app Recents."""
+async def test_orientation_change_updates_options_without_redisplaying_directly():
+    """Physical rotate must persist the new orientation, but must NOT
+    redisplay from here -- __init__.py's _async_update_listener is the sole
+    trigger for that (see test_async_update_listener_redisplays_once_on_
+    orientation_change below). Calling async_redisplay_last() from both
+    this method and the listener used to double-send the postcard on every
+    physical rotate: two full re-encodes, two POSTs, a visible
+    double-redraw flash."""
     hass = MagicMock()
     hass.data = {DOMAIN: {}}
     entry = MagicMock()
@@ -418,12 +424,52 @@ async def test_orientation_change_redisplays_last_wire():
 
     with (
         patch.object(coord, "async_send_image", new=AsyncMock()) as send,
-        patch.object(coord, "async_redisplay_last", wraps=coord.async_redisplay_last),
+        patch.object(
+            coord, "async_redisplay_last", new=AsyncMock()
+        ) as redisplay,
     ):
         await coord._async_maybe_follow_device_orientation(ORIENTATION_PORTRAIT)
 
     hass.config_entries.async_update_entry.assert_called_once()
-    send.assert_awaited_once_with(b"\xff\xd8\xffwirejpeg")
+    updated_options = hass.config_entries.async_update_entry.call_args.kwargs["options"]
+    assert updated_options[CONF_ORIENTATION] == ORIENTATION_PORTRAIT
+    redisplay.assert_not_awaited()
+    send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_async_update_listener_redisplays_once_on_orientation_change():
+    """The single source of truth for orientation-driven redisplay: fires
+    exactly once when CONF_ORIENTATION/CONF_ORIENTATION_FOLLOW_DEVICE
+    actually change, and not at all for an unrelated option change or a
+    repeat call with nothing new."""
+    from custom_components.digital_frames import _async_update_listener
+
+    hass = MagicMock()
+    hass.data = {DOMAIN: {}}
+    entry = MagicMock()
+    entry.entry_id = "meural_entry"
+    entry.options = {CONF_ORIENTATION: ORIENTATION_LANDSCAPE, "unrelated": 1}
+
+    coord = MagicMock()
+    coord.host = "192.168.1.32"
+    coord.async_send_image_or_queue = AsyncMock()
+    coord.async_redisplay_last = AsyncMock()
+    hass.data[DOMAIN]["meural_entry"] = coord
+
+    # First call only seeds the snapshot -- no prior state to diff against.
+    await _async_update_listener(hass, entry)
+    coord.async_redisplay_last.assert_not_awaited()
+
+    # Orientation changes -- must redisplay exactly once.
+    entry.options = {**entry.options, CONF_ORIENTATION: ORIENTATION_PORTRAIT}
+    await _async_update_listener(hass, entry)
+    coord.async_redisplay_last.assert_awaited_once()
+
+    # An unrelated option changing must not trigger another redisplay.
+    entry.options = {**entry.options, "unrelated": 2}
+    await _async_update_listener(hass, entry)
+    coord.async_redisplay_last.assert_awaited_once()
 
 
 @pytest.mark.asyncio

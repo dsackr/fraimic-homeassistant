@@ -37,6 +37,7 @@ Endpoints:
 from __future__ import annotations
 
 import hashlib
+import html
 import logging
 from urllib.parse import urlencode
 
@@ -992,13 +993,13 @@ class DigitalFramesLibraryGoogleOAuthCallbackView(HomeAssistantView):
     @staticmethod
     def _page(message: str, ok: bool) -> web.Response:
         color = "#15803d" if ok else "#b91c1c"
-        html = (
+        page = (
             "<!DOCTYPE html><html><body style=\"font-family:sans-serif;"
             "text-align:center;padding:60px 20px\">"
-            f"<h2 style=\"color:{color}\">{message}</h2>"
+            f"<h2 style=\"color:{color}\">{html.escape(message)}</h2>"
             "</body></html>"
         )
-        return web.Response(text=html, content_type="text/html", status=200 if ok else 400)
+        return web.Response(text=page, content_type="text/html", status=200 if ok else 400)
 
 
 class DigitalFramesFrameReloadView(HomeAssistantView):

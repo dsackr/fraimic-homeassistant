@@ -62,6 +62,7 @@ Conversion pipeline
 from __future__ import annotations
 
 import io
+import math
 from typing import Tuple
 
 try:
@@ -139,10 +140,16 @@ def _resize_cover_centered(
     """
     orig_w, orig_h = image.size
 
-    # Scale so that the image covers the entire target area.
+    # Scale so that the image covers the entire target area. Round up
+    # (not int()'s truncate-toward-zero): floating-point error routinely
+    # lands scale a hair under the exact target, and int() truncation then
+    # leaves the resized image 1px short on the governing axis -- a stray
+    # unfilled white row/column at the edge of the canvas below. Any 1px
+    # overage from rounding up is trimmed by the centered crop below, so
+    # this can only shrink or eliminate the gap, never introduce one.
     scale = max(target_width / orig_w, target_height / orig_h)
-    scaled_w = int(orig_w * scale)
-    scaled_h = int(orig_h * scale)
+    scaled_w = math.ceil(orig_w * scale)
+    scaled_h = math.ceil(orig_h * scale)
 
     resized = image.resize((scaled_w, scaled_h), Image.LANCZOS)
 

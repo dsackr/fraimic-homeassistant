@@ -180,25 +180,32 @@ class MeuralOrientationSelect(CoordinatorEntity, SelectEntity):
                     await self.coordinator.async_set_device_orientation(device)
                 except Exception:  # noqa: BLE001
                     pass
-            self.hass.config_entries.async_update_entry(
-                self._entry, options=new_options
-            )
-            # Canvas may still show orientation-scoped Recents — re-postcard.
-            if hasattr(self.coordinator, "async_redisplay_last"):
-                await self.coordinator.async_redisplay_last()
         else:
             try:
                 await self.coordinator.async_set_device_orientation(value)
             except Exception:  # noqa: BLE001
                 pass
-            self.hass.config_entries.async_update_entry(
-                self._entry,
-                options={
-                    **self._entry.options,
-                    CONF_ORIENTATION: value,
-                    CONF_ORIENTATION_FOLLOW_DEVICE: False,
-                },
-            )
-            if hasattr(self.coordinator, "async_redisplay_last"):
-                await self.coordinator.async_redisplay_last()
+            new_options = {
+                **self._entry.options,
+                CONF_ORIENTATION: value,
+                CONF_ORIENTATION_FOLLOW_DEVICE: False,
+            }
+
+        # Canvas may still show orientation-scoped Recents -- re-postcard.
+        # That normally happens via __init__.py's _async_update_listener,
+        # which fires for this exact option change; calling
+        # async_redisplay_last() here too used to double-send the postcard
+        # on every orientation change (two re-encodes, two POSTs, a visible
+        # double-redraw flash) -- leave the listener as the single trigger
+        # for an actual change. But HA's async_update_entry is a no-op (and
+        # never invokes the listener) when new_options is identical to what
+        # is already stored, so re-selecting the already-active option --
+        # e.g. to force a re-postcard after Canvas drifted to a Recents
+        # thumbnail on its own -- would otherwise silently do nothing.
+        unchanged = new_options == dict(self._entry.options)
+        self.hass.config_entries.async_update_entry(
+            self._entry, options=new_options
+        )
+        if unchanged:
+            await self.coordinator.async_redisplay_last()
         self.async_write_ha_state()

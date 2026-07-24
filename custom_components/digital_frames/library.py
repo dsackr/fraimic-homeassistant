@@ -224,6 +224,22 @@ def _safe_filename(name: str) -> str:
     return name[:128] or "image"
 
 
+# image_id is always generated as uuid.uuid4().hex[:12] (see
+# async_upload_original on every backend). Every call site that
+# interpolates a caller-supplied image_id directly into a filesystem path
+# or cloud API path (rather than looking it up against the manifest first)
+# must validate it against this shape -- otherwise a crafted
+# "../../etc/passwd"-style image_id reaches _bin_path/_thumb_path
+# unsanitized (unlike filenames, which always go through _safe_filename).
+_IMAGE_ID_RE = re.compile(r"^[0-9a-f]{6,40}$")
+
+
+def _safe_image_id(image_id: str) -> str:
+    if not isinstance(image_id, str) or not _IMAGE_ID_RE.match(image_id):
+        raise ValueError(f"Invalid image_id: {image_id!r}")
+    return image_id
+
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -466,6 +482,7 @@ class LocalLibraryBackend(LibraryBackend):
     ) -> str:
         # Phase 2: bin/<WxH[variant]>/<codec_id>/<image_id>.bin
         # Legacy (no codec_id): bin/<WxH[variant]>/<image_id>.bin
+        image_id = _safe_image_id(image_id)
         res = _bin_res_key(width, height, variant)
         if codec_id:
             return os.path.join(
@@ -589,19 +606,28 @@ class LocalLibraryBackend(LibraryBackend):
         path = self._find_original_path(image_id)
         if path and os.path.isfile(path):
             os.remove(path)
+        # Malformed ids (e.g. a double-click delete replaying an
+        # already-removed id) no-op on the bin cache below rather than
+        # raising -- but never let an unsanitized id reach _bin_path's
+        # direct path interpolation (see _safe_image_id's docstring).
+        safe_image_id = None
+        try:
+            safe_image_id = _safe_image_id(image_id)
+        except ValueError:
+            pass
         bin_root = os.path.join(self._root, "bin")
-        if os.path.isdir(bin_root):
+        if safe_image_id and os.path.isdir(bin_root):
             for res_dir in os.listdir(bin_root):
                 res_path = os.path.join(bin_root, res_dir)
                 # Legacy: bin/<res>/<id>.bin
-                candidate = os.path.join(res_path, f"{image_id}.bin")
+                candidate = os.path.join(res_path, f"{safe_image_id}.bin")
                 if os.path.isfile(candidate):
                     os.remove(candidate)
                 # Phase 2: bin/<res>/<codec_id>/<id>.bin
                 if os.path.isdir(res_path):
                     for sub in os.listdir(res_path):
                         codec_candidate = os.path.join(
-                            res_path, sub, f"{image_id}.bin"
+                            res_path, sub, f"{safe_image_id}.bin"
                         )
                         if os.path.isfile(codec_candidate):
                             os.remove(codec_candidate)
@@ -944,6 +970,7 @@ class DropboxLibraryBackend(LibraryBackend):
         variant: str = "",
         codec_id: str = "",
     ) -> str:
+        image_id = _safe_image_id(image_id)
         res = _bin_res_key(width, height, variant)
         if codec_id:
             return f"{self._root}/bin/{res}/{codec_id}/{image_id}.bin"
@@ -1131,11 +1158,21 @@ class DropboxLibraryBackend(LibraryBackend):
     async def async_delete_image(self, image_id: str) -> None:
         session = async_get_clientsession(self.hass)
         path, _content_type = await self._original_dropbox_path(image_id)
-        await session.post(
+        resp = await session.post(
             f"{_DROPBOX_API}/files/delete_v2",
             headers=self._headers({"Content-Type": "application/json"}),
             json={"path": path},
         )
+        # Unlike async_delete_bin above, this response used to be discarded
+        # unchecked -- a transient failure (expired token, rate limit, 5xx)
+        # was treated as success and the manifest entry removed below
+        # regardless, orphaning the file in the user's Dropbox with no
+        # remaining record the app could ever reference or retry against.
+        if resp.status >= 400 and resp.status not in (404, 409):
+            text = await resp.text()
+            raise LibraryBackendError(
+                f"Dropbox original delete failed ({resp.status}): {text[:200]}"
+            )
         resp = await session.post(
             f"{_DROPBOX_API}/files/list_folder",
             headers=self._headers({"Content-Type": "application/json"}),
@@ -1445,7 +1482,16 @@ class GoogleDriveLibraryBackend(LibraryBackend):
     async def _delete_file(self, file_id: str) -> None:
         await self._ensure_access_token()
         session = async_get_clientsession(self.hass)
-        await session.delete(f"{_GOOGLE_DRIVE_API}/files/{file_id}", headers=self._headers())
+        resp = await session.delete(f"{_GOOGLE_DRIVE_API}/files/{file_id}", headers=self._headers())
+        # This response used to be discarded unchecked -- a transient
+        # failure (expired token, rate limit, 5xx) was treated as success
+        # and the manifest entry removed by the caller regardless,
+        # orphaning the file in the user's Drive with no remaining record
+        # the app could ever reference or retry against. 404 (already gone)
+        # is not an error.
+        if resp.status >= 400 and resp.status != 404:
+            text = await resp.text()
+            raise LibraryBackendError(f"Drive delete failed ({resp.status}): {text[:200]}")
 
     async def _read_manifest(self) -> dict[str, Any]:
         cached = self._manifest_cache.get()
@@ -1580,16 +1626,20 @@ class GoogleDriveLibraryBackend(LibraryBackend):
         async with self._manifest_lock:
             manifest = await self._read_manifest()
             entry = self._find_entry(manifest, image_id)
-            deleted_any = False
+            bin_file_ids = entry.setdefault("bin_file_ids", {})
             for variant in _ALL_BIN_VARIANTS:
                 for codec_id in (*_known_codec_ids(), ""):
                     res_key = _bin_manifest_key(width, height, variant, codec_id)
-                    bin_file_id = entry.get("bin_file_ids", {}).pop(res_key, None)
+                    bin_file_id = bin_file_ids.get(res_key)
                     if bin_file_id:
+                        # Delete on Drive first, persist the manifest only
+                        # once it actually succeeds -- if a later variant's
+                        # delete fails, everything deleted so far is already
+                        # durably reflected and won't dangle-reference a
+                        # file that no longer exists on a fresh manifest read.
                         await self._delete_file(bin_file_id)
-                        deleted_any = True
-            if deleted_any:
-                await self._write_manifest(manifest)
+                        bin_file_ids.pop(res_key, None)
+                        await self._write_manifest(manifest)
 
     async def async_delete_image(self, image_id: str) -> None:
         async with self._manifest_lock:
@@ -1600,10 +1650,18 @@ class GoogleDriveLibraryBackend(LibraryBackend):
             )
             if entry is None:
                 return
+            # Same ordering as async_delete_bin above: persist after each
+            # successful delete so a later failure can't leave the manifest
+            # referencing files already removed from Drive.
             if entry.get("drive_file_id"):
                 await self._delete_file(entry["drive_file_id"])
-            for bin_file_id in entry.get("bin_file_ids", {}).values():
+                entry["drive_file_id"] = None
+                await self._write_manifest(manifest)
+            bin_file_ids = entry.setdefault("bin_file_ids", {})
+            for res_key, bin_file_id in list(bin_file_ids.items()):
                 await self._delete_file(bin_file_id)
+                bin_file_ids.pop(res_key, None)
+                await self._write_manifest(manifest)
             manifest["images"] = [
                 d for d in manifest.get("images", []) if d["image_id"] != image_id
             ]
@@ -1798,6 +1856,7 @@ class LibraryManager:
     # -- thumbnails (local disk cache, backend-agnostic) --
 
     def _thumb_path(self, image_id: str, edge: int) -> str:
+        image_id = _safe_image_id(image_id)
         return os.path.join(self._thumb_dir, f"{image_id}_{edge}.jpg")
 
     def _read_thumbnail_sync(self, path: str) -> bytes | None:

@@ -81,7 +81,7 @@ function createMockServer({
   frames = [], scenes = [], images = [], albums = [], walls = [], scenePacks = [], schedules = [],
   skills = [], discoveredFlows = [],
   onboardingComplete = true, failing = false, onboardingBroken = false,
-  updateStatus = null,
+  updateStatus = null, librarySendDelayMs = 0,
 } = {}) {
   let sceneList = scenes.map((s) => ({ created_at: 0, album: null, source: 'user', ...s }));
   let scheduleList = schedules.map((s) => ({
@@ -489,6 +489,9 @@ function createMockServer({
       sends.push({ entity_id: form.entity_id, image_id: form.image_id, packer: form.packer });
       const body = { success: true, bytes_sent: 960000 };
       if (form.packer) body.packer = form.packer;
+      // Lets tests interleave client-side actions (e.g. staging a new pick)
+      // while a send is still in flight, mirroring real slow-panel sends.
+      if (librarySendDelayMs) await new Promise((r) => setTimeout(r, librarySendDelayMs));
       return json(res, 200, body);
     }
 

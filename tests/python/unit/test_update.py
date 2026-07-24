@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import io
+import os
+import zipfile
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -188,6 +191,49 @@ async def test_try_hacs_install_uses_async_download_repository(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_try_hacs_install_raises_when_disk_version_unreadable_after_download(
+    monkeypatch,
+):
+    """A raised UpdateError for a broken HACS install must propagate, not be
+    swallowed by the function's own generic `except Exception` fallback
+    handler and silently demoted to a `None` (fall back to GitHub zipball)."""
+    from custom_components.digital_frames import update as update_mod
+
+    hass = MagicMock()
+    data = SimpleNamespace(
+        full_name=GITHUB_FULL,
+        installed=True,
+        installed_version="v0.12.100",
+        last_version="v0.12.120",
+        id="99",
+    )
+    download = AsyncMock()
+    repo = SimpleNamespace(
+        data=data,
+        async_download_repository=download,
+        pending_restart=False,
+    )
+    writer = AsyncMock()
+    hacs = SimpleNamespace(
+        repositories=SimpleNamespace(get_by_full_name=lambda _n: repo),
+        data=SimpleNamespace(async_write=writer),
+    )
+    hass.data = {DOMAIN: {}, "hacs": hacs}
+
+    async def _disk(_hass):
+        return ""
+
+    monkeypatch.setattr(
+        "custom_components.digital_frames.update.get_disk_version", _disk
+    )
+
+    with pytest.raises(update_mod.UpdateError, match="did not complete cleanly"):
+        await _try_hacs_install(hass, "0.12.120", tag="v0.12.120")
+
+    download.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_try_hacs_install_skips_when_not_installed_via_hacs():
     hass = MagicMock()
     data = SimpleNamespace(full_name=GITHUB_FULL, installed=False, last_version="v0.12.120")
@@ -310,3 +356,171 @@ async def test_check_for_update_auto_heals_hacs_desync(monkeypatch):
     assert data.installed_version == "v0.12.120"
     assert result["hacs"]["desynced_with_disk"] is False
     writer.assert_awaited()
+
+
+def _fake_zipball(version: str) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            f"repo-v{version}/custom_components/digital_frames/manifest.json",
+            f'{{"version": "{version}"}}',
+        )
+        zf.writestr(
+            f"repo-v{version}/custom_components/digital_frames/const.py",
+            "DOMAIN = 'digital_frames'",
+        )
+    return buf.getvalue()
+
+
+class _FakeZipResponse:
+    status = 200
+
+    def __init__(self, payload: bytes):
+        self._payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    async def read(self):
+        return self._payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
+@pytest.mark.asyncio
+async def test_install_from_zipball_restores_backup_on_partial_write_failure(
+    hass, monkeypatch
+):
+    """A write failure partway through extraction (disk full, permission
+    error, a corrupt download) must not leave a half-written install with
+    no way back -- the prior good copy must be restored (KPF 33)."""
+    from custom_components.digital_frames import update as update_mod
+
+    dest = hass.config.path("custom_components", "digital_frames")
+    os.makedirs(dest, exist_ok=True)
+    with open(os.path.join(dest, "manifest.json"), "w", encoding="utf-8") as f:
+        f.write('{"version": "0.12.100"}')
+    with open(os.path.join(dest, "marker.txt"), "w", encoding="utf-8") as f:
+        f.write("old install")
+
+    payload = _fake_zipball("0.12.200")
+
+    class _FakeSession:
+        def get(self, *a, **kw):
+            return _FakeZipResponse(payload)
+
+    monkeypatch.setattr(
+        update_mod, "async_get_clientsession", lambda _hass: _FakeSession()
+    )
+
+    orig_copyfileobj = update_mod.shutil.copyfileobj
+    call_count = {"n": 0}
+
+    def _flaky_copyfileobj(src, dst):
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            raise OSError("disk full (simulated)")
+        return orig_copyfileobj(src, dst)
+
+    monkeypatch.setattr(update_mod.shutil, "copyfileobj", _flaky_copyfileobj)
+
+    with pytest.raises(update_mod.UpdateError):
+        await update_mod._install_from_zipball(
+            hass, "https://example.invalid/zip", expected_version="0.12.200"
+        )
+
+    # Restored to the prior good install -- old files back, no trace of the
+    # partially-written new one.
+    with open(os.path.join(dest, "manifest.json"), encoding="utf-8") as f:
+        assert "0.12.100" in f.read()
+    assert os.path.isfile(os.path.join(dest, "marker.txt"))
+    assert not os.path.isfile(os.path.join(dest, "const.py"))
+
+
+@pytest.mark.asyncio
+async def test_install_from_zipball_cleans_up_partial_write_when_dest_did_not_preexist(
+    hass, monkeypatch
+):
+    """A write failure partway through extraction when dest doesn't exist
+    yet (first-time install, or a retry after an earlier attempt that
+    never got this far) has no prior backup to restore -- it must still
+    remove the half-extracted directory rather than leave a broken install
+    with a missing/partial manifest.json behind (issue #5)."""
+    from custom_components.digital_frames import update as update_mod
+
+    dest = hass.config.path("custom_components", "digital_frames")
+    assert not os.path.isdir(dest)
+
+    payload = _fake_zipball("0.12.200")
+
+    class _FakeSession:
+        def get(self, *a, **kw):
+            return _FakeZipResponse(payload)
+
+    monkeypatch.setattr(
+        update_mod, "async_get_clientsession", lambda _hass: _FakeSession()
+    )
+
+    orig_copyfileobj = update_mod.shutil.copyfileobj
+    call_count = {"n": 0}
+
+    def _flaky_copyfileobj(src, dst):
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            raise OSError("disk full (simulated)")
+        return orig_copyfileobj(src, dst)
+
+    monkeypatch.setattr(update_mod.shutil, "copyfileobj", _flaky_copyfileobj)
+
+    with pytest.raises(update_mod.UpdateError):
+        await update_mod._install_from_zipball(
+            hass, "https://example.invalid/zip", expected_version="0.12.200"
+        )
+
+    # No half-written directory left behind -- HA can retry a clean install.
+    assert not os.path.isdir(dest)
+
+
+@pytest.mark.asyncio
+async def test_install_update_raises_when_disk_version_unreadable_after_zipball(
+    monkeypatch,
+):
+    """A zipball install that reports success but leaves manifest.json
+    missing/unreadable afterward must raise, not silently report success
+    with disk coerced to the target version (KPF 33)."""
+    from custom_components.digital_frames import update as update_mod
+
+    hass = MagicMock()
+    hass.data = {DOMAIN: {}}
+
+    async def fake_check(_hass):
+        return {
+            "installed": "0.12.100",
+            "running": "0.12.100",
+            "disk": "0.12.100",
+            "latest": "0.12.200",
+            "latest_tag": "v0.12.200",
+            "update_available": True,
+            "needs_restart": False,
+            "hacs": {"present": False, "tracks_fraimic": False},
+            "zipball_url": "https://example.invalid/zip",
+        }
+
+    monkeypatch.setattr(update_mod, "check_for_update", fake_check)
+    monkeypatch.setattr(
+        update_mod, "get_running_version", AsyncMock(return_value="0.12.100")
+    )
+    monkeypatch.setattr(update_mod, "_try_hacs_install", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        update_mod, "_install_from_zipball", AsyncMock(return_value=None)
+    )
+    # Simulate a broken post-extract manifest (the exact failure mode a
+    # partial write can leave behind).
+    monkeypatch.setattr(update_mod, "get_disk_version", AsyncMock(return_value=""))
+
+    with pytest.raises(update_mod.UpdateError, match="did not complete cleanly"):
+        await update_mod.install_update(hass)

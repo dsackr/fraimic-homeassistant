@@ -16,6 +16,7 @@ from custom_components.digital_frames.frame_types import (
 from custom_components.digital_frames.panel_codec import (
     CODECS,
     CODEC_JPEG_Q90,
+    CODEC_PNG,
     encode_for_panel,
     encode_for_panel_with_preview,
     panel_codec_for_entry,
@@ -188,6 +189,20 @@ def test_text_skill_payload_spectra_bad_bin_soft_preview():
     assert preview is None
 
 
+def test_text_skill_payload_spectra_bad_bin_with_rotation_raises():
+    """Regression (issue #6): the soft-preview fallback above only applies
+    when rotation=0, where the raw bin really is still valid wire bytes.
+    With a nonzero rotation the rotate+repack step must actually run a
+    decode of *spectra_bin*, so a malformed bin has to raise here too --
+    silently returning the un-rotated bin would be packed at the wrong
+    (composition, not native) size, the exact garbled-render bug this
+    rotation support exists to prevent."""
+    with pytest.raises(ValueError, match="bin is"):
+        text_skill_payload_for_codec(
+            b"not-a-bin", 1200, 1600, 90, CODEC_SPECTRA6_SPLIT_HALF, None
+        )
+
+
 def test_text_skill_payload_spectra_prefers_rgb_preview(sample_image_bytes):
     w, h = 1200, 1600
     bin_bytes = encode_for_panel(sample_image_bytes(400, 300), w, h)
@@ -198,3 +213,145 @@ def test_text_skill_payload_spectra_prefers_rgb_preview(sample_image_bytes):
     assert wire == bin_bytes
     assert preview is not None
     assert preview[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def _exact_palette_marker_png(width: int, height: int) -> bytes:
+    """A composition image built only from exact Spectra 6 palette colours
+    (black background, a red quadrant) -- quantization is then dither-free
+    and order-independent, so rotate-then-quantize and quantize-then-rotate
+    are guaranteed to agree pixel-for-pixel, letting the two orderings be
+    compared byte-exactly below."""
+    import io
+
+    from PIL import Image
+
+    black = (25, 30, 33)
+    red = (178, 19, 24)
+    img = Image.new("RGB", (width, height), color=black)
+    marker = Image.new("RGB", (width // 2, height // 2), color=red)
+    img.paste(marker, (0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_text_skill_payload_spectra_rotates_to_native_buffer_without_rgb_png():
+    """Regression: a locked-orientation Spectra frame's composition canvas
+    (effective, orientation-swapped) must be rotated to the panel's native
+    buffer before packing -- the renderer's own bin is composed unrotated,
+    so text_skill_payload_for_codec is the only place this can happen. A
+    frame is a registered native 1200x1600 panel; this skill's composition
+    canvas is landscape 1600x1200 (orientation locked opposite native),
+    rotation=90 per helpers.render_spec_for_entry."""
+    from custom_components.digital_frames.image_converter import unpack_spectra6_bin
+
+    eff_w, eff_h = 1600, 1200  # composition canvas (effective, swapped)
+    native_w, native_h = 1200, 1600  # the panel's actual registered buffer
+
+    composition_png = _exact_palette_marker_png(eff_w, eff_h)
+    # What the pinned external renderer actually produces today: packed at
+    # the composition size, with no knowledge of the frame's rotation.
+    unrotated_bin = encode_for_panel(composition_png, eff_w, eff_h)
+
+    wire, _preview = text_skill_payload_for_codec(
+        unrotated_bin, eff_w, eff_h, 90, CODEC_SPECTRA6_SPLIT_HALF, None
+    )
+
+    # Must be repacked at the native (post-rotation) size, not left at the
+    # composition size -- a bug here means the byte layout is transposed
+    # relative to what the panel's raster expects.
+    assert len(wire) == (native_w * native_h) // 2
+
+    # Content must actually match a correct rotate-then-quantize-then-pack
+    # of the same source (not just be *some* native-sized bytes). The
+    # reference composes at the *effective* size (matching the renderer)
+    # and applies the same canvas rotation image_converter._process would
+    # for an ordinary photo send -- resize/rotate order must not matter
+    # here since the source is built only from exact palette colours.
+    reference_png = _exact_palette_marker_png(eff_w, eff_h)
+    reference_bin = encode_for_panel(reference_png, eff_w, eff_h, rotation=90)
+    assert wire == reference_bin
+
+    # And it must actually differ from the (bug's) pass-through bytes --
+    # otherwise this test would pass even with the old broken behavior.
+    assert wire != unrotated_bin
+
+    # Sanity: the returned bytes really do decode at the native size.
+    decoded = unpack_spectra6_bin(wire, native_w, native_h)
+    assert decoded.size == (native_w, native_h)
+
+
+def test_text_skill_payload_spectra_rotates_to_native_buffer_with_rgb_png():
+    """Same regression, but exercising the rgb_png-present branch (the path
+    used whenever the renderer's full RGB composition PNG is available)."""
+    eff_w, eff_h = 1600, 1200
+    native_w, native_h = 1200, 1600
+
+    composition_png = _exact_palette_marker_png(eff_w, eff_h)
+    unrotated_bin = encode_for_panel(composition_png, eff_w, eff_h)
+
+    wire, preview = text_skill_payload_for_codec(
+        unrotated_bin, eff_w, eff_h, 90, CODEC_SPECTRA6_SPLIT_HALF, composition_png
+    )
+
+    assert len(wire) == (native_w * native_h) // 2
+    reference_bin = encode_for_panel(composition_png, eff_w, eff_h, rotation=90)
+    assert wire == reference_bin
+    assert wire != unrotated_bin
+    assert preview is not None
+    assert preview[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+# ---------------------------------------------------------------------------
+# CODEC_PNG (Samsung): regression -- used to silently fall through to the
+# Spectra branch and return raw Spectra6-packed bytes labeled as valid PNG
+# payload for any text/agenda Live skill assigned to a Samsung frame.
+# ---------------------------------------------------------------------------
+
+
+def test_text_skill_payload_png_from_spectra_bin_fallback(sample_image_bytes):
+    w, h = 1200, 1600
+    bin_bytes = encode_for_panel(sample_image_bytes(400, 300), w, h)
+    wire, preview = text_skill_payload_for_codec(bin_bytes, w, h, 0, CODEC_PNG, None)
+    assert wire[:8] == b"\x89PNG\r\n\x1a\n"
+    assert wire != bin_bytes
+    assert preview is not None
+    assert preview[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_text_skill_payload_png_prefers_rgb_png():
+    from PIL import Image
+    import io
+
+    w, h = 200, 100
+    img = Image.new("RGB", (w, h), color=(12, 34, 200))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    rgb_png = buf.getvalue()
+
+    # Invalid bin would fail if the RGB path were ignored.
+    wire, preview = text_skill_payload_for_codec(
+        b"not-a-valid-bin", w, h, 0, CODEC_PNG, rgb_png
+    )
+    assert wire[:8] == b"\x89PNG\r\n\x1a\n"
+    assert preview is not None
+
+
+def test_text_skill_payload_png_bad_bin_raises_without_rgb():
+    with pytest.raises(ValueError, match="bin is"):
+        text_skill_payload_for_codec(b"too-short", 1920, 1080, 0, CODEC_PNG, None)
+
+
+def test_text_skill_payload_png_never_falls_through_to_spectra_bytes(
+    sample_image_bytes,
+):
+    """The bug this guards: CODEC_PNG used to fall through to the 'Spectra
+    wire payload' branch (only CODEC_JPEG_Q90 was special-cased), so a
+    Samsung frame's skill send returned raw Spectra6 nibble-packed bytes
+    mislabeled as PNG."""
+    w, h = 1200, 1600
+    bin_bytes = encode_for_panel(sample_image_bytes(400, 300), w, h)
+    wire, _preview = text_skill_payload_for_codec(bin_bytes, w, h, 0, CODEC_PNG, None)
+    # A real PNG never starts with the Spectra bin's own bytes.
+    assert wire != bin_bytes
+    assert wire.startswith(b"\x89PNG\r\n\x1a\n")

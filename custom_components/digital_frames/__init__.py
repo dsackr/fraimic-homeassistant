@@ -723,7 +723,16 @@ async def _resolve_media_path(
         local_dir = hass.config.media_dirs.get("local", hass.config.path("media"))
         return _safe_media_join(local_dir, media_content_id[len("/media/"):]), False
 
-    return media_content_id, False
+    # Anything else (a bare filesystem path like /config/secrets.yaml) is
+    # rejected rather than passed through unchanged -- the media selector
+    # only ever produces a media-source:// URI, so a raw path here can only
+    # come from calling the service directly (Developer Tools, a YAML
+    # automation) and would otherwise let it read any HA-process-readable
+    # image file, defeating the sandboxing the two branches above provide.
+    raise HomeAssistantError(
+        "Unsupported media_content_id (must be a media-source:// URI or a "
+        f"/media/ path): {media_content_id}"
+    )
 
 
 def _find_ai_task_image_entity(hass: HomeAssistant) -> str:

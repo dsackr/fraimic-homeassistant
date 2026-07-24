@@ -93,10 +93,20 @@ double-refreshes.
   `async_send_image`, `_async_flush_pending_send`, `_set_pending`,
   `_clear_pending_if_current`), `frame_types.send_timeout_for_entry`.
 - **If it silently breaks**: images sent to a sleeping frame vanish, or a
-  wake causes a duplicate redraw.
+  wake causes a duplicate redraw. A real bug fixed in the July 2026 code
+  review: the frame answering with a rejecting HTTP status (a malformed
+  upload, an on-device error) raised `aiohttp.ClientResponseError`, which
+  the except clause here didn't catch (only connection errors/timeouts
+  were) — `pending_send` stayed stuck forever pinning the fast-poll
+  interval, and the raw exception propagated uncaught out of the
+  `send_image`/`generate_ai_image` services. Now caught and converted to a
+  clean `HomeAssistantError`, and the stuck pending entry is cleared
+  (retrying an identically-rejected payload would only fail again).
 - **Test status**: **Backend-tested** —
-  `tests/python/coordinator/test_coordinator_queue_on_sleep.py`. The single
-  highest-value target in this catalog per the initial gap analysis.
+  `tests/python/coordinator/test_coordinator_queue_on_sleep.py` (including
+  a rejected/non-2xx response raising cleanly and clearing pending state
+  instead of leaving it stuck). The single highest-value target in this
+  catalog per the initial gap analysis.
 
 ## 5. HA services (send_image, send_scene, restart, sleep, refresh, generate_ai_image)
 Lets automations/scripts drive a frame: send an arbitrary media item, send
@@ -105,10 +115,15 @@ a named scene, or issue restart/sleep/refresh commands.
   `_handle_send_scene`, `_handle_generate_ai_image`, `_resolve_media_path`).
 - **If it silently breaks**: automations calling `fraimic.send_image` /
   `send_scene` fail or send the wrong image; a path-traversal bug in media
-  resolution could leak files.
+  resolution could leak files. `_resolve_media_path` only recognizes
+  `media-source://` and `/media/`-prefixed content ids — anything else is
+  rejected outright (a real bug, fixed in the July 2026 code review: it
+  used to fall through unchanged, letting a direct service call read any
+  HA-process-readable file via `send_image`).
 - **Test status**: **Backend-tested** — `tests/python/setup/test_services.py`
   (command services, send_image media resolution + path-escape rejection,
-  send_scene aggregation semantics).
+  send_scene aggregation semantics, rejection of an unprefixed arbitrary
+  filesystem path).
 
 ## 6. Voice/AI: "generate an image of X...", "show [image name] on [frame]", and "put a picture of [tag name] on [frame]"
 Custom Assist/LLM intents to generate an AI image, display a specific library image on a named frame, or randomly select and display an image matching a custom tag by voice.
@@ -137,8 +152,19 @@ renderer — see KPF 28/29).
   physical frame" failure the module's own docstring calls out — no
   exception, just a wrong picture on real hardware. A broken unpacker is
   the softer cousin: wrong/blank card and panel thumbnails after xOTD sends.
+  A real instance of exactly this class, fixed in the July 2026 code
+  review: `_resize_cover_centered` floored its scale factor via `int()`
+  instead of rounding up, so floating-point error routinely left the
+  resized image 1px short on the governing axis — a stray unfilled white
+  row/column at the canvas edge on the default (non-manual-crop) pipeline
+  every ordinary send uses. Reproduced against the real registered 13.3"
+  resolution; fixed via `math.ceil` (any resulting 1px overage is trimmed
+  by the existing centered crop, so this can only shrink the gap, never
+  introduce one).
 - **Test status**: **Backend-tested** —
-  `tests/python/unit/test_image_converter.py`,
+  `tests/python/unit/test_image_converter.py` (including the cover-crop
+  resize fully covering its canvas with no unfilled edge gap, reproduced
+  against a known-affected source size and registered resolution),
   `tests/python/unit/test_panel_codec.py`, including pack→unpack
   byte-exact round-trips against both byte layouts. Flagged as the riskiest
   silent-failure surface in the codebase in the initial gap analysis; also
@@ -155,18 +181,38 @@ collide; pre-Phase-2 resolution-only bins still serve as a read fallback.
 - **Entry points**: `library.py` (`LibraryManager.async_upload` /
   `list_images` / `get_original` / `get_thumbnail` / `async_get_bin_for_send` /
   `async_set_image_voice_name` / `async_set_image_tags`,
-  `LocalLibraryBackend` / Dropbox / Drive `_bin_path` + `bin_file_ids`),
-  `library_http.py` (`DigitalFramesLibraryImageVoiceNameView`, `DigitalFramesLibraryImageTagsView`).
+  `LocalLibraryBackend` / Dropbox / Drive `_bin_path` + `bin_file_ids`,
+  `_safe_image_id`), `library_http.py` (`DigitalFramesLibraryImageVoiceNameView`,
+  `DigitalFramesLibraryImageTagsView`).
 - **If it silently breaks**: uploads silently fail per-file in a batch,
-  thumbnails go stale/broken, voice name/tag edits fail to persist, or a
-  7.3" send reuses 13.3"-layout bytes (wrong codec cache).
-- **Test status**: Panel-tested (`dashboard.spec.js` covers grid rendering, album navigation, voice name, and tags configuration/clearing; `lazy-thumbs.spec.js`).
+  thumbnails go stale/broken, voice name/tag edits fail to persist, a
+  7.3" send reuses 13.3"-layout bytes (wrong codec cache), or — a real bug
+  found and fixed in the July 2026 code review — an unsanitized `image_id`
+  reaching `_bin_path`/`_thumb_path` directly (rather than via a manifest
+  lookup) lets a crafted id read or delete a `.bin`/thumbnail file outside
+  the library via path traversal. Every call site that builds a path
+  straight from a caller-supplied `image_id` must go through
+  `_safe_image_id` first. Also fixed in that review: `_openAlbum`/
+  `_loadLibrary` had no staleness guard, so switching albums quickly could
+  let an older, slower album load resolve after a newer one and leave the
+  breadcrumb title naming a different album than the grid actually shows —
+  both now share a token that discards a superseded load's result.
+- **Test status**: Panel-tested (`dashboard.spec.js` covers grid rendering, album navigation, voice name, and tags configuration/clearing, and switching albums quickly renders the last-picked one even when its response resolves out of order; `lazy-thumbs.spec.js`).
   **Backend-tested** (local backend) —
   `tests/python/library/test_library_local_backend.py` (single/multi
   upload, undecodable-bytes tolerance, thumbnail cache generation/reuse,
   delete purges original + thumbnails, voice name and tags updates);
   `tests/python/library/test_library_crop_albums_backfill.py` (codec-keyed
-  bin cache + legacy path fallback).
+  bin cache + legacy path fallback);
+  `tests/python/library/test_library_image_id_traversal.py` (traversal/malformed
+  `image_id` rejected by send/thumbnail, no-ops on delete, a real id still
+  works end to end, and — closing a July 2026 code-review test-coverage gap
+  (issue #12) where only the local backend's path was exercised —
+  `DropboxLibraryBackend._bin_path`/`async_get_bin` reject a traversal
+  `image_id` via `_safe_image_id` before any Dropbox API request goes out,
+  and `GoogleDriveLibraryBackend.async_get_bin`/`async_delete_image` treat a
+  traversal id as an ordinary manifest miss with no Drive request, since
+  that backend never builds a path from `image_id` at all).
 
 ## 9. Library storage backend switching (Local / Dropbox / Google Drive)
 User can point the whole library at Dropbox or Google Drive instead of
@@ -177,10 +223,41 @@ failure.
   `library_http.py` (OAuth start/callback/redirect-uri views).
 - **If it silently breaks**: switching backends fails and silently reverts
   to local without the user noticing, stranding photos on the wrong
-  storage.
-- **Test status**: **Gap** — Dropbox/Google Drive backends and their OAuth
-  flows are the remaining, highest-effort slice of Phase 5 (heavy
-  request/response mocking for token exchange and refresh); not yet done.
+  storage. The Google OAuth callback (`DigitalFramesLibraryGoogleOAuthCallbackView`)
+  is deliberately unauthenticated (a plain browser redirect target,
+  protected instead by a one-time `state` token) — its rendered
+  error/status message must stay HTML-escaped, or a crafted callback URL
+  becomes a pre-auth reflected-XSS vector. Two real bugs fixed in the July
+  2026 code review: Dropbox's `async_delete_image` and Google Drive's
+  `_delete_file` both discarded their delete response unchecked, so a
+  transient failure (expired token, rate limit, 5xx) was treated as
+  success and the manifest entry removed regardless — orphaning the file
+  remotely with no record left to reference or retry against. Both now
+  check the response status and raise `LibraryBackendError` before the
+  manifest is touched (tolerating 404/409 "already gone" as success).
+  That fix exposed a follow-on bug (found by the July 2026 max-effort code
+  review, issues #16/#4): Google Drive's `async_delete_image` and
+  `async_delete_bin` batched several real Drive deletes (primary file +
+  every cached bin variant) behind a single manifest write at the end, so
+  a delete that failed partway through the batch left the deletes that
+  *did* succeed unpersisted — a fresh manifest read (HA restart, another
+  client) would still reference files already gone from Drive, 404ing on
+  next download. Both methods now persist the manifest after each
+  individual successful delete, so partial progress is never lost even if
+  a later delete in the same call raises.
+- **Test status**: **Gap** — Dropbox/Google Drive backends' OAuth
+  token exchange/refresh flows and the rest of their read/write paths are
+  the remaining, highest-effort slice of Phase 5 (heavy request/response
+  mocking); not yet done. **Backend-tested** (narrow) —
+  `tests/python/library/test_library_http_oauth_callback.py` covers the
+  one security-relevant piece of the callback view: its `_page()` renderer
+  HTML-escapes the message it's given.
+  `tests/python/library/test_library_cloud_backend_deletes.py` covers the
+  delete-failure fix directly: both backends raise on a failed remote
+  delete without touching the manifest, both correctly tolerate an
+  already-deleted (404/409) response as success, and both Google Drive
+  delete methods persist every already-succeeded delete when a later
+  delete in the same call fails partway through.
 
 ## 10. Library discovery (adopt externally-added files)
 Dropbox-only: photos dropped directly into the user's Dropbox get adopted
@@ -220,11 +297,27 @@ immediately re-sends so the physical frame updates.
   `_cropSaveSend`).
 - **If it silently breaks**: a saved crop doesn't apply on next send, or
   clearing a crop leaves stale cached renders for the same orientation.
+  Two real bugs in the panel's editor, fixed in the July 2026 code review:
+  (1) `_openEditor` had no staleness guard, so closing the editor and
+  reopening it for a different image while the first image's fetch was
+  still in flight let that stale fetch overwrite the *current* editor's
+  blob URL/dimensions after the fact — visibly swapping the picture back
+  to the wrong image while the save target stayed the new one, corrupting
+  which image a saved crop applied to; (2) the Save Crop/Send buttons
+  weren't disabled during that same load window, so clicking either
+  immediately after opening could submit `{width: 0, height: 0,
+  crop_box: null}`. Both editor open/close now share a per-open state
+  object identity check, and the buttons stay disabled until the image
+  finishes loading.
 - **Test status**: Panel-tested (`walls-crop-button.spec.js` — enable/
   disable rules and the wall-picker → editor handoff with the frame
   pre-targeted; `fraimic-card.spec.js` — the card's full crop flow
   including the save + re-send round trip against the mock server;
-  `walls-image-picker.spec.js` covers the surrounding picker UI).
+  `walls-image-picker.spec.js` covers the surrounding picker UI;
+  `dashboard.spec.js` covers the Library shelf's editor: a stale fetch for
+  a previously-open image cannot swap the picture back after closing and
+  reopening for a different one, and Save Crop stays disabled until the
+  image finishes loading).
   **Backend-tested** — `tests/python/library/test_library_crop_albums_backfill.py`
   (exact-resolution save invalidates that bin, fallback-orientation save
   invalidates every matching resolution, clear reverts + invalidates,
@@ -311,14 +404,23 @@ images/JSON only (see frame-addons `docs/CATALOG_SCHEMA.md`).
   untracked, blocking reinstall; uninstall can leave stray images if some
   deletes fail; library-only installs unexpectedly create scenes (or vice
   versa); corrupted CDN bytes install silently (checksum bypassed/missing).
+  A real bug fixed in the July 2026 code review: `async_uninstall_pack`
+  fetched the pack from the remote catalog (`async_get_pack`) *after*
+  already deleting the scene, purely to read a fallback name it never
+  actually needed (`installed["album"]` is always recorded at install
+  time) — an unreachable catalog, or one that no longer listed this
+  `pack_id`, left the scene gone and the pack stuck "installed" forever,
+  every retry failing identically. Uninstall no longer touches the
+  network at all.
 - **Test status**: Panel-tested indirectly (`addons-categories.spec.js`;
   `addons-catalog-refresh.spec.js` covers the catalog re-fetching on tab
   activation and panel revive rather than only once at initial load).
   **Backend-tested** — `tests/python/managers/test_scene_packs.py`
   (install success/partial-failure/all-fail, **library-only create_scene=False**,
   already-installed guard, uninstall scene+image cleanup and untag-vs-delete,
-  sync recovery by filename, orientation-aware assignment, **checksum
-  mismatch**, **min_integration filter**, version tuple helpers).
+  uninstall succeeds when the remote catalog is unreachable, sync recovery
+  by filename, orientation-aware assignment, **checksum mismatch**,
+  **min_integration filter**, version tuple helpers).
 
 ## 18. Scene-pack "widgets" (RETIRED — use Live Agenda)
 **Retired in Content Platform Phases 5–6.** Widget runtime code
@@ -349,9 +451,45 @@ along the other axis rather than producing a collision error.
   `digital-frames-panel.js` (`_renderWallStrip`, `_openWall`, `_alignWallSelection`, `_alignWallToGrid`).
 - **If it silently breaks**: removed/re-added frames haunt old layouts,
   the default wall stops tracking newly-added frames, or alignment features
-  produce layout overlaps or throw unexpected error banners.
-- **Test status**: Extensively panel-tested (`walls-drag.spec.js`,
-  `walls-default-and-collision.spec.js`, `walls-multiselect.spec.js` — including
+  produce layout overlaps or throw unexpected error banners. A real bug
+  fixed in the July 2026 code review: `_append_placement`'s "is this row
+  empty" check trusted `len(wall.placements) % _MAX_FRAMES_PER_ROW == 0`
+  rather than scanning the row's actual occupants — removing one frame
+  from a full row of 4 could drop the count back to a multiple of 4 while
+  the row still held tiles, so the next auto-placed frame landed directly
+  on top of a survivor instead of finding an open slot. The row-occupancy
+  scan the non-zero-column case already did correctly is now unconditional.
+  Also fixed in that review: `_wallBeginDrag`/`_wallBeginMarquee` had no
+  guard against a pre-existing in-progress drag/marquee, so a second
+  pointerdown before the first's pointerup (overlapping pointer input —
+  multi-touch/stylus+mouse, common on the touchscreen tablets this
+  dashboard is often wall-mounted on) overwrote the tracking field without
+  removing the first drag's ghost element, leaking it permanently and
+  corrupting which drag the eventual pointerup finalized. Both now cancel
+  whatever's in flight before starting a new one. A follow-up bug from that
+  same fix: `_wallBeginDrag` called the new cancel-in-flight guard *before*
+  validating that its `entryId` resolved to a real frame, so a begin-drag
+  attempt that itself failed (a stale `entryId`, e.g. its config entry was
+  removed elsewhere before this client's wall view re-rendered) still tore
+  down a different, legitimately in-progress drag as a side effect. Fixed
+  by resolving and validating `frame` before calling
+  `_wallCancelInProgressDrag()`, so a failed begin-drag is now a true no-op.
+  Cleanup from the same review (issue #14): `_onWallPointerUp` had its own
+  inline copy of `_wallCancelInProgressDrag`'s ghost-removal/`dragging`-class
+  teardown (one drag/group-drag cleanup implemented twice) — a future
+  change to what a drag/group entry needs torn down could be applied to one
+  copy and missed on the other, reintroducing the exact leak class this
+  review just fixed. `_onWallPointerUp` now calls
+  `_wallCancelInProgressDrag()` instead of duplicating its body.
+- **Test status**: Extensively panel-tested (`walls-drag.spec.js` —
+  including a second pointerdown before the first drag ends no longer
+  leaking a ghost element, a failed begin-drag with a stale entryId no
+  longer cancelling an unrelated in-progress drag, and — closing a July
+  2026 code-review test-coverage gap (issue #13) where only the drag half
+  of this fix had a regression test — a second marquee-select start before
+  the first ends no longer leaking a `.wall-marquee` box either,
+  `walls-default-and-collision.spec.js`,
+  `walls-multiselect.spec.js` — including
   alignment auto-spacing and Align Wall to Grid logic,
   `walls-flow.spec.js`, `walls-scenes-merge.spec.js`,
   `walls-send-and-offwall.spec.js`, `walls-image-picker.spec.js`,
@@ -359,7 +497,8 @@ along the other axis rather than producing a collision error.
   canvas/DOM logic against a mock server, not `WallManager` itself.
   **Backend-tested** — `tests/python/managers/test_walls.py` (custom wall
   CRUD, default-wall auto-sync, tombstone survival across resync, entry
-  removal pruning, auto-layout collision math).
+  removal pruning, auto-layout collision math, no placement overlap after
+  removing and re-adding a frame around a full row boundary).
 
 ## 20. Schedules: send a scene or image at a future/recurring time
 User schedules a one-shot or daily/weekly/monthly recurring send; missed
@@ -473,11 +612,20 @@ across every visit to the Frames panel for the life of the browser tab.
   up after navigating to the panel repeatedly in one browser session —
   invisible in a quick manual check, which is exactly how it shipped once
   already (commit `71c1b17`, "Sever the panel's global listeners and blob
-  URLs on disconnect").
+  URLs on disconnect"), and shipped again the same way in the async-fetch
+  gap fixed in the July 2026 code review: `_fetchThumb`'s and
+  `_openEditor`'s full-size fetches weren't tied to `this._abort.signal`
+  and didn't check a disposed flag before `URL.createObjectURL`, so a
+  thumbnail or crop-editor image still loading when the panel disposed
+  still created a blob URL afterward — never revocable, since `_dispose()`
+  had already reset the tracking dict it would have been recorded in.
+  Both fetches now pass the abort signal and check `this._disposed` before
+  creating or committing the blob URL.
 - **Test status**: Panel-tested (`tests/panel/lifecycle.spec.js` — detach
   severs listeners and revokes blob URLs; reattach after detach revives
   correctly; a same-tick DOM move, as HA sometimes does internally, must
-  NOT tear anything down). Backend: not applicable.
+  NOT tear anything down; a thumbnail fetch still in flight at dispose time
+  never calls `URL.createObjectURL` at all). Backend: not applicable.
 
 ## 28. Live content (skills / xOTD renderer): reusable content generators
 **(Content platform: Live tab — was "Daily Content / skills".)** User creates
@@ -509,21 +657,55 @@ into the library first) and use the normal library codec path.
   `__init__.py` (`_async_migrate_agenda_widget`).
 - **If it silently breaks**: daily content stops arriving (schedules
   no-op), a skill renders blank/stale content, fan-out to several frames
-  shows different content per frame, Meural receives Spectra `.bin` on
+  shows different content per frame, an orientation-locked Spectra frame
+  (composition canvas orientation-swapped relative to its native buffer)
+  gets a sideways/garbled render because the wire bytes were packed at the
+  composition size instead of rotated to the native buffer first (a real
+  bug fixed in the July 2026 code review — `text_skill_payload_for_codec`'s
+  Spectra branch now rotates + repacks when `rotation != 0`, mirroring
+  `image_converter._process`'s canvas-rotation step for ordinary photo
+  sends), a Samsung (PNG) frame gets raw Spectra6 bytes mislabeled as valid
+  PNG payload (same root cause — only `CODEC_JPEG_Q90` was special-cased
+  before the fix; `CODEC_PNG` now gets its own compose/rotate/encode branch
+  and a PNG/JPEG encode failure now raises `SkillError` instead of
+  silently sending the wrong format), or Meural receives Spectra `.bin` on
   postcard (garbled/fail) instead of JPEG, quick-setup creates no/wrong
   schedules, or — the regression fixed in July 2026 — a text-skill send
   wipes the frame's last-image state so the card/panel thumbnail goes blank
-  while the frame shows content.
+  while the frame shows content. The rotate+repack step itself had a
+  follow-on gap (found by the July 2026 max-effort review, issue #6): it
+  had no exception handling, unlike the preview generation right below it,
+  so a decode/rotate failure (malformed renderer output) propagated to
+  `skills.py`'s generic handler, which treated *any* failure on a Spectra
+  codec as soft and silently sent the un-rotated raw bin — reintroducing
+  the exact garbled render this whole fix exists to prevent, just via a
+  different trigger. Both `async_render_for_entry` and
+  `async_render_message_for_entry` now treat a failure as hard (raise
+  `SkillError`) whenever the frame's `RenderSpec.rotation` is nonzero, not
+  only for JPEG/PNG codecs; the soft raw-bin fallback only applies when no
+  rotation is needed, where the raw bin genuinely is still valid wire
+  bytes. The decode+rotate step itself was also factored into one shared
+  helper (`_decode_and_rotate`) reused by both the JPEG/PNG branch and the
+  Spectra rotate branch, replacing two separately-written copies of the
+  same "unpack bin, then conditionally rotate" sequence.
 - **Test status**: **Backend-tested** —
   `tests/python/managers/test_skills.py` (CRUD, per-mode render dispatch,
   feed fetch/upload, subprocess lifecycle + cleanup, preview-PNG
   generation with graceful degradation, Meural JPEG re-encode from
-  text-skill bin),
+  text-skill bin, Samsung PNG re-encode from text-skill bin never falls
+  through to raw Spectra bytes, a rotation-locked Spectra frame with a
+  malformed renderer bin raises `SkillError` instead of silently sending
+  the un-rotated bin),
   `tests/python/managers/test_live_quick_setup.py` (daily schedule create,
   on_demand_only, missing skill),
   `tests/python/managers/test_scenes.py` (bin renders thread their
   preview through to the coordinator as the send thumbnail);
-  `tests/python/unit/test_panel_codec.py` (`text_skill_payload_for_codec`).
+  `tests/python/unit/test_panel_codec.py` (`text_skill_payload_for_codec`
+  rotates + repacks to the native buffer for both the rgb_png and
+  bin-fallback paths, byte-exact against a reference rotate-then-pack;
+  CODEC_PNG gets its own compose/rotate/encode branch and is exercised the
+  same way CODEC_JPEG_Q90 already was; a malformed bin with a nonzero
+  rotation raises rather than silently returning un-rotated bytes).
   Panel-tested — `skills.spec.js` (Live tab; internal id still `xotd`),
   `walls-skill-picker.spec.js` (staging into scenes),
   `fraimic-card.spec.js` (card Daily picker send).
@@ -548,12 +730,41 @@ frame actually shows.
 - **If it silently breaks**: the card shows a stale or blank image while
   the frame shows something else (exactly what text-skill sends did
   before July 2026 — see KPF 28), the card picker falls back to raw YAML,
-  or sends/orientation changes target the wrong frame.
+  or sends/orientation changes target the wrong frame. Three real bugs
+  fixed in the July 2026 code review: (1) `_cropSaveSend()` never called
+  `_unstage()` on success (unlike `_send()`), so cropping a staged-but-
+  unsent pick sent it immediately but left the Send/Cancel bar and PREVIEW
+  badge stuck showing stale state indefinitely; (2) `setConfig()`/`_build()`
+  unconditionally rebuild the whole shadow DOM but never reset `_staged`/
+  `_crop` — HA's card-editor live preview calls `setConfig()` on every
+  config change (e.g. every keystroke in the Name field, not just
+  `entry_id`), so staging a photo then editing the config elsewhere left
+  the freshly rebuilt DOM's default-hidden actions bar out of sync with
+  `_staged` staying truthy, with nothing left to reach `_unstage()` from;
+  (3) the card had no `disconnectedCallback` at all, so a staged preview's
+  blob URL (or an open crop session's, or its window listeners) leaked
+  until page reload — HA recreates Lovelace cards on dashboard/view
+  changes, never reuses one. Fix (1) above introduced a follow-on race
+  (found by the July 2026 max-effort review, issue #7): its delayed
+  `_unstage()` had no staleness guard, unlike `_stageImage()`'s identity
+  check. `cropClose` isn't disabled while a crop save+send is in flight
+  (a slow e-ink panel send can take up to 240s), so a user could close the
+  overlay, stage an unrelated new photo, and have the original crop-send's
+  delayed callback silently wipe out that newer pick when it finally
+  resolved. `_send()`'s identical delayed-unstage shape had the same
+  latent hazard. Both now capture `_staged` before the async work starts
+  and only unstage/refresh if it's still the same reference by the time
+  the delayed callback runs.
 - **Test status**: Panel-tested — `fraimic-card.spec.js` against the mock
   server + `card-harness.html` (editor frame list and entry_id config
   write, legacy entity resolution, both thumbnail sources incl. ETag'd
   render previews, upload/library/skill send round trips, orientation
-  service call, crop flow). Coordinator preview persistence is
+  service call, crop flow including Save & Send on a staged pick correctly
+  unstaging afterward, a pick staged after the crop overlay is closed
+  mid-send surviving rather than being clobbered by the stale crop-send,
+  `setConfig` clearing a staged pick instead of
+  leaving stale state after rebuild, removing the card revoking a staged
+  pick's blob URL). Coordinator preview persistence is
   backend-tested via `test_scenes.py`/`test_skills.py` (KPF 28); the
   frames/thumbnail HTTP views' own marshaling is still a **Gap** with the
   rest of the `*_http.py` layer.
@@ -619,10 +830,36 @@ artwork, shuffle, media browser, membership gallery sync.
 - **If it silently breaks**: Meural cannot be added, sends fail or send
   Spectra `.bin`, frame missing on dashboard, crop aspect wrong after
   rotate, backlight/sleep services no-op or hit Fraimic `/api/*` paths
-  on the Canvas, lux/backlight stuck after firmware field renames.
+  on the Canvas, lux/backlight stuck after firmware field renames, or —
+  a real bug fixed in the July 2026 code review — every orientation
+  change (physical rotate via gsensor-follow, or picking Portrait/
+  Landscape/Follow on the select entity) re-postcards twice: both the
+  coordinator/select call site and `__init__.py`'s `_async_update_listener`
+  called `async_redisplay_last()` off the same options update, since
+  `async_update_entry` schedules the listener regardless of who else also
+  awaits a redisplay. The listener is now the single trigger; the
+  coordinator/select call sites only persist the option change. That fix
+  introduced its own edge case (issue #11, July 2026 code review): HA's
+  `async_update_entry` never invokes `_async_update_listener` when the new
+  options dict is identical to the one already stored, so re-selecting the
+  orientation that's already active (e.g. to force a re-postcard after
+  Canvas drifted to a Recents thumbnail on its own) silently did nothing —
+  neither the listener nor the select entity redisplayed. Fixed by having
+  `MeuralOrientationSelect.async_select_option` compare its computed
+  `new_options` against the entry's current options and call
+  `async_redisplay_last()` itself only when they're identical, leaving the
+  listener as the sole trigger for every actual change.
 - **Test status**: **Backend-tested** —
   `tests/python/unit/test_meural.py` (JPEG, orientation, follow-device,
-  system stats parse, suspend/backlight command mapping),
+  system stats parse, suspend/backlight command mapping, orientation
+  change persists options without redisplaying directly,
+  `_async_update_listener` redisplays exactly once per real orientation
+  change and not for an unrelated option change or a repeat call),
+  `tests/python/unit/test_select_meural_orientation.py`
+  (`MeuralOrientationSelect.async_select_option` for both Portrait and
+  Follow device persists options without redisplaying directly on a real
+  change, and redisplays directly when re-selecting the already-active
+  Portrait or Follow option),
   `tests/python/config_flow/test_config_flow_user_scan.py` (Meural add).
   **Frontend-tested** — `tests/panel/meural-dashboard.spec.js`. Live
   Canvas hardware is manual (**Gap** for CI).
@@ -677,13 +914,49 @@ banner does not hammer the API on every panel open.
   old version after restart, the banner never appears (or won't dismiss /
   reappears for the same version after dismiss), users still need HACS +
   System restart, or a botched install leaves a half-written
-  `custom_components/digital_frames`.
+  `custom_components/digital_frames`. Two real bugs here, fixed in the
+  July 2026 code review: (1) `_install_from_zipball`'s write loop had no
+  rollback — a failure partway through (disk full, a corrupt/interrupted
+  download) left the half-written directory in place with the prior good
+  install already moved aside, bricking the integration until a manual
+  restore from `.storage/fraimic_update_backup/`; it now restores that
+  backup on any extraction failure before re-raising. That fix only
+  covered the case where a prior install existed to restore — the July
+  2026 max-effort review (issue #5) found a first-time install (or a retry
+  after an earlier attempt that never got as far as creating the
+  directory) had no backup to restore, so a partial-write failure there
+  still left a half-extracted directory with no cleanup at all; the
+  extraction failure handler now also removes that half-written directory
+  when there was no backup to restore. (2) both
+  `install_update` and `_try_hacs_install` substituted `target` for a
+  falsy `get_disk_version()` result *before* checking whether disk matches
+  target — masking the exact "extraction reported success but
+  manifest.json is now missing/unreadable" case the mismatch check exists
+  to catch; both now raise instead of reporting success in that case. That
+  `_try_hacs_install` raise shipped with its own bug (issue #10, July 2026
+  code review): the `raise UpdateError(...)` sat inside that same
+  function's pre-existing `except Exception` fallback handler, so it was
+  immediately caught, demoted to a "falling back to GitHub" warning, and
+  `_try_hacs_install` returned `None` — `install_update` then silently
+  proceeded to a from-scratch GitHub zipball install instead of ever
+  surfacing the diagnostic, contradicting this very doc entry. Fixed with
+  an `except UpdateError: raise` guard ahead of the generic
+  `except Exception` handler, so this specific, already-diagnosed failure
+  propagates instead of being masked as a generic HACS-API error.
 - **Test status**: **Backend-tested** — `tests/python/unit/test_update.py`
   (version compare, disk vs running / needs_restart, HACS sync after
   zipball, auto-heal on check, modern HACS download path, banner_visible
-  dismiss rules). **Panel-tested** — `tests/panel/update-banner.spec.js`
-  (show / hide / dismiss / non-admin). Live GitHub check/install is
-  admin-manual (**Gap** for CI; network + filesystem).
+  dismiss rules, zipball extraction restores the prior install on a
+  partial-write failure, zipball extraction cleans up a half-written
+  directory when there was no prior install to restore, `install_update`
+  raises rather than masking a broken post-extract disk version, and now
+  `_try_hacs_install` itself — not a stub — raises `UpdateError` rather
+  than swallowing it when the on-disk manifest is unreadable after a
+  reported-success HACS download).
+  **Panel-tested** —
+  `tests/panel/update-banner.spec.js` (show / hide / dismiss / non-admin).
+  Live GitHub check/install is admin-manual (**Gap** for CI; network +
+  filesystem).
 
 ## 34. Product branding + domain as Digital Frames
 Product and technical identity are **Digital Frames** /

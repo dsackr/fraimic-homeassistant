@@ -520,14 +520,22 @@ class ScenePackManager:
             await self._async_persist()
             return
 
+        # album_to_remove must not depend on the network: this whole method
+        # runs after the scene has already been deleted below, and
+        # async_get_pack used to be the source here -- if the remote catalog
+        # was unreachable or (very plausibly over time) no longer listed
+        # this pack_id, that raised, leaving the scene gone and the pack
+        # stuck "installed" forever with every retry failing identically.
+        # installed["album"] is always recorded at install time, so the
+        # catalog is never actually needed to know what to untag/remove.
+        album_to_remove = installed.get("album", pack_id)
+
         if installed.get("scene_id"):
             await self._scenes.async_delete_scene(installed["scene_id"])
 
         # Get all library images to check their album tags
         library_images = await self._library.async_list_images()
         images_by_id = {img["image_id"]: img for img in library_images}
-        pack = await self.async_get_pack(pack_id)
-        album_to_remove = installed.get("album", pack["name"])
 
         remaining: list[str] = []
         for image_id in installed.get("image_ids", []):

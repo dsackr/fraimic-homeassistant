@@ -14,6 +14,7 @@ from custom_components.digital_frames.frame_types import FRAME_TYPES
 from custom_components.digital_frames.image_converter import (
     _pack_sequential,
     _quantize_to_spectra6,
+    _resize_cover_centered,
     convert_image_bytes,
     convert_image_bytes_cropped,
     convert_image_bytes_cropped_with_preview,
@@ -29,6 +30,30 @@ def test_output_length_matches_4bpp_packing(sample_image_bytes, width, height):
     src = sample_image_bytes(400, 300)
     out = convert_image_bytes(src, width, height)
     assert len(out) == (width * height) // 2
+
+
+def test_resize_cover_centered_fully_covers_canvas_no_white_edge_gap():
+    """Regression: scale was floored via int() truncation instead of rounded
+    up, so floating-point error routinely left the resized image 1px short
+    on the governing axis -- a stray unfilled white row/column at the edge
+    of the canvas, on the default (non-manual-crop) send pipeline every
+    ordinary send uses. This exact source size against the real registered
+    13.3" resolution reproduces the shortfall on the height axis with the
+    old int() behavior (scaled_h computes to 1599, not 1600)."""
+    from PIL import Image
+
+    non_white = (10, 20, 30)
+    src = Image.new("RGB", (344, 193), color=non_white)
+    target_w, target_h = FRAME_TYPES["13.3"].resolution  # (1200, 1600)
+
+    result = _resize_cover_centered(src, target_w, target_h)
+
+    assert result.size == (target_w, target_h)
+    white = (255, 255, 255)
+    last_row = {result.getpixel((x, target_h - 1)) for x in range(target_w)}
+    last_col = {result.getpixel((target_w - 1, y)) for y in range(target_h)}
+    assert white not in last_row, "bottom row still has an unfilled white gap"
+    assert white not in last_col, "right column still has an unfilled white gap"
 
 
 @pytest.mark.parametrize("pack_method", ["fast", "legacy"])
