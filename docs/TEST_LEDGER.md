@@ -84,3 +84,4 @@ Notes on reading it:
 | 2026-07-21 | 4a58d08 | panel-playwright | success | 140 passed | — | CI |
 | 2026-07-21 | 4a58d08 | backend-pytest | success | 403 passed in 78.05s (0:01:18) | 64% | CI |
 | 2026-07-24 | b7ed014 | panel-playwright | success | 151 passed | — | CI |
+| 2026-07-24 | b7ed014 | backend-pytest | success | 471 passed in 80.30s (0:01:20) | 66% | CI |
